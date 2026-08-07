@@ -12,7 +12,7 @@ An improvement to the existing community resources for starter manip. This was m
 - Clipboard stat export
 - Dark mode
 - Customizable display
-- Pinning Window
+- Window Pinning
 
 ## Offset Trainer
 The Offset Trainer can be used independently of the game, assuming that you start and stop the timer at the same time as the game inputs. I would recommend training the audio and visual offsets independently, to account for any audio delay and difference in audio cue reaction.
@@ -20,6 +20,7 @@ The Offset Trainer can be used independently of the game, assuming that you star
 ## Squirtle Frame Prediction
 Because its not possible to know where in the frame the timer is started, the exact same input spacing can result in different frames. The predictor can tell you the odds of the input landing on each of the two possible frames. If the squirtle does not match either of the predicted frames, there were untracked additional frame advancements.
 
+## Attribution
 Built on the work of three tools
 • Gen3Predictor — MKDasher, modified by JP_Xinnam
 • FlowTimer — Gunnermaniac (gunnermaniac.com/ft)
