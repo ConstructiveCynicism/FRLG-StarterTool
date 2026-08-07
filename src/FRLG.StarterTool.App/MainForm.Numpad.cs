@@ -52,6 +52,8 @@ public partial class MainForm
         bool navigating = ReferenceEquals(ActiveControl, ListViewResults) && ListViewResults.Visible;
         if (navigating && HandleResultsNumpad(key)) return;
 
+        if (!StarterTool.IsTimerRunning) return;
+
         HandleTrainerIdNumpad(key);
     }
 

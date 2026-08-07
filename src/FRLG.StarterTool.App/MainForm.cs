@@ -548,7 +548,12 @@ public partial class MainForm : Form
         }
 
         int index = _results.FindIndex(pkm => pkm.Frame == landedFrame);
-        if (index < 0)
+
+        bool alternateMissing =
+            _landingAlternate.HasValue
+            && !_results.Exists(pkm => pkm.Frame == _landingAlternate.Value);
+
+        if (index < 0 || alternateMissing)
         {
             _reportingLanding = true;
             try
@@ -811,13 +816,19 @@ public partial class MainForm : Form
                 e.SuppressKeyPress = true;
                 break;
 
-            case Keys.Decimal:
             case Keys.Escape:
                 ResetTrainerId();
                 e.SuppressKeyPress = true;
                 break;
 
+            case Keys.Decimal:
+                if (!StarterTool.IsTimerRunning) break;
+                ResetTrainerId();
+                e.SuppressKeyPress = true;
+                break;
+
             case >= Keys.NumPad0 and <= Keys.NumPad9:
+                if (!StarterTool.IsTimerRunning) break;
                 TypeTrainerIdDigit((char)('0' + (e.KeyCode - Keys.NumPad0)));
                 e.SuppressKeyPress = true;
                 break;

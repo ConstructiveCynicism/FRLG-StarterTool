@@ -17,7 +17,7 @@ public static class StarterTool
 
     private static volatile int _modalDepth;
 
-    public static bool IsTimerRunning;
+    public static volatile bool IsTimerRunning;
 
     public static bool TimerExpired;
 
@@ -226,7 +226,8 @@ public static class StarterTool
                     && !IsMasterSwitch(key))
                 {
                     bool typing = MainForm.NumberFieldFocused
-                                  && (MainForm.IsNumberKey(key) || Win32.IsForeground(MainFormHandle));
+                                  && (Win32.IsForeground(MainFormHandle)
+                                      || (IsTimerRunning && MainForm.IsNumberKey(key)));
 
                     bool bound = !typing
                         && (Settings.Start.IsPressed(key) || Settings.Stop.IsPressed(key)
