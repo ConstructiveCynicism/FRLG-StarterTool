@@ -1,0 +1,32 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <ItemGroup>
+    <ProjectReference Include="..\FRLG.StarterTool.Core\FRLG.StarterTool.Core.csproj" />
+  </ItemGroup>
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <Nullable>enable</Nullable>
+    <UseWindowsForms>true</UseWindowsForms>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <AssemblyName>FRLGStarterTool</AssemblyName>
+    <ApplicationIcon>Resources\app.ico</ApplicationIcon>
+  </PropertyGroup>
+
+  <PropertyGroup>
+    <Product>FRLG Starter Tool</Product>
+    <AssemblyTitle>FRLG Starter Tool</AssemblyTitle>
+    <Description>Gen 3 starter RNG prediction with a variable offset timer and global hotkeys, for Pokemon FireRed/LeafGreen.</Description>
+    <Version>1.0.0</Version>
+    <Copyright>Copyright (c) 2026 ConstructiveCynicism</Copyright>
+    <SatelliteResourceLanguages>en</SatelliteResourceLanguages>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <EmbeddedResource Include="Resources\app.ico" />
+    <EmbeddedResource Include="Resources\pokemon\*.png" />
+    <EmbeddedResource Include="Resources\beeps\*.wav" />
+  </ItemGroup>
+
+</Project>
