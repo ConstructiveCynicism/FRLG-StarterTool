@@ -36,6 +36,12 @@ public sealed class ContextSession
 
     private FenceCandidate? _missFence;
 
+    private bool _missAutomatic;
+
+    private HiddenMoves? _missEastward;
+
+    private int? _hitCountdownFrame;
+
     public event EventHandler? Changed;
 
     public bool Tracking
@@ -89,8 +95,11 @@ public sealed class ContextSession
         _armed = false;
         _hit = false;
         _missed = false;
+        _missAutomatic = false;
         _missCorrection = null;
         _missFence = null;
+        _missEastward = null;
+        _hitCountdownFrame = null;
         Changed?.Invoke(this, EventArgs.Empty);
     }
 
@@ -302,36 +311,61 @@ public sealed class ContextSession
 
     public bool CanMiss => _tracking && _armed && !_hit && !_missed && Stage != ContextStage.Lab;
 
-    public bool Miss()
+    public bool Miss(bool automatic = false)
     {
         if (!CanMiss) return false;
 
         _missed = true;
+        _missAutomatic = automatic;
 
         if (Tracker?.Focused is { } candidate && OakAnchorFrame is { } oakFrame)
         {
             _missFence = candidate;
             _missCorrection = candidate.MissedCorrection(oakFrame);
         }
+        else
+        {
+            _missEastward = Eastward();
+        }
+
+        string how = automatic ? "countdown started with anchor" : "missed anchor";
 
         Log(_missCorrection is { } correction
             ? string.Format(CultureInfo.InvariantCulture,
-                "missed anchor at {0}/3 - {1} advances at the lab load, correction {2:+#;-#;0} frames",
-                AnchorCount, _missFence?.TotalAdvances ?? 0, correction)
+                "{0} at {1}/3 - {2} advances at the lab load, correction {3:+#;-#;0} frames",
+                how, AnchorCount, _missFence?.TotalAdvances ?? 0, correction)
             : string.Format(CultureInfo.InvariantCulture,
-                "missed anchor at {0}/3 - nothing to guess from, countdown left uncorrected",
-                AnchorCount));
+                "{0} at {1}/3 - no field, countdown left uncorrected; eastward {2}",
+                how, AnchorCount,
+                _missEastward?.ToString() ?? "not simulated (no exit anchor)"));
 
         Retarget();
         Changed?.Invoke(this, EventArgs.Empty);
         return true;
     }
 
-    public bool RecordHit()
+    private HiddenMoves? Eastward()
+    {
+        if (_exitMs is not { } exitMs) return null;
+
+        int seed = _seed != 0 ? _seed : StarterTool.MainForm.TrackerSeed;
+        if (seed == 0) return null;
+
+        double fps = StarterTool.VariableOffset?.SelectedFps ?? 60.0;
+
+        double shiftMs = RouteTimeline.AnchorCorrectionFrames * 1000.0 / fps;
+        double window = (StarterTool.Settings?.NpcContextWindowMs ?? 0.0) + FenceRun.StartUncertaintyMs;
+
+        int exitFrame = FrameWindow.Candidates(exitMs - shiftMs, fps, window)[0];
+        return FenceRun.SimulateEastward(seed, exitFrame, _houseAdvances);
+    }
+
+    public bool RecordHit(int countdownFrame)
     {
         if (Stage != ContextStage.Lab || _hit) return false;
 
         _hit = true;
+        _hitCountdownFrame = countdownFrame;
         if (Lab?.Focused is { } box) LogHidden(box.Representative);
 
         Changed?.Invoke(this, EventArgs.Empty);
@@ -347,7 +381,7 @@ public sealed class ContextSession
 
     private IReadOnlyList<HiddenMoves> MissedAccount => new[]
     {
-        _missFence?.Hidden ?? HiddenMoves.Unknown(NpcId.FatMan),
+        _missFence?.Hidden ?? _missEastward ?? HiddenMoves.Unknown(NpcId.FatMan),
         HiddenMoves.Unknown(NpcId.Aide),
         HiddenMoves.Unknown(NpcId.ScientistLeft),
         HiddenMoves.Unknown(NpcId.ScientistRight),
@@ -375,13 +409,29 @@ public sealed class ContextSession
 
             if (_missed)
             {
+                string what = _missAutomatic ? "Countdown started · anchor" : "Missed anchor";
+
                 return _missCorrection is { } correction
                     ? string.Format(CultureInfo.InvariantCulture,
-                        "Missed anchor {0}/3 · guessed {1:+#;-#;0} frames from the fence field",
-                        AnchorCount + 1, correction)
+                        "{0} {1}/3 · guessed {2:+#;-#;0} frames from the fence field",
+                        what, AnchorCount + 1, correction)
                     : string.Format(CultureInfo.InvariantCulture,
-                        "Missed anchor {0}/3 · nothing to guess from - countdown uncorrected",
-                        AnchorCount + 1);
+                        _missEastward is null
+                            ? "{0} {1}/3 · nothing to guess from - countdown uncorrected"
+                            : "{0} {1}/3 · countdown uncorrected - only his walk to Oak survives",
+                        what, AnchorCount + 1);
+            }
+
+            if (_hit && Stage == ContextStage.Lab)
+            {
+                string box = Lab is { All.Count: > 0 } lab
+                    ? string.Format(CultureInfo.InvariantCulture, " · box {0}/{1}",
+                        lab.FocusedIndex + 1, lab.All.Count)
+                    : "";
+
+                return (_hitCountdownFrame is { } pressed && LandedFrame(pressed) is { } frame
+                    ? string.Format(CultureInfo.InvariantCulture, "Hit · frame {0}", frame)
+                    : "Hit · frame not anchored") + box;
             }
 
             if (LastAnchor == null) return "Waiting for the house exit - press Start as you leave.";

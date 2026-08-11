@@ -14,7 +14,7 @@ public static class HotkeyExtensions
         (HotkeyAction.Multiply3, "×3 frames"),
         (HotkeyAction.ToggleLevel, "Level 5 / 6"),
         (HotkeyAction.ExportStats, "Copy IVs"),
-        (HotkeyAction.ToggleGlobalHotkeys, "Global hotkeys on / off"),
+        (HotkeyAction.ToggleGlobalHotkeys, "Global Hotkey Lock"),
         (HotkeyAction.ListUp, "List up"),
         (HotkeyAction.ListDown, "List down")
     };

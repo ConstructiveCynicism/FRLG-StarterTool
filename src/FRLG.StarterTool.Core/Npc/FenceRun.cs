@@ -194,4 +194,21 @@ public static class FenceRun
         return new FenceCandidate(exitFrame, oakFrame, eastward, seen, motion,
             eastwardRolls, leadWalkRolls, beforeLabLoad, rng.Advances, 1.0, manualAdvances, hidden);
     }
+
+    public static HiddenMoves SimulateEastward(int seed, int exitFrame, int manualAdvances = 0)
+    {
+        var rng = new GameRng(seed);
+
+        for (int i = 0; i < Math.Max(0, exitFrame); i++) rng.VBlank();
+        for (int i = 0; i < Math.Max(0, manualAdvances); i++) rng.Random();
+        RouteTimeline.RunPlayersHouse(rng);
+
+        var eastward = new List<NpcEvent>();
+        RouteTimeline.RunPalletTown(rng,
+            RouteTimeline.FatManActiveFrames - RouteTimeline.FatManSpawnToControlFrames, eastward);
+
+        return HiddenMoves
+            .Count(NpcId.FatMan, eastward.Where(e => e.Npc == NpcId.FatMan), _ => false)
+            with { Partial = true };
+    }
 }

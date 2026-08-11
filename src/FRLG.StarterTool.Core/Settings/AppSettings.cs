@@ -105,6 +105,10 @@ public sealed class AppSettings
 
     public bool DarkMode { get; set; } = true;
 
+    public bool HideConstraints { get; set; }
+
+    public TimeFormat TimeFormat { get; set; } = TimeFormat.Seconds;
+
     public string StatBoxLabelColor { get; set; } = "#4DC6D6";
 
     public string StatBoxFillColor { get; set; } = "#3C3C3C";
@@ -219,6 +223,7 @@ public sealed class AppSettings
 
         if (!Enum.IsDefined(KeyMethod)) KeyMethod = KeyMethod.OnPress;
         if (!Enum.IsDefined(ClipboardFormat)) ClipboardFormat = ClipboardFormat.Column;
+        if (!Enum.IsDefined(TimeFormat)) TimeFormat = TimeFormat.Seconds;
 
         Fps ??= "59.7275";
         Offset ??= "0";

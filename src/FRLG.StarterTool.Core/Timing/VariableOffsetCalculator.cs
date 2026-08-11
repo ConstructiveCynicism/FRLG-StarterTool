@@ -199,8 +199,24 @@ public static class VariableOffsetCalculator
         => EffectiveFrame(info) / info.Fps + info.Offset / 1000.0
            >= currentTimeSeconds + info.Interval * (info.NumBeeps - 1) / 1000.0;
 
+    public const double CueGuardMs = 50.0;
+
+    public static double LeadInMs(in VariableInfo info) => info.Interval * ((double)info.NumBeeps - 1.0);
+
+    public static double CountdownStartMs(
+        in VariableInfo info, double adjustedMs, bool beepsEnabled, bool flashEnabled)
+    {
+        double lead = LeadInMs(info);
+        double beeps = TargetTimeSeconds(info, adjustedMs) * 1000.0 - lead;
+        double flash = FlashTargetMs(info, adjustedMs) - lead;
+
+        if (flashEnabled) return beepsEnabled ? Math.Min(beeps, flash) : flash;
+
+        return beeps;
+    }
+
     public static bool CanAdjust(in VariableInfo info, double currentTimeSeconds, double currentOffsetSeconds)
-        => currentTimeSeconds < currentOffsetSeconds - info.Interval * (info.NumBeeps - 1) / 1000.0 - 0.05;
+        => currentTimeSeconds < currentOffsetSeconds - LeadInMs(info) / 1000.0 - CueGuardMs / 1000.0;
 
     public static double LandingWindowMs(in VariableInfo info) => Math.Max(info.Interval, 250.0);
 

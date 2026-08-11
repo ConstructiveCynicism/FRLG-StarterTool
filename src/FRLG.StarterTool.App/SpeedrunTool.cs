@@ -2,6 +2,7 @@ using System.Globalization;
 using System.Runtime.InteropServices;
 using FRLG.StarterTool.Core.Npc;
 using FRLG.StarterTool.Core.Settings;
+using FRLG.StarterTool.Core.Timing;
 
 namespace FRLG.StarterTool.App;
 
@@ -15,6 +16,8 @@ public static class StarterTool
     public static AppSettings Settings = null!;
 
     public static readonly ContextSession Context = new();
+
+    public static TimeFormat TimeFormat => Settings?.TimeFormat ?? TimeFormat.Seconds;
 
     public static SettingsForm? SettingsForm;
 
@@ -427,7 +430,7 @@ public static class StarterTool
                 MainForm.Invoke(() =>
                 {
                     tick = CurrentTab.TimerCallback(TimerStart);
-                    MainForm.LabelTimer.Text = tick.ToString("F3", CultureInfo.InvariantCulture);
+                    MainForm.LabelTimer.Text = TimeText.Format(tick, TimeFormat);
                 });
             }
             catch (ObjectDisposedException)

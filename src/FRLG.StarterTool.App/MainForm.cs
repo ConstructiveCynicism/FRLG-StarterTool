@@ -156,6 +156,10 @@ public partial class MainForm : Form
         StatBoxPanel.FillColor = StatBoxPanel.ParseFillColor(settings.StatBoxFillColor);
         TrainingPanel.LoadRounds(settings.TrainingRounds);
 
+        ApplyTimeFormat();
+
+        SetHideConstraints(settings.HideConstraints);
+
         MenuItemAlwaysOnTop.Checked = settings.AlwaysOnTop;
         MenuItemGlobalHotkeys.Checked = settings.GlobalHotkeysEnabled;
         MenuItemContextTracking.Checked = settings.NpcGridVisible;
@@ -164,6 +168,25 @@ public partial class MainForm : Form
         RefreshAlwaysOnTop();
 
         ApplyFilter(settings.GetCurrentFilter());
+    }
+
+    public void ApplyTimeFormat()
+    {
+        TimeFormat format = StarterTool.TimeFormat;
+
+        Font previous = LabelTimer.Font;
+        LabelTimer.Font = FitFont(
+            Font.FontFamily, TimeText.Widest(format), LabelTimer.Width - 4, LabelTimer.Height, 44F);
+        previous.Dispose();
+
+        if (!StarterTool.IsTimerRunning) LabelTimer.Text = TimeText.Format(0.0, format);
+
+        ListViewResults.Columns[TimeColumnIndex].Width = format == TimeFormat.Minutes
+            ? MinutesTimeColumnWidth
+            : SecondsTimeColumnWidth;
+        FitLastColumn();
+
+        if (_results.Count > 0) ListViewResults.RedrawItems(0, _results.Count - 1, true);
     }
 
     public void CaptureSettings(AppSettings settings)
@@ -200,6 +223,8 @@ public partial class MainForm : Form
         TrainingPanel.Visible = training;
         ListViewResults.Visible = !training;
         GroupBoxResults.Text = training ? "Offset Training" : "Found List";
+
+        RefreshConstraintLayout();
 
         ClearLanding();
         LabelLanding.Text = "";
@@ -270,7 +295,6 @@ public partial class MainForm : Form
             ButtonContextFinished.Enabled = tracker != null;
         }
 
-        ButtonContextAnchor.Text = AnchorCaption(session.NextAnchor);
         ButtonContextAnchor.Enabled = session.NextAnchor != null;
 
         ButtonContextMiss.Visible = session.Hidden.Count == 0;
@@ -278,14 +302,6 @@ public partial class MainForm : Form
 
         ContextPanel.SetHidden(session.Hidden);
     }
-
-    private static string AnchorCaption(RouteAnchor? next) => next switch
-    {
-        RouteAnchor.ExitHouse => "Anchor: house exit",
-        RouteAnchor.CloseOakText => "Anchor: Oak text",
-        RouteAnchor.CloseLabText => "Anchor: lab text",
-        _ => "Anchor",
-    };
 
     public void SampleContextPanel() => ContextPanel.Sample();
 
@@ -777,7 +793,7 @@ public partial class MainForm : Form
         string gender = pkm.IsFemale(rate) ? "F" : rate == GenderRate.Genderless ? "-" : "M";
 
         var item = new ListViewItem(pkm.Frame.ToString(CultureInfo.InvariantCulture));
-        item.SubItems.Add(FrameTime.Format(pkm.Frame + _timeShiftFrames, _resultFps));
+        item.SubItems.Add(FrameTime.Format(pkm.Frame + _timeShiftFrames, _resultFps, StarterTool.TimeFormat));
         item.SubItems.Add(pkm.Nature?.Name ?? "");
         foreach (int iv in new[] { pkm.Hp, pkm.Atk, pkm.Def, pkm.Spa, pkm.Spd, pkm.Spe })
         {

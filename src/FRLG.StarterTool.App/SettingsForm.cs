@@ -21,6 +21,7 @@ public sealed class SettingsForm : Form
         "Beep sound",
         "Volume",
         "Clipboard format",
+        "Time format",
         "Stat box labels",
         "Stat box background"
     };
@@ -47,6 +48,7 @@ public sealed class SettingsForm : Form
         Label contextHeader = AddSectionHeader("Context Tracking", table.Bottom + SectionGap);
         TableLayoutPanel contextTable = AddHotkeyTable(
             HotkeyExtensions.ContextActions, contextHeader.Bottom + 6, out _);
+        AlignColumns(table, contextTable);
 
         int y = contextTable.Bottom + SectionGap;
         Label timingHeader = AddSectionHeader("Timing", y);
@@ -204,8 +206,45 @@ public sealed class SettingsForm : Form
         };
         Controls.Add(darkMode);
 
+        var hideConstraints = new ThemedCheckBox
+        {
+            Text = "Hide constraints",
+            Location = new Point(LeftMargin, darkMode.Bottom + RowGap),
+            AutoSize = true,
+            Checked = _settings.HideConstraints
+        };
+        hideConstraints.CheckedChanged += (_, _) =>
+        {
+            _settings.HideConstraints = hideConstraints.Checked;
+            StarterTool.MainForm.SetHideConstraints(hideConstraints.Checked);
+        };
+        Controls.Add(hideConstraints);
+
+        int timeFormatY = hideConstraints.Bottom + RowGap + 4;
+        Controls.Add(new Label
+        {
+            Text = "Time format",
+            Location = new Point(LeftMargin, timeFormatY + 4),
+            AutoSize = true
+        });
+        var timeFormatBox = new ThemedComboBox
+        {
+            Location = new Point(comboX, timeFormatY),
+            Size = new Size(comboWidth, 23),
+            DropDownStyle = ComboBoxStyle.DropDownList
+        };
+        timeFormatBox.Items.Add("SSS.mmm");
+        timeFormatBox.Items.Add("M:SS.mmm");
+        timeFormatBox.SelectedIndex = (int)_settings.TimeFormat;
+        timeFormatBox.SelectedIndexChanged += (_, _) =>
+        {
+            _settings.TimeFormat = (TimeFormat)timeFormatBox.SelectedIndex;
+            StarterTool.MainForm.ApplyTimeFormat();
+        };
+        Controls.Add(timeFormatBox);
+
         Panel labelSwatch = AddColorRow(
-            "Stat box labels", darkMode.Bottom + 10, comboX, comboWidth,
+            "Stat box labels", timeFormatBox.Bottom + 10, comboX, comboWidth,
             () => StatBoxPanel.LabelColor,
             colour =>
             {
@@ -297,6 +336,23 @@ public sealed class SettingsForm : Form
         Controls.Add(table);
         table.PerformLayout();
         return table;
+    }
+
+    private static void AlignColumns(TableLayoutPanel first, TableLayoutPanel second)
+    {
+        int[] firstWidths = first.GetColumnWidths();
+        int[] secondWidths = second.GetColumnWidths();
+
+        foreach (TableLayoutPanel table in new[] { first, second })
+        {
+            table.ColumnStyles.Clear();
+            for (int column = 0; column < firstWidths.Length; column++)
+            {
+                table.ColumnStyles.Add(
+                    new ColumnStyle(SizeType.Absolute, Math.Max(firstWidths[column], secondWidths[column])));
+            }
+            table.PerformLayout();
+        }
     }
 
     private Label AddSectionHeader(string text, int y)

@@ -38,6 +38,8 @@ public sealed class VariableOffsetTimer : BaseTimer
     private double _landingAdjustedMs;
     private VariableInfo _landingInfo;
 
+    private double _countdownStartMs = double.MaxValue;
+
     private System.Windows.Forms.Timer? _armDebounce;
 
     private bool _writingFrameBox;
@@ -219,6 +221,7 @@ public sealed class VariableOffsetTimer : BaseTimer
         CurrentTime = 0.0;
         Submitted = false;
         _hasLandingTarget = false;
+        _countdownStartMs = double.MaxValue;
         _started = true;
         _lastArmLog = "";
         _form.TextBoxFrame.Enabled = true;
@@ -261,10 +264,11 @@ public sealed class VariableOffsetTimer : BaseTimer
         Submitted = false;
         Adjusted = 0.0;
         CurrentOffset = double.MaxValue;
+        _countdownStartMs = double.MaxValue;
         CurrentTime = 0.0;
         _form.TextBoxFrame.Enabled = false;
         _form.TextBoxFrame.Text = "";
-        _form.LabelTimer.Text = 0.0.ToString("F3", CultureInfo.InvariantCulture);
+        _form.LabelTimer.Text = TimeText.Format(0.0, StarterTool.TimeFormat);
 
         if (StarterTool.TimerExpired)
         {
@@ -320,7 +324,8 @@ public sealed class VariableOffsetTimer : BaseTimer
 
         _hasLandingTarget = false;
 
-        int? landedFrame = LandedFrame(elapsedMs);
+        int countdownFrame = CountdownFrameAt(elapsedMs);
+        int? landedFrame = StarterTool.Context.LandedFrame(countdownFrame);
         double chance = VariableOffsetCalculator.HitChance(deltaMs, _landingInfo.Fps);
 
         LogLanding(elapsedMs, deltaMs, landedFrame, chance, pressLagMs);
@@ -334,7 +339,7 @@ public sealed class VariableOffsetTimer : BaseTimer
             _landingStartLagMs - pressLagMs,
             _landingInfo.Fps);
 
-        StarterTool.Context.RecordHit();
+        StarterTool.Context.RecordHit(countdownFrame);
         return true;
     }
 
@@ -356,6 +361,8 @@ public sealed class VariableOffsetTimer : BaseTimer
         OnDataChange();
         double elapsedMs = Win32.GetTime() - startTimeMs;
 
+        CloseTrackingAtCountdown(elapsedMs);
+
         _form.LabelTimer.Sample();
 
         _form.SampleContextPanel();
@@ -365,6 +372,13 @@ public sealed class VariableOffsetTimer : BaseTimer
         if (ret == CurrentOffset) ret = 0.0;
         CurrentTime = ret;
         return ret;
+    }
+
+    private void CloseTrackingAtCountdown(double elapsedMs)
+    {
+        if (!Submitted || elapsedMs < _countdownStartMs) return;
+
+        StarterTool.Context.Miss(automatic: true);
     }
 
     public void OnDataChange()
@@ -430,6 +444,13 @@ public sealed class VariableOffsetTimer : BaseTimer
         _landingAdjustedMs = Adjusted;
         _hasLandingTarget = true;
 
+        _countdownStartMs = VariableOffsetCalculator.CountdownStartMs(
+            Info,
+            Adjusted,
+            _form.CheckBoxBeepEnabled.Checked,
+            _form.CheckBoxFlashEnabled.Checked)
+            - VariableOffsetCalculator.CueGuardMs;
+
         LogArm();
 
         _form.TrainingPanel.RoundArmed(
@@ -439,13 +460,9 @@ public sealed class VariableOffsetTimer : BaseTimer
         OnDataChange();
     }
 
-    private int? LandedFrame(double elapsedMs)
-    {
-        int countdownFrame = VariableOffsetCalculator.FrameAtTime(_landingInfo, elapsedMs)
-                             - VariableOffsetCalculator.FramesAdjusted(_landingAdjustedMs, _landingInfo.Fps);
-
-        return StarterTool.Context.LandedFrame(countdownFrame);
-    }
+    private int CountdownFrameAt(double elapsedMs) =>
+        VariableOffsetCalculator.FrameAtTime(_landingInfo, elapsedMs)
+        - VariableOffsetCalculator.FramesAdjusted(_landingAdjustedMs, _landingInfo.Fps);
 
     private void LogArm()
     {
@@ -506,6 +523,7 @@ public sealed class VariableOffsetTimer : BaseTimer
         Submitted = false;
         CurrentOffset = double.MaxValue;
         _hasLandingTarget = false;
+        _countdownStartMs = double.MaxValue;
         StarterTool.Beeps.ClearPending();
         OnDataChange();
     }

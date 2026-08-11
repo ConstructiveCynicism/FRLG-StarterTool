@@ -313,7 +313,7 @@ public sealed class NpcGridPanel : Control
         bool complete = true;
         foreach (HiddenMoves hidden in _hidden)
         {
-            if (!hidden.Known) { complete = false; break; }
+            if (!hidden.Known || hidden.Partial) { complete = false; break; }
         }
 
         TextRenderer.DrawText(g, complete ? "Undetectable Rolls:" : "Predicted Rolls:", Font,
@@ -381,7 +381,9 @@ public sealed class NpcGridPanel : Control
     private static string HiddenText(HiddenMoves hidden)
     {
         if (!hidden.Known) return "unknown";
-        if (hidden.Total == 0) return "none predicted";
+
+        string window = hidden.Partial ? " (to Oak only)" : "";
+        if (hidden.Total == 0) return "none predicted" + window;
 
         var parts = new List<string>(3);
         if (hidden.OffScreen > 0) parts.Add($"{hidden.OffScreen} off screen");
@@ -389,7 +391,7 @@ public sealed class NpcGridPanel : Control
         if (hidden.SilentTurns > 0) parts.Add($"{hidden.SilentTurns} same-way spin"
             + (hidden.SilentTurns == 1 ? "" : "s"));
 
-        return string.Join(" · ", parts);
+        return string.Join(" · ", parts) + window;
     }
 
     private Rectangle FenceReadout => new(

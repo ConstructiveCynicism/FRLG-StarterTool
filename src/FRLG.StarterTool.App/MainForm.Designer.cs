@@ -1,6 +1,7 @@
 using System.Reflection;
 using FRLG.StarterTool.Core.Pokemon;
 using FRLG.StarterTool.Core.Settings;
+using FRLG.StarterTool.Core.Timing;
 
 namespace FRLG.StarterTool.App;
 
@@ -46,6 +47,12 @@ partial class MainForm
     public TextBox TextBoxMinFrame;
     public TextBox TextBoxMaxFrame;
     public TextBox TextBoxTrainerId;
+
+    public Label LabelStarterPokemon;
+
+    public Label LabelStarterMinFrame;
+    public Label LabelStarterMaxFrame;
+    public Label LabelStarterTrainerId;
 
     public Button ButtonCalculateOdds;
 
@@ -129,6 +136,12 @@ partial class MainForm
 
     private static readonly string[] StatColumnNames = { "HP", "Atk", "Def", "SpA", "SpD", "Spe" };
 
+    private const int TimeColumnIndex = 1;
+
+    private const int SecondsTimeColumnWidth = 48;
+
+    private const int MinutesTimeColumnWidth = 57;
+
     private void InitializeComponent()
     {
         components = new System.ComponentModel.Container();
@@ -136,18 +149,21 @@ partial class MainForm
 
         MeasureFieldHeights();
 
-        const int Top = 26;
+        const int LeftColumnWidth = 204;
+
+        const int LeftInner = 8;
+        const int LeftInnerRight = LeftColumnWidth - LeftInner;
+        const int LeftInnerSpan = LeftInnerRight - LeftInner;
 
         const int RightColumnWidth = 402;
         const int RightColumnInner = RightColumnWidth - 12;
+        const int RightColumnLeft = 6 + LeftColumnWidth + SectionGap;
+
+        const int ClientWidth = RightColumnLeft + RightColumnWidth + 6;
 
         const int CapturePad = 4;
 
-        const int SectionGap = 4;
-
-        const int PairButtonSpan = (202 - SectionGap) / 2;
-
-        const int BoxBottomPad = 6;
+        const int PairButtonSpan = (LeftInnerSpan - SectionGap) / 2;
 
         MenuItemHotkeys = new ToolStripMenuItem("Settings…");
 
@@ -217,19 +233,22 @@ partial class MainForm
         GroupBoxIvConstraint = new ThemedGroupBox
         {
             Text = "IV Constraints",
-            Location = new Point(6, Top),
-            Size = new Size(218, ivHeight)
+            Location = new Point(6, SectionTop),
+            Size = new Size(LeftColumnWidth, ivHeight)
         };
 
-        int[] packX = { 66, 114, 162 };
+        const int PackWidth = 44;
+        const int PackFirstX = 66;
+        int[] packX = { PackFirstX, PackFirstX + PackWidth - 1, PackFirstX + 2 * (PackWidth - 1) };
         string[] packHeaders = { "-", "Neutral", "+" };
         for (int pack = 0; pack < 3; pack++)
         {
+            const int HeaderWidth = 48;
             GroupBoxIvConstraint.Controls.Add(new Label
             {
                 Text = packHeaders[pack],
-                Location = new Point(packX[pack], IvRowsTop - 14),
-                Size = new Size(49, 14),
+                Location = new Point(packX[pack] - (HeaderWidth - PackWidth) / 2, IvRowsTop - 14),
+                Size = new Size(HeaderWidth, 14),
                 TextAlign = ContentAlignment.MiddleCenter
             });
         }
@@ -241,7 +260,7 @@ partial class MainForm
 
             if (stat == 0)
             {
-                var hp = MakeTextBox(66, y, 145, "0");
+                var hp = MakeTextBox(PackFirstX, y, LeftInnerRight - PackFirstX, "0");
                 hp.TextAlign = HorizontalAlignment.Center;
                 for (int pack = 0; pack < 3; pack++)
                 {
@@ -253,29 +272,35 @@ partial class MainForm
 
             for (int pack = 0; pack < 3; pack++)
             {
-                TextBox box = MakeTextBox(packX[pack], y, 49, "0");
+                TextBox box = MakeTextBox(packX[pack], y, PackWidth, "0");
                 box.TextAlign = HorizontalAlignment.Center;
                 TextBoxIvThresholds[pack, stat] = box;
                 GroupBoxIvConstraint.Controls.Add(box);
             }
         }
 
-        ButtonClearIvs = new ThemedButton { Text = "Clear", Location = new Point(8, ivClearY), Size = new Size(203, 22) };
+        ButtonClearIvs = new ThemedButton
+        {
+            Text = "Clear",
+            Location = new Point(LeftInner, ivClearY),
+            Size = new Size(LeftInnerSpan, 22)
+        };
         GroupBoxIvConstraint.Controls.Add(ButtonClearIvs);
 
-        int starterTop = Top + ivHeight + 4;
+        int starterTop = SectionTop + ivHeight + 4;
 
         GroupBoxStarter = new ThemedGroupBox
         {
             Text = "Starter",
             Location = new Point(6, starterTop),
-            Size = new Size(218, 244)
+            Size = new Size(LeftColumnWidth, 244)
         };
 
+        const int SpriteSize = 64;
         PictureBoxSprite = new PictureBox
         {
-            Location = new Point(77, 14),
-            Size = new Size(64, 64),
+            Location = new Point((LeftColumnWidth - SpriteSize) / 2, 14),
+            Size = new Size(SpriteSize, SpriteSize),
             BorderStyle = BorderStyle.None,
             SizeMode = PictureBoxSizeMode.Zoom
         };
@@ -283,23 +308,31 @@ partial class MainForm
 
         int starterRow = 84;
 
-        GroupBoxStarter.Controls.Add(MakeLabel("Pokemon", 8, starterRow, 70));
-        ComboBoxPokemon = MakeCombo(82, starterRow, 128);
+        const int StarterCaptionWidth = 68;
+        const int StarterFieldX = LeftInner + StarterCaptionWidth + SectionGap;
+        const int StarterFieldWidth = LeftInnerRight - StarterFieldX;
+
+        LabelStarterPokemon = MakeLabel("Pokemon", LeftInner, starterRow, StarterCaptionWidth);
+        GroupBoxStarter.Controls.Add(LabelStarterPokemon);
+        ComboBoxPokemon = MakeCombo(StarterFieldX, starterRow, StarterFieldWidth);
         GroupBoxStarter.Controls.Add(ComboBoxPokemon);
 
         starterRow += RowPitch;
-        GroupBoxStarter.Controls.Add(MakeLabel("Min Frame", 8, starterRow, 70));
-        TextBoxMinFrame = MakeTextBox(82, starterRow, 128, "0");
+        LabelStarterMinFrame = MakeLabel("Min Frame", LeftInner, starterRow, StarterCaptionWidth);
+        GroupBoxStarter.Controls.Add(LabelStarterMinFrame);
+        TextBoxMinFrame = MakeTextBox(StarterFieldX, starterRow, StarterFieldWidth, "0");
         GroupBoxStarter.Controls.Add(TextBoxMinFrame);
 
         starterRow += RowPitch;
-        GroupBoxStarter.Controls.Add(MakeLabel("Max Frame", 8, starterRow, 70));
-        TextBoxMaxFrame = MakeTextBox(82, starterRow, 128, "10000");
+        LabelStarterMaxFrame = MakeLabel("Max Frame", LeftInner, starterRow, StarterCaptionWidth);
+        GroupBoxStarter.Controls.Add(LabelStarterMaxFrame);
+        TextBoxMaxFrame = MakeTextBox(StarterFieldX, starterRow, StarterFieldWidth, "10000");
         GroupBoxStarter.Controls.Add(TextBoxMaxFrame);
 
         starterRow += RowPitch;
-        GroupBoxStarter.Controls.Add(MakeLabel("Trainer ID", 8, starterRow, 70));
-        TextBoxTrainerId = MakeTextBox(82, starterRow, 128, "0");
+        LabelStarterTrainerId = MakeLabel("Trainer ID", LeftInner, starterRow, StarterCaptionWidth);
+        GroupBoxStarter.Controls.Add(LabelStarterTrainerId);
+        TextBoxTrainerId = MakeTextBox(StarterFieldX, starterRow, StarterFieldWidth, "0");
         TextBoxTrainerId.MaxLength = 5;
         GroupBoxStarter.Controls.Add(TextBoxTrainerId);
 
@@ -307,7 +340,7 @@ partial class MainForm
         ButtonCalculateOdds = new ThemedButton
         {
             Text = "Calculate",
-            Location = new Point(8, starterButtonRow),
+            Location = new Point(LeftInner, starterButtonRow),
             Size = new Size(PairButtonSpan, _fieldHeight)
         };
         GroupBoxStarter.Controls.Add(ButtonCalculateOdds);
@@ -315,7 +348,7 @@ partial class MainForm
         ButtonSearch = new ThemedButton
         {
             Text = "Search",
-            Location = new Point(8 + PairButtonSpan + SectionGap, starterButtonRow),
+            Location = new Point(LeftInner + PairButtonSpan + SectionGap, starterButtonRow),
             Size = new Size(PairButtonSpan, _fieldHeight)
         };
         GroupBoxStarter.Controls.Add(ButtonSearch);
@@ -328,36 +361,36 @@ partial class MainForm
         {
             Text = "Timer",
             Location = new Point(6, timerTop),
-            Size = new Size(218, 300)
+            Size = new Size(LeftColumnWidth, 300)
         };
 
-        const int ClockWidth = 202;
+        const int ClockWidth = LeftInnerSpan;
         const int ClockHeight = 76;
         LabelTimer = new TimerClock
         {
             Text = "0.000",
-            Location = new Point(8, 18),
+            Location = new Point(LeftInner, 18),
             Size = new Size(ClockWidth, ClockHeight),
-            Font = FitFont(Font.FontFamily, "999.999", ClockWidth - 4, ClockHeight, 44F)
+            Font = FitFont(Font.FontFamily, TimeText.Widest(TimeFormat.Seconds), ClockWidth - 4, ClockHeight, 44F)
         };
         GroupBoxTimer.Controls.Add(LabelTimer);
 
         int buttonRow = LabelTimer.Bottom + RowGap;
-        ButtonStart = new ThemedButton { Text = "Start", Location = new Point(8, buttonRow), Size = new Size(PairButtonSpan, 30), Tag = Theme.StartButtonTag };
-        ButtonStop = new ThemedButton { Text = "Stop", Location = new Point(8 + PairButtonSpan + SectionGap, buttonRow), Size = new Size(PairButtonSpan, 30), Tag = Theme.StopButtonTag };
+        ButtonStart = new ThemedButton { Text = "Start", Location = new Point(LeftInner, buttonRow), Size = new Size(PairButtonSpan, 30), Tag = Theme.StartButtonTag };
+        ButtonStop = new ThemedButton { Text = "Stop", Location = new Point(LeftInner + PairButtonSpan + SectionGap, buttonRow), Size = new Size(PairButtonSpan, 30), Tag = Theme.StopButtonTag };
         GroupBoxTimer.Controls.Add(ButtonStart);
         GroupBoxTimer.Controls.Add(ButtonStop);
 
         const int RowCaptionX = 25;
-        const int RowCaptionWidth = 52;
-        const int RowFieldX = 80;
-        const int RowFieldWidth = 210 - RowFieldX;
+        const int RowCaptionWidth = 48;
+        const int RowFieldX = RowCaptionX + RowCaptionWidth + 3;
+        const int RowFieldWidth = LeftInnerRight - RowFieldX;
 
         int timerRow = ButtonStart.Bottom + RowGap;
         GroupBoxTimer.Controls.Add(MakeLabel("Frame", RowCaptionX, timerRow, RowCaptionWidth));
 
         int nudgeSize = _fieldHeight;
-        int plusX = 210 - nudgeSize;
+        int plusX = LeftInnerRight - nudgeSize;
         int minusX = plusX - nudgeSize - SectionGap;
         TextBoxFrame = MakeTextBox(RowFieldX, timerRow, minusX - RowFieldX - SectionGap, "");
         TextBoxFrame.Enabled = false;
@@ -399,15 +432,15 @@ partial class MainForm
         ButtonTraining = new ThemedButton
         {
             Text = "Start Offset Training",
-            Location = new Point(8, timerRow + RowPitch),
-            Size = new Size(202, 26)
+            Location = new Point(LeftInner, timerRow + RowPitch),
+            Size = new Size(LeftInnerSpan, 26)
         };
         GroupBoxTimer.Controls.Add(ButtonTraining);
 
         GroupBoxNatures = new ThemedGroupBox
         {
             Text = "Natures",
-            Location = new Point(228, Top),
+            Location = new Point(RightColumnLeft, SectionTop),
             Size = new Size(RightColumnWidth, 158)
         };
 
@@ -434,7 +467,7 @@ partial class MainForm
         GroupBoxResults = new ThemedGroupBox
         {
             Text = "Found List",
-            Location = new Point(228, Top + 162),
+            Location = new Point(RightColumnLeft, SectionTop + 162),
             Size = new Size(RightColumnWidth, 372)
         };
 
@@ -451,13 +484,13 @@ partial class MainForm
             Font = new Font("Segoe UI", 8F)
         };
         ListViewResults.Columns.Add("Frame", 42, HorizontalAlignment.Center);
-        ListViewResults.Columns.Add("Time", 52, HorizontalAlignment.Center);
-        ListViewResults.Columns.Add("Nature", 56, HorizontalAlignment.Center);
+        ListViewResults.Columns.Add("Time", SecondsTimeColumnWidth, HorizontalAlignment.Center);
+        ListViewResults.Columns.Add("Nature", 55, HorizontalAlignment.Center);
         foreach (string stat in StatColumnNames)
         {
             ListViewResults.Columns.Add(stat, 31, HorizontalAlignment.Center);
         }
-        ListViewResults.Columns.Add("M/F", 33, HorizontalAlignment.Center);
+        ListViewResults.Columns.Add("M/F", 31, HorizontalAlignment.Center);
         GroupBoxResults.Controls.Add(ListViewResults);
 
         TrainingPanel = new TrainingPanel
@@ -481,7 +514,7 @@ partial class MainForm
         GroupBoxStatSearch = new ThemedGroupBox
         {
             Text = "Search",
-            Location = new Point(228, GroupBoxResults.Bottom + SectionGap),
+            Location = new Point(RightColumnLeft, GroupBoxResults.Bottom + SectionGap),
             Size = new Size(RightColumnWidth, 100)
         };
 
@@ -553,7 +586,7 @@ partial class MainForm
         GroupBoxCapture = new ThemedGroupBox
         {
             Text = "",
-            Location = new Point(228, captureTop),
+            Location = new Point(RightColumnLeft, captureTop),
             Size = new Size(RightColumnWidth, StatBoxPanel.BoxHeight + 2 * CapturePad)
         };
         StatBoxIvs = new StatBoxPanel { Location = new Point(CapturePad, CapturePad) };
@@ -572,7 +605,6 @@ partial class MainForm
         int timerNeeds = ButtonTraining.Bottom + BoxBottomPad;
         int shortfall = timerTop + timerNeeds - GroupBoxCapture.Bottom;
 
-        const int MinResultsHeight = 200;
         shortfall = Math.Max(shortfall, MinResultsHeight - ListViewResults.Height);
 
         GroupBoxResults.Height += shortfall;
@@ -589,14 +621,14 @@ partial class MainForm
         {
             Text = "Context Tracking",
             Location = new Point(6, contextTop),
-            Size = new Size(624, 18 + NpcGridPanel.GridPixels + BoxBottomPad),
+            Size = new Size(ClientWidth - 12, 18 + NpcGridPanel.GridPixels + BoxBottomPad),
             Visible = false
         };
 
         ContextPanel = new NpcGridPanel
         {
-            Location = new Point(8, 18),
-            Size = new Size(608, NpcGridPanel.GridPixels)
+            Location = new Point(LeftInner, 18),
+            Size = new Size(ClientWidth - 12 - 2 * LeftInner, NpcGridPanel.GridPixels)
         };
         GroupBoxContext.Controls.Add(ContextPanel);
 
@@ -625,14 +657,14 @@ partial class MainForm
         ButtonContextMiss = new ThemedButton
         {
             Text = "Miss",
-            Location = new Point(ContextPanel.Right - 124 - SectionGap - 66, contextButtonY),
+            Location = new Point(ButtonContextClear.Right + SectionGap, contextButtonY),
             Size = new Size(66, 24)
         };
         ButtonContextAnchor = new ThemedButton
         {
             Text = "Anchor",
-            Location = new Point(ContextPanel.Right - 124, contextButtonY),
-            Size = new Size(124, 24)
+            Location = new Point(ContextPanel.Right - 66, contextButtonY),
+            Size = new Size(66, 24)
         };
         ButtonContextFinished = new ThemedButton
         {
@@ -655,7 +687,7 @@ partial class MainForm
         AutoScaleMode = AutoScaleMode.Font;
         _compactClientHeight = GroupBoxCapture.Bottom + 6;
         _trackingClientHeight = GroupBoxContext.Bottom + 6;
-        ClientSize = new Size(636, _compactClientHeight);
+        ClientSize = new Size(ClientWidth, _compactClientHeight);
         FormBorderStyle = FormBorderStyle.FixedSingle;
         MaximizeBox = false;
         Controls.Add(GroupBoxIvConstraint);
@@ -667,6 +699,9 @@ partial class MainForm
         MainMenuStrip = MenuStripMain;
         Icon = Assets.AppIcon;
         Text = "FRLG Starter Tool";
+
+        CaptureFullLayout();
+
         ResumeLayout(false);
         PerformLayout();
     }
@@ -692,6 +727,14 @@ partial class MainForm
     private int _comboHeight = 23;
 
     private const int RowGap = 4;
+
+    private const int SectionTop = 26;
+
+    private const int SectionGap = 4;
+
+    private const int BoxBottomPad = 6;
+
+    private const int MinResultsHeight = 200;
 
     private int RowPitch => _fieldHeight + RowGap;
 
