@@ -21,7 +21,25 @@ public enum HotkeyAction
 
     ExportStats,
 
-    ToggleGlobalHotkeys
+    ToggleGlobalHotkeys,
+
+    NpcUp,
+
+    NpcDown,
+
+    NpcLeft,
+
+    NpcRight,
+
+    NpcFocusPrev,
+
+    NpcFocusNext,
+
+    NpcUndo,
+
+    NpcComplete,
+
+    NpcMiss
 }
 
 public enum ClipboardFormat
@@ -52,6 +70,28 @@ public sealed class AppSettings
     public Hotkey ExportStats { get; set; } = new();
 
     public Hotkey ToggleGlobalHotkeys { get; set; } = new() { Global = true };
+
+    public Hotkey NpcUp { get; set; } = new();
+
+    public Hotkey NpcDown { get; set; } = new();
+
+    public Hotkey NpcLeft { get; set; } = new();
+
+    public Hotkey NpcRight { get; set; } = new();
+
+    public Hotkey NpcFocusPrev { get; set; } = new();
+
+    public Hotkey NpcFocusNext { get; set; } = new();
+
+    public Hotkey NpcUndo { get; set; } = new();
+
+    public Hotkey NpcComplete { get; set; } = new();
+
+    public Hotkey NpcMiss { get; set; } = new();
+
+    public double NpcContextWindowMs { get; set; }
+
+    public bool NpcGridVisible { get; set; }
 
     public KeyMethod KeyMethod { get; set; } = KeyMethod.OnPress;
 
@@ -142,6 +182,15 @@ public sealed class AppSettings
         HotkeyAction.ListDown => ListDown,
         HotkeyAction.ExportStats => ExportStats,
         HotkeyAction.ToggleGlobalHotkeys => ToggleGlobalHotkeys,
+        HotkeyAction.NpcUp => NpcUp,
+        HotkeyAction.NpcDown => NpcDown,
+        HotkeyAction.NpcLeft => NpcLeft,
+        HotkeyAction.NpcRight => NpcRight,
+        HotkeyAction.NpcFocusPrev => NpcFocusPrev,
+        HotkeyAction.NpcFocusNext => NpcFocusNext,
+        HotkeyAction.NpcUndo => NpcUndo,
+        HotkeyAction.NpcComplete => NpcComplete,
+        HotkeyAction.NpcMiss => NpcMiss,
         _ => throw new ArgumentOutOfRangeException(nameof(action), action, "Unknown hotkey action")
     };
 
@@ -158,6 +207,15 @@ public sealed class AppSettings
         ListDown ??= new Hotkey();
         ExportStats ??= new Hotkey();
         ToggleGlobalHotkeys ??= new Hotkey { Global = true };
+        NpcUp ??= new Hotkey();
+        NpcDown ??= new Hotkey();
+        NpcLeft ??= new Hotkey();
+        NpcRight ??= new Hotkey();
+        NpcFocusPrev ??= new Hotkey();
+        NpcFocusNext ??= new Hotkey();
+        NpcUndo ??= new Hotkey();
+        NpcComplete ??= new Hotkey();
+        NpcMiss ??= new Hotkey();
 
         if (!Enum.IsDefined(KeyMethod)) KeyMethod = KeyMethod.OnPress;
         if (!Enum.IsDefined(ClipboardFormat)) ClipboardFormat = ClipboardFormat.Column;
@@ -172,6 +230,9 @@ public sealed class AppSettings
         if (string.IsNullOrWhiteSpace(StatBoxLabelColor)) StatBoxLabelColor = "#4DC6D6";
         if (string.IsNullOrWhiteSpace(StatBoxFillColor)) StatBoxFillColor = "#3C3C3C";
         TrainingRounds = Math.Clamp(TrainingRounds, 1, 999);
+
+        if (double.IsNaN(NpcContextWindowMs)) NpcContextWindowMs = 0.0;
+        NpcContextWindowMs = Math.Clamp(NpcContextWindowMs, 0.0, 1000.0);
 
         MinFrame ??= "0";
         MaxFrame ??= "10000";

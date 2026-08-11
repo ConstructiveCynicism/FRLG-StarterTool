@@ -1,5 +1,6 @@
 using System.Globalization;
 using System.Runtime.InteropServices;
+using FRLG.StarterTool.Core.Npc;
 using FRLG.StarterTool.Core.Settings;
 
 namespace FRLG.StarterTool.App;
@@ -12,6 +13,8 @@ public static class StarterTool
     public static BeepPlayer Beeps = null!;
     public static VariableOffsetTimer VariableOffset = null!;
     public static AppSettings Settings = null!;
+
+    public static readonly ContextSession Context = new();
 
     public static SettingsForm? SettingsForm;
 
@@ -234,6 +237,9 @@ public static class StarterTool
                             || Settings.ToggleLevel.IsPressed(key) || Settings.ExportStats.IsPressed(key)
                             || Settings.AddFrame.IsPressed(key) || Settings.SubFrame.IsPressed(key)
                             || Settings.Multiply2.IsPressed(key) || Settings.Multiply3.IsPressed(key)
+                            || ContextDirection(key) != null || ContextFocus(key) != 0
+                            || Settings.NpcUndo.IsPressed(key) || Settings.NpcComplete.IsPressed(key)
+                            || Settings.NpcMiss.IsPressed(key)
                             || ListAction(key) != null);
 
                     if (typing)
@@ -243,10 +249,11 @@ public static class StarterTool
                     {
                         Post(() =>
                         {
-                            if (!VariableOffset.TryRecordLanding(eventTime, lagMs))
-                            {
-                                StartTimer(eventTime, lagMs);
-                            }
+                            if (VariableOffset.TryRecordLanding(eventTime, lagMs)) return;
+
+                            if (Context.MarkNextAnchor(eventTime)) return;
+
+                            StartTimer(eventTime, lagMs);
                         });
                     }
                     else if (Settings.Stop.IsPressed(key))
@@ -260,6 +267,33 @@ public static class StarterTool
                     else if (Settings.ExportStats.IsPressed(key))
                     {
                         Post(MainForm.ExportStats);
+                    }
+
+                    Direction? tap = typing ? null : ContextDirection(key);
+                    if (tap != null)
+                    {
+                        Post(() => Context.Tap(tap.Value, eventTime));
+                    }
+
+                    int focus = typing ? 0 : ContextFocus(key);
+                    if (focus != 0)
+                    {
+                        Post(() => Context.MoveFocus(focus));
+                    }
+
+                    if (!typing && Settings.NpcUndo.IsPressed(key))
+                    {
+                        Post(() => Context.Undo());
+                    }
+
+                    if (!typing && Settings.NpcComplete.IsPressed(key))
+                    {
+                        Post(() => Context.Next());
+                    }
+
+                    if (!typing && Settings.NpcMiss.IsPressed(key))
+                    {
+                        Post(() => Context.Miss());
                     }
 
                     HotkeyAction? listAction = typing ? null : ListAction(key);
@@ -306,6 +340,24 @@ public static class StarterTool
         return null;
     }
 
+    private static Direction? ContextDirection(Keys key)
+    {
+        if (Settings.NpcUp.IsPressed(key)) return Direction.North;
+        if (Settings.NpcDown.IsPressed(key)) return Direction.South;
+        if (Settings.NpcLeft.IsPressed(key)) return Direction.West;
+        if (Settings.NpcRight.IsPressed(key)) return Direction.East;
+
+        return null;
+    }
+
+    private static int ContextFocus(Keys key)
+    {
+        if (Settings.NpcFocusPrev.IsPressed(key)) return -1;
+        if (Settings.NpcFocusNext.IsPressed(key)) return 1;
+
+        return 0;
+    }
+
     public static void StartTimer(double? startTimeMs = null, double lagMs = 0.0)
     {
         Beeps.ClearPending();
@@ -315,6 +367,9 @@ public static class StarterTool
         TimerExpired = false;
         TimerStart = startTimeMs ?? Win32.GetTime();
         TimerStartLagMs = startTimeMs != null ? lagMs : 0.0;
+
+        Context.Start();
+
         CurrentTab.OnTimerStart();
 
         _timerThreadRunning = true;
@@ -336,6 +391,16 @@ public static class StarterTool
         TimerExpired = timerExpired;
         TimerStopLagMs = lagMs;
         CurrentTab.OnTimerStop();
+
+        if (!timerExpired)
+        {
+            if (Context.Tracking) ContextSession.Log("--- run stopped ---");
+            Context.Reset();
+        }
+        else
+        {
+            Context.TimerStopped();
+        }
     }
 
     private static void StopTimerThread()

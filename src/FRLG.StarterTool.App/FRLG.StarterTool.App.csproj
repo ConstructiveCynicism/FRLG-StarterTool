@@ -27,6 +27,8 @@
     <EmbeddedResource Include="Resources\app.ico" />
     <EmbeddedResource Include="Resources\pokemon\*.png" />
     <EmbeddedResource Include="Resources\beeps\*.wav" />
+    <EmbeddedResource Include="Resources\npc\*.png" />
+    <EmbeddedResource Include="Resources\npc\*.widths" />
   </ItemGroup>
 
 </Project>

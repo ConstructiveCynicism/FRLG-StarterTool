@@ -1,4 +1,5 @@
 using System.Reflection;
+using FRLG.StarterTool.Core.Npc;
 
 namespace FRLG.StarterTool.App;
 
@@ -97,6 +98,114 @@ public static class Assets
 
     private static Bitmap NewIcon()
         => new(SwitchIconSize, SwitchIconSize, System.Drawing.Imaging.PixelFormat.Format32bppArgb);
+
+    public const int NpcFrameWidth = 16;
+
+    public const int NpcFrameHeight = 32;
+
+    private static Image? _player;
+    private static Bitmap? _playerSheet;
+
+    public static Image? Player() => _player ??= NpcFrame(ref _playerSheet, "npc.player.png", 0);
+
+    private static Bitmap? _fatManSheet;
+    private static readonly Dictionary<int, Image?> _fatMan = new();
+
+    public static Image? FatMan(Direction facing, bool walking)
+    {
+        int key = (int)facing * 2 + (walking ? 1 : 0);
+        if (_fatMan.TryGetValue(key, out Image? cached)) return cached;
+
+        bool mirror = facing == Direction.East;
+        int index = (facing, walking) switch
+        {
+            (Direction.North, false) => 1,
+            (Direction.North, true) => 5,
+            (Direction.West or Direction.East, false) => 2,
+            (Direction.West or Direction.East, true) => 7,
+            (_, true) => 3,
+            _ => 0,
+        };
+
+        Image? frame = NpcFrame(ref _fatManSheet, "npc.fat_man.png", index);
+        if (frame != null && mirror) frame.RotateFlip(RotateFlipType.RotateNoneFlipX);
+
+        _fatMan[key] = frame;
+        return frame;
+    }
+
+    private static Image? _aide;
+    private static Bitmap? _aideSheet;
+
+    public static Image? Aide() => _aide ??= NpcFrame(ref _aideSheet, "npc.worker_f.png", 0);
+
+    private static Image? _scientist;
+    private static Bitmap? _scientistSheet;
+
+    public static Image? Scientist() => _scientist ??= NpcFrame(ref _scientistSheet, "npc.scientist.png", 0);
+
+    private static Image? NpcFrame(ref Bitmap? sheet, string resource, int index)
+    {
+        sheet ??= Load(resource) as Bitmap;
+        if (sheet == null) return null;
+
+        var frame = new Bitmap(NpcFrameWidth, NpcFrameHeight,
+            System.Drawing.Imaging.PixelFormat.Format32bppArgb);
+        using (Graphics g = Graphics.FromImage(frame))
+        {
+            g.DrawImage(sheet, new Rectangle(0, 0, NpcFrameWidth, NpcFrameHeight),
+                new Rectangle(index * NpcFrameWidth, 0, NpcFrameWidth, NpcFrameHeight),
+                GraphicsUnit.Pixel);
+        }
+
+        return GbaColors.Correct(frame);
+    }
+
+    public const int MapTileSize = 16;
+
+    private static Bitmap? _playersHouse;
+
+    public static Bitmap? PlayersHouseMap => _playersHouse ??= LoadMap("npc.players_house_1f.png");
+
+    private static Bitmap? _palletTown;
+
+    public static Bitmap? PalletTownMap => _palletTown ??= LoadMap("npc.pallet_town.png");
+
+    private static Bitmap? _textBox;
+    private static Bitmap? _font;
+    private static byte[]? _glyphWidths;
+
+    public static Bitmap? TextBox => _textBox ??= LoadMap("npc.text_box.png");
+
+    public static Bitmap? Font => _font ??= LoadMap("npc.font_normal.png");
+
+    public static byte[] GlyphWidths => _glyphWidths ??= LoadBytes("npc.font_normal.widths");
+
+    private static byte[] LoadBytes(string name)
+    {
+        Assembly assembly = typeof(Assets).Assembly;
+        using Stream? stream = assembly.GetManifestResourceStream(
+            $"FRLG.StarterTool.App.Resources.{name}");
+        if (stream == null) return Array.Empty<byte>();
+
+        using var buffer = new MemoryStream();
+        stream.CopyTo(buffer);
+        return buffer.ToArray();
+    }
+
+    private static Bitmap? LoadMap(string name)
+    {
+        if (Load(name) is not Bitmap raw) return null;
+
+        var map = new Bitmap(raw.Width, raw.Height, System.Drawing.Imaging.PixelFormat.Format32bppArgb);
+        using (Graphics g = Graphics.FromImage(map))
+        {
+            g.DrawImageUnscaled(raw, 0, 0);
+        }
+
+        raw.Dispose();
+        return GbaColors.Correct(map);
+    }
 
     public static Image? Sprite(int dexNumber)
     {

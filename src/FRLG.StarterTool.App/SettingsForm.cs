@@ -1,3 +1,4 @@
+using System.Globalization;
 using FRLG.StarterTool.Core.Settings;
 using FRLG.StarterTool.Core.Timing;
 
@@ -16,6 +17,7 @@ public sealed class SettingsForm : Form
     private static readonly string[] Captions =
     {
         "Trigger on",
+        "Context window (ms)",
         "Beep sound",
         "Volume",
         "Clipboard format",
@@ -39,66 +41,14 @@ public sealed class SettingsForm : Form
         ShowInTaskbar = false;
 
         Label hotkeyHeader = AddSectionHeader("Hotkeys", 12);
+        TableLayoutPanel table = AddHotkeyTable(
+            HotkeyExtensions.Actions, hotkeyHeader.Bottom + 6, out Button? firstKeyButton);
 
-        var table = new TableLayoutPanel
-        {
-            Location = new Point(12, hotkeyHeader.Bottom + 6),
-            AutoSize = true,
-            ColumnCount = 5,
-            RowCount = HotkeyExtensions.Actions.Length + 1
-        };
+        Label contextHeader = AddSectionHeader("Context Tracking", table.Bottom + SectionGap);
+        TableLayoutPanel contextTable = AddHotkeyTable(
+            HotkeyExtensions.ContextActions, contextHeader.Bottom + 6, out _);
 
-        foreach (string header in new[] { "Action", "Key", "Alt. key", "", "Global" })
-        {
-            table.Controls.Add(new Label
-            {
-                Text = header,
-                AutoSize = true,
-                Anchor = header == "Global" ? AnchorStyles.None : AnchorStyles.Left,
-                Margin = new Padding(3, 6, 3, 3)
-            });
-        }
-
-        Button? firstKeyButton = null;
-
-        foreach ((HotkeyAction action, string label) in HotkeyExtensions.Actions)
-        {
-            Hotkey hotkey = _settings.GetHotkey(action);
-
-            table.Controls.Add(new Label { Text = label, AutoSize = true, Margin = new Padding(3, 8, 12, 3) });
-
-            Button primary = MakeKeyButton(action, secondary: false);
-            Button secondary = MakeKeyButton(action, secondary: true);
-            firstKeyButton ??= primary;
-            _keyButtons[action] = (primary, secondary);
-            table.Controls.Add(primary);
-            table.Controls.Add(secondary);
-
-            var clear = new ThemedButton { Text = "Clear", Size = new Size(56, 25), Margin = new Padding(3, 3, 12, 3) };
-            clear.Click += (_, _) =>
-            {
-                hotkey.ClearOne();
-                RefreshKeyButtons(action);
-            };
-            table.Controls.Add(clear);
-
-            var global = new ThemedCheckBox
-            {
-                Checked = hotkey.Global,
-                AutoSize = true,
-                Anchor = AnchorStyles.None,
-                Margin = new Padding(3, 7, 3, 3)
-            };
-            global.CheckedChanged += (_, _) => hotkey.Global = global.Checked;
-            table.Controls.Add(global);
-
-            RefreshKeyButtons(action);
-        }
-
-        Controls.Add(table);
-        table.PerformLayout();
-
-        int y = table.Bottom + SectionGap;
+        int y = contextTable.Bottom + SectionGap;
         Label timingHeader = AddSectionHeader("Timing", y);
         y = timingHeader.Bottom + RowGap;
 
@@ -125,7 +75,32 @@ public sealed class SettingsForm : Form
         Controls.Add(methodLabel);
         Controls.Add(methodBox);
 
-        y = methodBox.Bottom + SectionGap;
+        int contextY = methodBox.Bottom + RowGap + 4;
+        Controls.Add(new Label
+        {
+            Text = "Context window (ms)",
+            Location = new Point(LeftMargin, contextY + 4),
+            AutoSize = true
+        });
+        var contextBox = new ThemedTextBox
+        {
+            Location = new Point(comboX, contextY),
+            Width = comboWidth,
+            Text = _settings.NpcContextWindowMs.ToString("0.###", CultureInfo.InvariantCulture)
+        };
+        contextBox.Leave += (_, _) =>
+        {
+            if (double.TryParse(contextBox.Text, NumberStyles.Float, CultureInfo.InvariantCulture,
+                    out double ms) && ms >= 0.0)
+            {
+                _settings.NpcContextWindowMs = Math.Min(ms, 1000.0);
+            }
+
+            contextBox.Text = _settings.NpcContextWindowMs.ToString("0.###", CultureInfo.InvariantCulture);
+        };
+        Controls.Add(contextBox);
+
+        y = contextBox.Bottom + SectionGap;
         Label audioHeader = AddSectionHeader("Audio", y);
         y = audioHeader.Bottom + RowGap;
 
@@ -222,7 +197,7 @@ public sealed class SettingsForm : Form
             _settings.DarkMode = darkMode.Checked;
             StarterTool.ApplyTheme();
 
-            foreach ((HotkeyAction action, _) in HotkeyExtensions.Actions)
+            foreach ((HotkeyAction action, _) in HotkeyExtensions.AllActions)
             {
                 RefreshKeyButtons(action);
             }
@@ -248,7 +223,7 @@ public sealed class SettingsForm : Form
             });
 
         int contentRight = Math.Max(
-            Math.Max(table.Right, methodBox.Right),
+            Math.Max(Math.Max(table.Right, contextTable.Right), methodBox.Right),
             volumeBar.Right);
 
         var close = new ThemedButton { Text = "Close", Size = new Size(80, 28), DialogResult = DialogResult.OK };
@@ -259,6 +234,69 @@ public sealed class SettingsForm : Form
         ClientSize = new Size(contentRight + 12, close.Bottom + 12);
 
         Theme.Apply(this);
+    }
+
+    private TableLayoutPanel AddHotkeyTable((HotkeyAction Action, string Label)[] actions, int y,
+        out Button? firstKeyButton)
+    {
+        var table = new TableLayoutPanel
+        {
+            Location = new Point(12, y),
+            AutoSize = true,
+            ColumnCount = 5,
+            RowCount = actions.Length + 1
+        };
+
+        foreach (string header in new[] { "Action", "Key", "Alt. key", "", "Global" })
+        {
+            table.Controls.Add(new Label
+            {
+                Text = header,
+                AutoSize = true,
+                Anchor = header == "Global" ? AnchorStyles.None : AnchorStyles.Left,
+                Margin = new Padding(3, 6, 3, 3)
+            });
+        }
+
+        firstKeyButton = null;
+
+        foreach ((HotkeyAction action, string label) in actions)
+        {
+            Hotkey hotkey = _settings.GetHotkey(action);
+
+            table.Controls.Add(new Label { Text = label, AutoSize = true, Margin = new Padding(3, 8, 12, 3) });
+
+            Button primary = MakeKeyButton(action, secondary: false);
+            Button secondary = MakeKeyButton(action, secondary: true);
+            firstKeyButton ??= primary;
+            _keyButtons[action] = (primary, secondary);
+            table.Controls.Add(primary);
+            table.Controls.Add(secondary);
+
+            var clear = new ThemedButton { Text = "Clear", Size = new Size(56, 25), Margin = new Padding(3, 3, 12, 3) };
+            clear.Click += (_, _) =>
+            {
+                hotkey.ClearOne();
+                RefreshKeyButtons(action);
+            };
+            table.Controls.Add(clear);
+
+            var global = new ThemedCheckBox
+            {
+                Checked = hotkey.Global,
+                AutoSize = true,
+                Anchor = AnchorStyles.None,
+                Margin = new Padding(3, 7, 3, 3)
+            };
+            global.CheckedChanged += (_, _) => hotkey.Global = global.Checked;
+            table.Controls.Add(global);
+
+            RefreshKeyButtons(action);
+        }
+
+        Controls.Add(table);
+        table.PerformLayout();
+        return table;
     }
 
     private Label AddSectionHeader(string text, int y)

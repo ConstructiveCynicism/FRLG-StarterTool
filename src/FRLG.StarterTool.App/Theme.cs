@@ -48,6 +48,10 @@ public static class Theme
 
     public static Color TimerFlashFinal => Color.FromArgb(0x12, 0x5E, 0x2B);
 
+    public static Color NpcTileBlocked => Dark ? Color.FromArgb(0x1A, 0x1D, 0x1F) : Color.FromArgb(0x8E, 0x99, 0x94);
+
+    public static Color NpcStepArrow => Color.FromArgb(0xE8, 0xB1, 0x2E);
+
     public static Color LandingHitBack => Dark ? Color.FromArgb(0x2E, 0x7D, 0x32) : Color.FromArgb(0x76, 0xD1, 0x76);
 
     public static Color LandingMaybeBack => Dark ? Color.FromArgb(0x8A, 0x6D, 0x1F) : Color.FromArgb(0xE8, 0xD0, 0x7A);

@@ -1,4 +1,5 @@
 using System.Globalization;
+using FRLG.StarterTool.Core.Npc;
 using FRLG.StarterTool.Core.Pokemon;
 using FRLG.StarterTool.Core.Rng;
 using FRLG.StarterTool.Core.Search;
@@ -59,6 +60,16 @@ public partial class MainForm : Form
         MenuItemAlwaysOnTop.CheckedChanged += (_, _) => RefreshAlwaysOnTop();
         MenuItemGlobalHotkeys.CheckedChanged += (_, _) => RefreshGlobalHotkeys();
         MenuItemTraining.CheckedChanged += (_, _) => ShowTraining(MenuItemTraining.Checked);
+        MenuItemContextTracking.CheckedChanged += (_, _) => ShowContextTracking(MenuItemContextTracking.Checked);
+        StarterTool.Context.Changed += (_, _) => ShowContextSession();
+        ButtonContextUndo.Click += (_, _) => StarterTool.Context.Undo();
+        ButtonContextClear.Click += (_, _) => StarterTool.Context.Clear();
+        ButtonContextLate.Click += (_, _) => StarterTool.Context.Next();
+        ButtonContextFinished.Click += (_, _) => StarterTool.Context.Next();
+        ButtonContextAnchor.Click += (_, _) => StarterTool.Context.MarkNextAnchor(Win32.GetTime());
+        ButtonContextMiss.Click += (_, _) => StarterTool.Context.Miss();
+        ContextPanel.BoxClicked += (_, box) => StarterTool.Context.FocusBox(box);
+        ContextPanel.CueChanged += (_, _) => ShowContextSession();
         ButtonTraining.Click += (_, _) => ToggleTraining();
         TrainingPanel.StateChanged += (_, _) => RefreshTrainingButton();
         TrainingPanel.CloseRequested += (_, _) => MenuItemTraining.Checked = false;
@@ -147,6 +158,8 @@ public partial class MainForm : Form
 
         MenuItemAlwaysOnTop.Checked = settings.AlwaysOnTop;
         MenuItemGlobalHotkeys.Checked = settings.GlobalHotkeysEnabled;
+        MenuItemContextTracking.Checked = settings.NpcGridVisible;
+        ShowContextTracking(MenuItemContextTracking.Checked);
         RefreshGlobalHotkeys();
         RefreshAlwaysOnTop();
 
@@ -161,6 +174,7 @@ public partial class MainForm : Form
         settings.TrainingRounds = TrainingPanel.SaveRounds();
         settings.AlwaysOnTop = MenuItemAlwaysOnTop.Checked;
         settings.GlobalHotkeysEnabled = MenuItemGlobalHotkeys.Checked;
+        settings.NpcGridVisible = MenuItemContextTracking.Checked;
         settings.SetCurrentFilter(CaptureFilter());
     }
 
@@ -191,6 +205,90 @@ public partial class MainForm : Form
         LabelLanding.Text = "";
     }
 
+    private void ShowContextTracking(bool tracking)
+    {
+        StarterTool.Context.Tracking = tracking;
+
+        GroupBoxContext.Visible = tracking;
+        ClientSize = new Size(
+            ClientSize.Width, tracking ? _trackingClientHeight : _compactClientHeight);
+
+        if (tracking) ShowContextSession();
+    }
+
+    private void ShowContextSession()
+    {
+        ContextSession session = StarterTool.Context;
+        ContextPanel.SetStatus(session.Summary, session.Report);
+
+        if (session.Stage == ContextStage.Lab)
+        {
+            LabTracker? lab = session.Lab;
+
+            ButtonContextClear.Visible = false;
+            ButtonContextUndo.Visible = false;
+            ButtonContextAnchor.Visible = false;
+            ButtonContextFinished.Visible = false;
+
+            ButtonContextLate.Visible = session.Hidden.Count == 0;
+            ButtonContextLate.Text = lab is { Late: true } ? "I'm Fast!" : "I'm Slow!";
+            ButtonContextLate.Enabled = lab is { All.Count: > 0 };
+
+            ContextPanel.SetLabField(
+                lab?.All ?? (IReadOnlyList<LabOption>)Array.Empty<LabOption>(),
+                lab?.Likelihoods ?? (IReadOnlyList<double>)Array.Empty<double>(),
+                lab?.FocusedIndex ?? -1,
+                lab?.MostLikelyIndex ?? -1,
+                StarterTool.VariableOffset?.SelectedFps ?? 60.0);
+        }
+        else
+        {
+            FenceTracker? tracker = session.Tracker;
+
+            bool open = session.Hidden.Count == 0;
+
+            ButtonContextClear.Visible = open;
+            ButtonContextUndo.Visible = open;
+            ButtonContextLate.Visible = false;
+            ButtonContextUndo.Enabled = tracker is { Inputs.Count: > 0 };
+            ButtonContextClear.Enabled = tracker is { Inputs.Count: > 0 } or { Complete: true };
+
+            ContextPanel.SetField(
+                tracker?.Alive ?? (IReadOnlyList<FenceCandidate>)Array.Empty<FenceCandidate>(),
+                tracker?.Likelihoods ?? (IReadOnlyList<double>)Array.Empty<double>(),
+                tracker?.FocusedIndex ?? -1,
+                tracker?.MostLikelyIndex ?? -1,
+                tracker?.Fps ?? 60.0,
+                session.AnchorCount,
+                session.OakAnchorFrame);
+
+            bool fenceGuy = open && ContextPanel.ShowingFenceCue;
+
+            ButtonContextAnchor.Visible = open && !fenceGuy;
+            ButtonContextFinished.Visible = fenceGuy;
+            ButtonContextFinished.Text = tracker is { Complete: true } ? "Not Finished" : "Finished!";
+            ButtonContextFinished.Enabled = tracker != null;
+        }
+
+        ButtonContextAnchor.Text = AnchorCaption(session.NextAnchor);
+        ButtonContextAnchor.Enabled = session.NextAnchor != null;
+
+        ButtonContextMiss.Visible = session.Hidden.Count == 0;
+        ButtonContextMiss.Enabled = session.CanMiss;
+
+        ContextPanel.SetHidden(session.Hidden);
+    }
+
+    private static string AnchorCaption(RouteAnchor? next) => next switch
+    {
+        RouteAnchor.ExitHouse => "Anchor: house exit",
+        RouteAnchor.CloseOakText => "Anchor: Oak text",
+        RouteAnchor.CloseLabText => "Anchor: lab text",
+        _ => "Anchor",
+    };
+
+    public void SampleContextPanel() => ContextPanel.Sample();
+
     private void ApplyStatPack(int pack, int[] values)
     {
         for (int stat = pack == 1 ? 0 : 1; stat < 6 && stat < values.Length; stat++)
@@ -212,6 +310,17 @@ public partial class MainForm : Form
     }
 
     private void UpdateSprite() => PictureBoxSprite.Image = Assets.Sprite(SelectedSpecies.Id);
+
+    public void LockTrainerId()
+    {
+        _trainerIdLocked = true;
+
+        if (ReferenceEquals(ActiveControl, TextBoxTrainerId)) TakeCaret(ListViewResults);
+    }
+
+    public void UnlockTrainerId() => _trainerIdLocked = false;
+
+    private bool _trainerIdLocked;
 
     public void FocusTrainerId()
     {
@@ -474,6 +583,8 @@ public partial class MainForm : Form
         FitLastColumn();
         ListViewResults.Refresh();
 
+        if (takeFocus) TakeCaret(ListViewResults);
+
         if (_results.Count == 0)
         {
             StatBoxIvs.Clear();
@@ -481,8 +592,6 @@ public partial class MainForm : Form
             StatBoxStats.Clear();
             return;
         }
-
-        if (takeFocus) TakeCaret(ListViewResults);
 
         ListViewResults.SelectedIndices.Clear();
         if (selectedIndex < 0) return;
@@ -518,7 +627,7 @@ public partial class MainForm : Form
     }
 
     public void ShowLanding(
-        int landedFrame,
+        int? landedFrame,
         int targetFrame,
         double deltaMs,
         double hitChance,
@@ -529,25 +638,38 @@ public partial class MainForm : Form
         LabelLanding.ForeColor = hitChance > 0.5 ? Theme.LandingHitText
             : hitChance > 0.0 ? Theme.LandingMaybeText
             : Theme.LandingMissText;
+
+        string likely = landedFrame is { } named
+            ? $"Likely Frame {named}, Target "
+            : "Frame not anchored (no lab box), Target ";
+
         LabelLanding.Text =
-            $"Likely Frame {landedFrame}, Target "
+            likely
             + VariableOffsetCalculator.FormatFrameWithAdjustment((uint)Math.Max(targetFrame, 0), adjustmentFrames)
             + $"  ({deltaMs:+0;-0;0}ms)  Hit Chance {FormatChance(hitChance)}"
             + CompensationSuffix(compensationMs, compact: true);
 
-        if (TrainingPanel.RecordLanding(landedFrame, targetFrame, deltaMs, hitChance)) return;
+        if (TrainingPanel.RecordLanding(landedFrame ?? targetFrame, targetFrame, deltaMs, hitChance)) return;
 
-        _landingFrame = landedFrame;
+        if (landedFrame is not { } landed)
+        {
+            _landingFrame = null;
+            _landingAlternate = null;
+            ListViewResults.Invalidate();
+            return;
+        }
+
+        _landingFrame = landed;
         _landingChance = hitChance;
 
         _landingAlternate = null;
         if (fps > 0.0 && VariableOffsetCalculator.AlternateChance(deltaMs, fps) > 0.0)
         {
-            int alternate = VariableOffsetCalculator.AlternateFrame(landedFrame, deltaMs, fps);
+            int alternate = VariableOffsetCalculator.AlternateFrame(landed, deltaMs, fps);
             if (alternate != targetFrame) _landingAlternate = alternate;
         }
 
-        int index = _results.FindIndex(pkm => pkm.Frame == landedFrame);
+        int index = _results.FindIndex(pkm => pkm.Frame == landed);
 
         bool alternateMissing =
             _landingAlternate.HasValue
@@ -558,14 +680,14 @@ public partial class MainForm : Form
             _reportingLanding = true;
             try
             {
-                SearchAroundFrame(landedFrame, targetFrame, takeFocus: false);
+                SearchAroundFrame(landed, targetFrame, takeFocus: false);
             }
             finally
             {
                 _reportingLanding = false;
             }
 
-            index = _results.FindIndex(pkm => pkm.Frame == landedFrame);
+            index = _results.FindIndex(pkm => pkm.Frame == landed);
         }
 
         if (index >= 0) ListViewResults.EnsureVisible(index);
@@ -598,6 +720,8 @@ public partial class MainForm : Form
         LabelLanding.Text = "";
         ListViewResults.Invalidate();
     }
+
+    public int TrackerSeed => ReadTrainerId();
 
     private int ReadTrainerId()
     {

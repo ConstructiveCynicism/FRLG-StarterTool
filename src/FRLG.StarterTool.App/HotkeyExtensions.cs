@@ -19,6 +19,22 @@ public static class HotkeyExtensions
         (HotkeyAction.ListDown, "List down")
     };
 
+    public static readonly (HotkeyAction Action, string Label)[] ContextActions =
+    {
+        (HotkeyAction.NpcUp, "Up"),
+        (HotkeyAction.NpcDown, "Down"),
+        (HotkeyAction.NpcLeft, "Left"),
+        (HotkeyAction.NpcRight, "Right"),
+        (HotkeyAction.NpcFocusPrev, "Select Previous"),
+        (HotkeyAction.NpcFocusNext, "Select Next"),
+        (HotkeyAction.NpcUndo, "Undo"),
+        (HotkeyAction.NpcComplete, "Toggle"),
+        (HotkeyAction.NpcMiss, "Miss")
+    };
+
+    public static IEnumerable<(HotkeyAction Action, string Label)> AllActions =>
+        Actions.Concat(ContextActions);
+
     public static bool IsHeld(this Hotkey hotkey)
         => hotkey.IsBound
            && (Win32.IsKeyDown((Keys)hotkey.Primary) || Win32.IsKeyDown((Keys)hotkey.Secondary))

@@ -110,11 +110,14 @@ public static class VariableOffsetCalculator
             : 0;
     }
 
+    public static int EffectiveFrame(in VariableInfo info)
+        => Math.Max(0, (int)info.Frame + info.AdvanceCorrection);
+
     public static double TargetTimeSeconds(in VariableInfo info, double adjustedMs = 0.0)
-        => info.Frame / info.Fps + (info.Offset + adjustedMs) / 1000.0;
+        => EffectiveFrame(info) / info.Fps + (info.Offset + adjustedMs) / 1000.0;
 
     public static double LandingTargetMs(in VariableInfo info, double adjustedMs = 0.0)
-        => ((double)info.Frame - TidLagFrames) / info.Fps * 1000.0 + adjustedMs;
+        => (EffectiveFrame(info) - TidLagFrames) / info.Fps * 1000.0 + adjustedMs;
 
     public static int FrameAtTime(in VariableInfo info, double elapsedMs)
     {
@@ -146,10 +149,12 @@ public static class VariableOffsetCalculator
     public static int TargetFrame(in VariableInfo info) => (int)info.Frame;
 
     public static int LandedFrame(in VariableInfo info, double elapsedMs, double adjustedMs)
-        => Math.Max(0, FrameAtTime(info, elapsedMs) - FramesAdjusted(adjustedMs, info.Fps));
+        => Math.Max(0, FrameAtTime(info, elapsedMs)
+                       - FramesAdjusted(adjustedMs, info.Fps)
+                       - info.AdvanceCorrection);
 
     public static double BeepOffsetMs(in VariableInfo info, double elapsedMs, double adjustedMs = 0.0)
-        => info.Frame / info.Fps * 1000.0 - elapsedMs + info.Offset + adjustedMs;
+        => EffectiveFrame(info) / info.Fps * 1000.0 - elapsedMs + info.Offset + adjustedMs;
 
     public static double[] BeepSchedule(double finalBeepOffsetMs, uint intervalMs, uint numBeeps)
     {
@@ -163,7 +168,7 @@ public static class VariableOffsetCalculator
     }
 
     public static double FlashTargetMs(in VariableInfo info, double adjustedMs = 0.0)
-        => info.Frame / info.Fps * 1000.0 + adjustedMs + info.VisualOffset;
+        => EffectiveFrame(info) / info.Fps * 1000.0 + adjustedMs + info.VisualOffset;
 
     public static double[] FlashSchedule(double finalFlashMs, uint intervalMs, uint numBeeps)
         => BeepSchedule(finalFlashMs, intervalMs, numBeeps);
@@ -191,7 +196,7 @@ public static class VariableOffsetCalculator
     }
 
     public static bool CanSubmit(in VariableInfo info, double currentTimeSeconds)
-        => info.Frame / info.Fps + info.Offset / 1000.0
+        => EffectiveFrame(info) / info.Fps + info.Offset / 1000.0
            >= currentTimeSeconds + info.Interval * (info.NumBeeps - 1) / 1000.0;
 
     public static bool CanAdjust(in VariableInfo info, double currentTimeSeconds, double currentOffsetSeconds)

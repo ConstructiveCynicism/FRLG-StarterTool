@@ -33,6 +33,8 @@ partial class MainForm
 
     public ToolStripMenuItem MenuItemTraining;
 
+    public ToolStripMenuItem MenuItemContextTracking;
+
     public ToolStripMenuItem MenuFilters;
 
     public ThemedGroupBox GroupBoxIvConstraint;
@@ -64,6 +66,26 @@ partial class MainForm
     public StatBoxPanel StatBoxStats;
 
     public ThemedGroupBox GroupBoxCapture;
+
+    public ThemedGroupBox GroupBoxContext;
+
+    public NpcGridPanel ContextPanel;
+
+    public Button ButtonContextUndo;
+
+    public Button ButtonContextClear;
+
+    public ThemedButton ButtonContextLate;
+
+    public ThemedButton ButtonContextAnchor;
+
+    public ThemedButton ButtonContextFinished;
+
+    public ThemedButton ButtonContextMiss;
+
+    private int _compactClientHeight;
+
+    private int _trackingClientHeight;
 
     public CheckBox ButtonLevelToggle;
 
@@ -133,10 +155,13 @@ partial class MainForm
 
         MenuItemTraining = new ToolStripMenuItem("Training Mode") { CheckOnClick = true };
 
+        MenuItemContextTracking = new ToolStripMenuItem("Context Tracking") { CheckOnClick = true };
+
         var menuExit = new ToolStripMenuItem("Exit");
         menuExit.Click += (_, _) => Close();
         var menuFile = new ToolStripMenuItem("File");
         menuFile.DropDownItems.Add(MenuFilters);
+        menuFile.DropDownItems.Add(MenuItemContextTracking);
         menuFile.DropDownItems.Add(MenuItemHotkeys);
         menuFile.DropDownItems.Add(new ToolStripSeparator());
         menuFile.DropDownItems.Add(menuExit);
@@ -559,8 +584,78 @@ partial class MainForm
 
         GroupBoxTimer.Height = Math.Max(timerNeeds, GroupBoxCapture.Bottom - timerTop);
 
+        int contextTop = GroupBoxCapture.Bottom + SectionGap;
+        GroupBoxContext = new ThemedGroupBox
+        {
+            Text = "Context Tracking",
+            Location = new Point(6, contextTop),
+            Size = new Size(624, 18 + NpcGridPanel.GridPixels + BoxBottomPad),
+            Visible = false
+        };
+
+        ContextPanel = new NpcGridPanel
+        {
+            Location = new Point(8, 18),
+            Size = new Size(608, NpcGridPanel.GridPixels)
+        };
+        GroupBoxContext.Controls.Add(ContextPanel);
+
+        int contextButtonY = ContextPanel.Bottom - 24;
+        int contextButtonX = ContextPanel.Left + NpcGridPanel.GridPixels + 12;
+
+        ButtonContextUndo = new ThemedButton
+        {
+            Text = "Undo",
+            Location = new Point(contextButtonX, contextButtonY),
+            Size = new Size(66, 24)
+        };
+        ButtonContextClear = new ThemedButton
+        {
+            Text = "Clear",
+            Location = new Point(ButtonContextUndo.Right + SectionGap, contextButtonY),
+            Size = new Size(60, 24)
+        };
+        ButtonContextLate = new ThemedButton
+        {
+            Text = "I'm Slow!",
+            Location = new Point(ContextPanel.Right - 124, contextButtonY),
+            Size = new Size(124, 24),
+            Visible = false
+        };
+        ButtonContextMiss = new ThemedButton
+        {
+            Text = "Miss",
+            Location = new Point(ContextPanel.Right - 124 - SectionGap - 66, contextButtonY),
+            Size = new Size(66, 24)
+        };
+        ButtonContextAnchor = new ThemedButton
+        {
+            Text = "Anchor",
+            Location = new Point(ContextPanel.Right - 124, contextButtonY),
+            Size = new Size(124, 24)
+        };
+        ButtonContextFinished = new ThemedButton
+        {
+            Text = "Finished!",
+            Location = new Point(ContextPanel.Right - 124, contextButtonY),
+            Size = new Size(124, 24),
+            Visible = false
+        };
+
+        GroupBoxContext.Controls.Add(ButtonContextUndo);
+        GroupBoxContext.Controls.Add(ButtonContextClear);
+        GroupBoxContext.Controls.Add(ButtonContextMiss);
+        GroupBoxContext.Controls.Add(ButtonContextLate);
+        GroupBoxContext.Controls.Add(ButtonContextFinished);
+        GroupBoxContext.Controls.Add(ButtonContextAnchor);
+
+        ContextPanel.SendToBack();
+        Controls.Add(GroupBoxContext);
+
         AutoScaleMode = AutoScaleMode.Font;
-        ClientSize = new Size(636, Math.Max(GroupBoxTimer.Bottom, GroupBoxCapture.Bottom) + 6);
+        _compactClientHeight = GroupBoxCapture.Bottom + 6;
+        _trackingClientHeight = GroupBoxContext.Bottom + 6;
+        ClientSize = new Size(636, _compactClientHeight);
         FormBorderStyle = FormBorderStyle.FixedSingle;
         MaximizeBox = false;
         Controls.Add(GroupBoxIvConstraint);

@@ -54,6 +54,8 @@ public partial class MainForm
 
         if (!StarterTool.IsTimerRunning) return;
 
+        if (_trainerIdLocked) return;
+
         HandleTrainerIdNumpad(key);
     }
 

@@ -1,4 +1,5 @@
 using System.Globalization;
+using FRLG.StarterTool.Core.Npc;
 using FRLG.StarterTool.Core.Settings;
 using FRLG.StarterTool.Core.Timing;
 
@@ -42,6 +43,8 @@ public sealed class VariableOffsetTimer : BaseTimer
     private bool _writingFrameBox;
 
     private bool _started;
+
+    private string _lastArmLog = "";
 
     public VariableOffsetTimer(MainForm form)
     {
@@ -197,6 +200,19 @@ public sealed class VariableOffsetTimer : BaseTimer
         VariableOffsetCalculator.AdjustmentFrames(_form.TextBoxFrame.Text),
         SelectedFps);
 
+    public int TakeFrameAdjustment()
+    {
+        int frames = VariableOffsetCalculator.FramesAdjusted(Adjusted, SelectedFps);
+        if (frames == 0) return 0;
+
+        Adjusted = 0.0;
+
+        if (ParseInputs(out VariableInfo info) == TimerError.NoError) WriteFrameBox(info.Frame);
+
+        Arm();
+        return frames;
+    }
+
     public override void OnTimerStart()
     {
         CurrentOffset = double.MaxValue;
@@ -204,8 +220,11 @@ public sealed class VariableOffsetTimer : BaseTimer
         Submitted = false;
         _hasLandingTarget = false;
         _started = true;
+        _lastArmLog = "";
         _form.TextBoxFrame.Enabled = true;
         ClearFlash();
+
+        _form.UnlockTrainerId();
 
         _form.ShowTimingStatus("Timer started", StarterTool.TimerStartLagMs);
 
@@ -254,6 +273,8 @@ public sealed class VariableOffsetTimer : BaseTimer
         else
         {
             ClearFlash();
+
+            _hasLandingTarget = false;
         }
 
         if (_started)
@@ -299,14 +320,21 @@ public sealed class VariableOffsetTimer : BaseTimer
 
         _hasLandingTarget = false;
 
+        int? landedFrame = LandedFrame(elapsedMs);
+        double chance = VariableOffsetCalculator.HitChance(deltaMs, _landingInfo.Fps);
+
+        LogLanding(elapsedMs, deltaMs, landedFrame, chance, pressLagMs);
+
         _form.ShowLanding(
-            VariableOffsetCalculator.LandedFrame(_landingInfo, elapsedMs, _landingAdjustedMs),
+            landedFrame,
             _landingTargetFrame,
             deltaMs,
-            VariableOffsetCalculator.HitChance(deltaMs, _landingInfo.Fps),
+            chance,
             VariableOffsetCalculator.FramesAdjusted(_landingAdjustedMs, _landingInfo.Fps),
             _landingStartLagMs - pressLagMs,
             _landingInfo.Fps);
+
+        StarterTool.Context.RecordHit();
         return true;
     }
 
@@ -329,6 +357,8 @@ public sealed class VariableOffsetTimer : BaseTimer
         double elapsedMs = Win32.GetTime() - startTimeMs;
 
         _form.LabelTimer.Sample();
+
+        _form.SampleContextPanel();
 
         double elapsed = elapsedMs / 1000.0;
         double ret = Math.Min(Math.Max(elapsed, 0.001), CurrentOffset);
@@ -400,11 +430,71 @@ public sealed class VariableOffsetTimer : BaseTimer
         _landingAdjustedMs = Adjusted;
         _hasLandingTarget = true;
 
+        LogArm();
+
         _form.TrainingPanel.RoundArmed(
             _landingTargetFrame, Info.Offset, Info.VisualOffset, VariableOffsetCalculator.LandingWindowMs(Info));
 
         Submitted = true;
         OnDataChange();
+    }
+
+    private int? LandedFrame(double elapsedMs)
+    {
+        int countdownFrame = VariableOffsetCalculator.FrameAtTime(_landingInfo, elapsedMs)
+                             - VariableOffsetCalculator.FramesAdjusted(_landingAdjustedMs, _landingInfo.Fps);
+
+        return StarterTool.Context.LandedFrame(countdownFrame);
+    }
+
+    private void LogArm()
+    {
+        string line = string.Format(CultureInfo.InvariantCulture,
+            "armed {0}: correction {1:+#;-#;+0} -> effective frame {2}, press due {3:F1} ms "
+            + "({4} frames of input lag), final beep {5:F1} ms, offset {6} ms, fps {7}",
+            VariableOffsetCalculator.FormatFrameWithAdjustment(
+                Info.Frame, VariableOffsetCalculator.FramesAdjusted(Adjusted, Info.Fps)),
+            Info.AdvanceCorrection,
+            VariableOffsetCalculator.EffectiveFrame(Info),
+            _landingTargetMs,
+            VariableOffsetCalculator.TidLagFrames,
+            CurrentOffset * 1000.0,
+            Info.Offset,
+            Info.Fps);
+
+        if (line == _lastArmLog) return;
+
+        _lastArmLog = line;
+        ContextSession.Log(line);
+    }
+
+    private void LogLanding(double elapsedMs, double deltaMs, int? landedFrame, double chance, double pressLagMs)
+    {
+        int unanchored = VariableOffsetCalculator.LandedFrame(_landingInfo, elapsedMs, _landingAdjustedMs);
+
+        ContextSession.Log(string.Format(CultureInfo.InvariantCulture,
+            "landing on {0}: pressed at {1:F1} ms ({2:+0.0;-0.0;0.0} ms off), tool clock frame {3}, "
+            + "likely {4} (unanchored {5}), runner-up {6} ({7:P0}), hit chance {8:P0} - "
+            + "correction {9:+#;-#;+0}, input lag {10} frames, start lag {11:F1} ms, press lag {12:F1} ms",
+            VariableOffsetCalculator.FormatFrameWithAdjustment(
+                (uint)Math.Max(_landingTargetFrame, 0),
+                VariableOffsetCalculator.FramesAdjusted(_landingAdjustedMs, _landingInfo.Fps)),
+            elapsedMs,
+            deltaMs,
+            VariableOffsetCalculator.FrameAtTime(_landingInfo, elapsedMs)
+                - VariableOffsetCalculator.TidLagFrames,
+            landedFrame is { } frame ? frame.ToString(CultureInfo.InvariantCulture) : "not anchored",
+            unanchored,
+            landedFrame is { } marked
+                ? VariableOffsetCalculator.AlternateFrame(marked, deltaMs, _landingInfo.Fps)
+                    .ToString(CultureInfo.InvariantCulture)
+                : "-",
+            VariableOffsetCalculator.AlternateChance(deltaMs, _landingInfo.Fps),
+            chance,
+            _landingInfo.AdvanceCorrection,
+            VariableOffsetCalculator.TidLagFrames,
+            _landingStartLagMs,
+            pressLagMs));
     }
 
     private void Disarm()
@@ -445,14 +535,31 @@ public sealed class VariableOffsetTimer : BaseTimer
         Arm();
     }
 
-    private TimerError ParseInputs(out VariableInfo info) => VariableOffsetCalculator.Parse(
-        _form.TextBoxFrame.Text,
-        _form.ComboBoxFps.SelectedItem as string,
-        _form.TextBoxOffset.Text,
-        _form.TextBoxVisualOffset.Text,
-        _form.TextBoxInterval.Text,
-        _form.TextBoxBeeps.Text,
-        out info);
+    private TimerError ParseInputs(out VariableInfo info)
+    {
+        TimerError error = VariableOffsetCalculator.Parse(
+            _form.TextBoxFrame.Text,
+            _form.ComboBoxFps.SelectedItem as string,
+            _form.TextBoxOffset.Text,
+            _form.TextBoxVisualOffset.Text,
+            _form.TextBoxInterval.Text,
+            _form.TextBoxBeeps.Text,
+            out info);
+
+        if (error == TimerError.NoError)
+        {
+            info.AdvanceCorrection = StarterTool.Context.Correction((int)info.Frame) ?? 0;
+        }
+
+        return error;
+    }
+
+    public void ApplyContextCorrection()
+    {
+        if (!Submitted) return;
+
+        Arm();
+    }
 
     private TimerError ParseScheduleInputs(out VariableInfo info) => VariableOffsetCalculator.Parse(
         "0",

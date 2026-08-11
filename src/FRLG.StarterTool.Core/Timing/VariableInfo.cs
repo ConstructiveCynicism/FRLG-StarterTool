@@ -13,4 +13,6 @@ public struct VariableInfo
     public uint Interval;
 
     public uint NumBeeps;
+
+    public int AdvanceCorrection;
 }
