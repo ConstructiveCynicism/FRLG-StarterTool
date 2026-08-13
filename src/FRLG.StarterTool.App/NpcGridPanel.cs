@@ -44,6 +44,8 @@ public sealed class NpcGridPanel : Control
     private string _status = "";
     private string _report = "";
 
+    private string _tip = "";
+
     private bool _labMode;
 
     private IReadOnlyList<HiddenMoves> _hidden = Array.Empty<HiddenMoves>();
@@ -184,10 +186,42 @@ public sealed class NpcGridPanel : Control
         Invalidate();
     }
 
+    public bool ShowDelayDashes
+    {
+        get => _showDelayDashes;
+        set
+        {
+            if (_showDelayDashes == value) return;
+            _showDelayDashes = value;
+            Invalidate();
+        }
+    }
+
+    private bool _showDelayDashes = true;
+
+    public bool ShowTips
+    {
+        get => _showTips;
+        set
+        {
+            if (_showTips == value) return;
+            _showTips = value;
+            Invalidate();
+        }
+    }
+
+    private bool _showTips = true;
+
     public void SetStatus(string status, string report)
     {
         _status = status;
         _report = report;
+        Invalidate();
+    }
+
+    public void SetTip(string tip)
+    {
+        _tip = tip;
         Invalidate();
     }
 
@@ -281,7 +315,12 @@ public sealed class NpcGridPanel : Control
 
     protected override void Dispose(bool disposing)
     {
-        if (disposing) _animation.Dispose();
+        if (disposing)
+        {
+            _animation.Dispose();
+            _tipFont?.Dispose();
+        }
+
         base.Dispose(disposing);
     }
 
@@ -334,6 +373,51 @@ public sealed class NpcGridPanel : Control
             DrawHiddenRow(g, new Rectangle(body.X, top + row * HiddenRowHeight, body.Width,
                 HiddenRowHeight), _hidden[row]);
         }
+
+        PaintTip(g);
+    }
+
+    private const string TipLabel = "Tip:";
+
+    private void PaintTip(Graphics g)
+    {
+        if (!_showTips || _tip.Length == 0) return;
+
+        var strip = new Rectangle(0, Math.Max(0, Height - ControlStripHeight), Width,
+            Math.Min(Height, ControlStripHeight));
+
+        using (var band = new SolidBrush(Theme.TipBack))
+        {
+            g.FillRectangle(band, strip);
+        }
+
+        using (var rule = new Pen(Theme.TipRule))
+        {
+            g.DrawLine(rule, strip.X, strip.Y, strip.Right - 1, strip.Y);
+        }
+
+        const TextFormatFlags flags = TextFormatFlags.Left | TextFormatFlags.VerticalCenter
+            | TextFormatFlags.NoPadding | TextFormatFlags.EndEllipsis;
+
+        var label = new Rectangle(strip.X + 4, strip.Y + 1, strip.Width - 8, strip.Height - 1);
+        TextRenderer.DrawText(g, TipLabel, BoldFont, label, Theme.SectionCaption, flags);
+
+        int labelWidth = TextRenderer.MeasureText(g, TipLabel, BoldFont, strip.Size, flags).Width;
+        var text = new Rectangle(label.X + labelWidth + 5, label.Y,
+            Math.Max(0, label.Width - labelWidth - 5), label.Height);
+
+        TextRenderer.DrawText(g, _tip, Font, text, Theme.Text, flags);
+    }
+
+    private Font BoldFont => _tipFont ??= new Font(Font, FontStyle.Bold);
+
+    private Font? _tipFont;
+
+    protected override void OnFontChanged(EventArgs e)
+    {
+        _tipFont?.Dispose();
+        _tipFont = null;
+        base.OnFontChanged(e);
     }
 
     private void DrawHiddenRow(Graphics g, Rectangle row, HiddenMoves hidden)
@@ -591,6 +675,8 @@ public sealed class NpcGridPanel : Control
         Column(header.X + LadyColumnX, Assets.Aide(), "Lady");
         Column(header.X + LadyColumnX + half, Assets.Scientist(), "Scientist");
 
+        DrawOffScreenBoxes(g, header);
+
         using var rule = new Pen(Theme.GridLine);
         g.DrawLine(rule, header.X, header.Bottom - 1, header.Right - 1, header.Bottom - 1);
 
@@ -615,6 +701,35 @@ public sealed class NpcGridPanel : Control
                 Theme.SectionCaption,
                 TextFormatFlags.Left | TextFormatFlags.VerticalCenter | TextFormatFlags.NoPadding);
         }
+    }
+
+    private void DrawOffScreenBoxes(Graphics g, Rectangle header)
+    {
+        int above = _firstRow;
+        int below = Math.Max(0, _boxes.Count - _firstRow - VisibleLabRows);
+        if (above == 0 && below == 0) return;
+
+        string caption = above > 0 && below > 0
+            ? string.Format(CultureInfo.InvariantCulture, "▲ {0}   ▼ {1} off screen", above, below)
+            : above > 0
+                ? string.Format(CultureInfo.InvariantCulture, "▲ {0} off screen", above)
+                : string.Format(CultureInfo.InvariantCulture, "▼ {0} off screen", below);
+
+        Size text = TextRenderer.MeasureText(g, caption, BoldFont);
+        var badge = new Rectangle(
+            Math.Max(header.X, header.Right - text.Width - 14),
+            header.Y + (header.Height - 1 - text.Height - 4) / 2,
+            Math.Min(header.Width, text.Width + 10),
+            text.Height + 4);
+
+        using (var fill = new SolidBrush(Theme.Accent))
+        {
+            g.FillRectangle(fill, badge);
+        }
+
+        TextRenderer.DrawText(g, caption, BoldFont, badge, Theme.AccentText,
+            TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter
+            | TextFormatFlags.NoPadding);
     }
 
     private void DrawLabRow(Graphics g, Rectangle row, LabOption box, int ordinal, int target,
@@ -695,14 +810,30 @@ public sealed class NpcGridPanel : Control
         }
 
         int room = Math.Max(1, strip.Width / GlyphWidth);
-        for (int i = 0; i < events.Count && i < room; i++)
+        int slot = 0;
+        int shown = 0;
+
+        Rectangle Cell(int at) =>
+            new(strip.X + at * GlyphWidth, strip.Y, GlyphWidth, strip.Height);
+
+        for (int i = 0; i < events.Count && slot < room; i++)
         {
-            DrawEventGlyph(g,
-                new Rectangle(strip.X + i * GlyphWidth, strip.Y, GlyphWidth, strip.Height),
-                events[i], events[i].Frame <= frame, box.Completes(events[i]));
+            int at = _showDelayDashes ? Math.Max(slot, SlotOf(events[i].Frame)) : slot;
+
+            for (; slot < at && slot < room; slot++)
+            {
+                DrawQuietGlyph(g, Cell(slot), IntervalEnd(slot, box) <= frame);
+            }
+
+            if (slot >= room) break;
+
+            DrawEventGlyph(g, Cell(slot), events[i], events[i].Frame <= frame,
+                box.Completes(events[i]));
+            slot++;
+            shown++;
         }
 
-        if (events.Count > room)
+        if (shown < events.Count)
         {
             TextRenderer.DrawText(g, "…", Font,
                 new Rectangle(strip.X + room * GlyphWidth - GlyphWidth / 2, strip.Y, GlyphWidth,
@@ -710,6 +841,25 @@ public sealed class NpcGridPanel : Control
                 Theme.DimText,
                 TextFormatFlags.Right | TextFormatFlags.VerticalCenter | TextFormatFlags.NoPadding);
         }
+    }
+
+    private const int QuietIntervalFrames = MovementStrip.QuietIntervalFrames;
+
+    private static int SlotOf(int frame) => MovementStrip.SlotOf(frame);
+
+    private static int IntervalEnd(int slot, LabCandidate box) =>
+        Math.Min((slot + 1) * QuietIntervalFrames, box.ObservableFrames);
+
+    private static void DrawQuietGlyph(Graphics g, Rectangle cell, bool passed)
+    {
+        Color ink = passed ? Theme.DimText : Color.FromArgb(0x60, Theme.DimText);
+
+        float cx = cell.X + cell.Width / 2f;
+        float cy = cell.Y + cell.Height / 2f;
+        float arm = cell.Width * 0.26f;
+
+        using var pen = new Pen(ink, 1.4f);
+        g.DrawLine(pen, cx - arm, cy, cx + arm, cy);
     }
 
     private static void DrawEventGlyph(Graphics g, Rectangle cell, NpcEvent e, bool started,

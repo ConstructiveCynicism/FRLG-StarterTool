@@ -114,6 +114,9 @@ public partial class MainForm
         ApplyFilter(preset);
         Settings.ActivePreset = preset.Name;
 
+        if (StarterTool.IsTimerRunning) return;
+
+        ReopenTrainerIdCaret();
         FocusTrainerId();
     }
 

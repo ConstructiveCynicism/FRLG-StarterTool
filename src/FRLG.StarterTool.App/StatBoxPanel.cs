@@ -11,6 +11,8 @@ public sealed class StatBoxPanel : Panel
 
     private const int FrameThickness = 2;
 
+    private int Frame => Math.Max(1, (int)Math.Round(FrameThickness * BoxScale));
+
     private const int StripTop = 48;
 
     private const int CaptionBaseline = 20;
@@ -62,6 +64,8 @@ public sealed class StatBoxPanel : Panel
     }
 
     public static event EventHandler? LabelColorChanged;
+
+    private float BoxScale => Height / (float)BoxHeight;
 
     private int[] _values = new int[6];
     private string _nature = "";
@@ -117,15 +121,18 @@ public sealed class StatBoxPanel : Panel
 
         using var family = new FontFamily("Microsoft Sans Serif");
 
-        int interior = Width - 2 * FrameThickness;
+        float scale = BoxScale;
+        int frame = Frame;
+        int interior = Width - 2 * frame;
         for (int stat = 0; stat < 6; stat++)
         {
-            float centre = FrameThickness + interior * (2 * stat + 1) / 12f;
-            DrawText(g, StatCaptions[stat], family, FontSize, centre, CaptionBaseline, LabelColor, StringAlignment.Center);
+            float centre = frame + interior * (2 * stat + 1) / 12f;
+            DrawText(g, StatCaptions[stat], family, FontSize * scale, centre, CaptionBaseline * scale,
+                LabelColor, StringAlignment.Center);
             DrawText(
                 g,
                 _values[stat].ToString(CultureInfo.InvariantCulture),
-                family, FontSize, centre, ValueBaseline, Color.White, StringAlignment.Center);
+                family, FontSize * scale, centre, ValueBaseline * scale, Color.White, StringAlignment.Center);
         }
 
         DrawStrip(g, family);
@@ -142,14 +149,16 @@ public sealed class StatBoxPanel : Panel
         }
         using (var fill = new SolidBrush(FillColor))
         {
-            int interior = Width - 2 * FrameThickness;
-            g.FillRectangle(fill, FrameThickness, FrameThickness, interior, StripTop - FrameThickness);
+            int frame = Frame;
+            int stripTop = (int)Math.Round(StripTop * BoxScale);
+            int interior = Width - 2 * frame;
+            g.FillRectangle(fill, frame, frame, interior, stripTop - frame);
             g.FillRectangle(
                 fill,
-                FrameThickness,
-                StripTop + FrameThickness,
+                frame,
+                stripTop + frame,
                 interior,
-                Height - StripTop - 2 * FrameThickness);
+                Height - stripTop - 2 * frame);
         }
 
         g.SmoothingMode = pixels;
@@ -157,38 +166,43 @@ public sealed class StatBoxPanel : Panel
 
     private void DrawStrip(Graphics g, FontFamily family)
     {
-        float natureRight = Width - FrameThickness;
+        float scale = BoxScale;
+        float size = StripFontSize * scale;
+        float inset = CellInset * scale;
+        float gap = CellGap * scale;
+        float baseline = StripBaseline * scale;
+        float natureRight = Width - Frame;
 
         if (_trailingCaption.Length > 0)
         {
-            float captionWidth = Measure(g, family, _trailingCaption);
-            float cellWidth = CellInset + captionWidth + CellGap + Measure(g, family, _trailingSample) + CellInset;
+            float captionWidth = Measure(g, family, _trailingCaption, size);
+            float cellWidth = inset + captionWidth + gap + Measure(g, family, _trailingSample, size) + inset;
             natureRight -= cellWidth;
 
-            float captionX = natureRight + CellInset;
+            float captionX = natureRight + inset;
             DrawText(
-                g, _trailingCaption, family, StripFontSize, captionX, StripBaseline, LabelColor, StringAlignment.Near);
+                g, _trailingCaption, family, size, captionX, baseline, LabelColor, StringAlignment.Near);
             DrawText(
-                g, _trailingValue, family, StripFontSize, captionX + captionWidth + CellGap, StripBaseline,
+                g, _trailingValue, family, size, captionX + captionWidth + gap, baseline,
                 Color.White, StringAlignment.Near);
         }
 
         float natureCaptionRight = DrawText(
-            g, "NATURE", family, StripFontSize, FrameThickness + CellInset, StripBaseline, LabelColor,
+            g, "NATURE", family, size, Frame + inset, baseline, LabelColor,
             StringAlignment.Near);
 
         DrawText(
-            g, _nature, family, StripFontSize, natureCaptionRight + CellGap, StripBaseline, Color.White,
+            g, _nature, family, size, natureCaptionRight + gap, baseline, Color.White,
             StringAlignment.Near);
     }
 
-    private static float Measure(Graphics g, FontFamily family, string text) =>
+    private static float Measure(Graphics g, FontFamily family, string text, float size) =>
         string.IsNullOrEmpty(text)
             ? 0f
-            : DrawText(g, text, family, StripFontSize, 0, 0, Color.Empty, StringAlignment.Near, measureOnly: true) + 1f;
+            : DrawText(g, text, family, size, 0, 0, Color.Empty, StringAlignment.Near, measureOnly: true) + 1f;
 
     private static float DrawText(
-        Graphics g, string text, FontFamily family, float size, float x, int baseline, Color colour,
+        Graphics g, string text, FontFamily family, float size, float x, float baseline, Color colour,
         StringAlignment alignment, bool measureOnly = false)
     {
         if (string.IsNullOrEmpty(text)) return x;

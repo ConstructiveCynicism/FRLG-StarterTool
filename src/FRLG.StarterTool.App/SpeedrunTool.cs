@@ -56,6 +56,8 @@ public static class StarterTool
 
         Thread.CurrentThread.Priority = ThreadPriority.AboveNormal;
 
+        bool firstRun = !File.Exists(SettingsStore.DefaultPath);
+
         Settings = SettingsStore.Load(SettingsStore.DefaultPath, out string? loadError);
         if (loadError != null)
         {
@@ -63,6 +65,8 @@ public static class StarterTool
                 "The settings could not be loaded and have been reset to their default values.\n" + loadError,
                 "Settings", MessageBoxButtons.OK, MessageBoxIcon.Error);
         }
+
+        if (firstRun) Settings.ZoomPercent = DefaultZoomPercent();
 
         MainForm = mainForm;
         ApplyTheme();
@@ -74,6 +78,9 @@ public static class StarterTool
         MainFormHandle = mainForm.Handle;
         StartHookThread();
     }
+
+    private static int DefaultZoomPercent() =>
+        (Screen.PrimaryScreen?.WorkingArea.Height ?? 1080) <= 1080 ? 75 : 100;
 
     private static void StartHookThread()
     {
@@ -144,18 +151,25 @@ public static class StarterTool
             return;
         }
 
-        using var form = new SettingsForm(Settings);
-        SettingsForm = form;
-        bool unpinned = SuspendAlwaysOnTop();
-        try
+        bool reopen;
+        do
         {
-            form.ShowDialog(MainForm);
+            using var form = new SettingsForm(Settings);
+            SettingsForm = form;
+            bool unpinned = SuspendAlwaysOnTop();
+            try
+            {
+                form.ShowDialog(MainForm);
+            }
+            finally
+            {
+                SettingsForm = null;
+                RestoreAlwaysOnTop(unpinned);
+            }
+
+            reopen = form.ReopenForZoom;
         }
-        finally
-        {
-            SettingsForm = null;
-            RestoreAlwaysOnTop(unpinned);
-        }
+        while (reopen);
 
         SaveSettings();
     }
@@ -232,7 +246,7 @@ public static class StarterTool
                     && !IsMasterSwitch(key))
                 {
                     bool typing = MainForm.NumberFieldFocused
-                                  && (Win32.IsForeground(MainFormHandle)
+                                  && ((Win32.IsForeground(MainFormHandle) && MainForm.IsTextEntryKey(key))
                                       || (IsTimerRunning && MainForm.IsNumberKey(key)));
 
                     bool bound = !typing
@@ -397,7 +411,7 @@ public static class StarterTool
 
         if (!timerExpired)
         {
-            if (Context.Tracking) ContextSession.Log("--- run stopped ---");
+            Context.LogStop();
             Context.Reset();
         }
         else

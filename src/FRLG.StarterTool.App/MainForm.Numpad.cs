@@ -8,7 +8,7 @@ public partial class MainForm
 
     public static bool NumberFieldFocused => _numberFieldFocused;
 
-    private static void WatchNumberFields(Control parent)
+    private void WatchNumberFields(Control parent)
     {
         foreach (Control control in parent.Controls)
         {
@@ -16,6 +16,13 @@ public partial class MainForm
             {
                 box.Enter += (_, _) => _numberFieldFocused = true;
                 box.Leave += (_, _) => _numberFieldFocused = false;
+
+                box.KeyUp += (_, e) =>
+                {
+                    if (e.KeyCode != Keys.Enter) return;
+
+                    if (box.Focused) ReleaseNumberField(box);
+                };
             }
 
             WatchNumberFields(control);
@@ -26,6 +33,29 @@ public partial class MainForm
         key is >= Keys.D0 and <= Keys.D9
             or >= Keys.NumPad0 and <= Keys.NumPad9
             or Keys.Decimal;
+
+    private void ReleaseNumberField(TextBox box)
+    {
+        TakeCaret(ListViewResults);
+        if (box.Focused) ActiveControl = null;
+    }
+
+    public static bool IsTextEntryKey(Keys key) => key switch
+    {
+        >= Keys.D0 and <= Keys.D9 => true,
+        >= Keys.A and <= Keys.Z => true,
+        >= Keys.NumPad0 and <= Keys.NumPad9 => true,
+        >= Keys.Oem1 and <= Keys.OemBackslash => true,
+        Keys.Multiply or Keys.Add or Keys.Subtract or Keys.Decimal or Keys.Divide => true,
+        Keys.Space => true,
+
+        Keys.Enter or Keys.Escape or Keys.Tab => true,
+        Keys.Back or Keys.Delete or Keys.Insert => true,
+        Keys.Left or Keys.Right or Keys.Up or Keys.Down => true,
+        Keys.Home or Keys.End or Keys.PageUp or Keys.PageDown => true,
+
+        _ => false
+    };
 
     public void ScrollResults(HotkeyAction action)
     {

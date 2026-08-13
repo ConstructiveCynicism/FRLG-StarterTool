@@ -42,6 +42,12 @@ public sealed class VariableOffsetTimer : BaseTimer
 
     private System.Windows.Forms.Timer? _armDebounce;
 
+    private readonly CueRun _beepRun = new();
+
+    private readonly CueRun _flashRun = new();
+
+    private System.Windows.Forms.Timer? _landingWindowClose;
+
     private bool _writingFrameBox;
 
     private bool _started;
@@ -86,6 +92,9 @@ public sealed class VariableOffsetTimer : BaseTimer
             _armDebounce!.Stop();
             Arm();
         };
+
+        _landingWindowClose = new System.Windows.Forms.Timer();
+        _landingWindowClose.Tick += (_, _) => CloseLandingWindow();
 
         _form.TextBoxFrame.TextChanged += (_, _) =>
         {
@@ -158,6 +167,10 @@ public sealed class VariableOffsetTimer : BaseTimer
     public bool TrainingUsesVisualOffset =>
         _form.CheckBoxFlashEnabled.Checked && !_form.CheckBoxBeepEnabled.Checked;
 
+    public bool OffsetsShared =>
+        _form.CheckBoxBeepEnabled.Checked && _form.CheckBoxFlashEnabled.Checked
+        && OffsetMs == VisualOffsetMs;
+
     public void ApplyOffset(int offsetMs)
     {
         _form.TextBoxOffset.Text = offsetMs.ToString(CultureInfo.InvariantCulture);
@@ -221,7 +234,10 @@ public sealed class VariableOffsetTimer : BaseTimer
         CurrentTime = 0.0;
         Submitted = false;
         _hasLandingTarget = false;
+        _landingWindowClose?.Stop();
         _countdownStartMs = double.MaxValue;
+        _beepRun.Reset();
+        _flashRun.Reset();
         _started = true;
         _lastArmLog = "";
         _form.TextBoxFrame.Enabled = true;
@@ -265,6 +281,8 @@ public sealed class VariableOffsetTimer : BaseTimer
         Adjusted = 0.0;
         CurrentOffset = double.MaxValue;
         _countdownStartMs = double.MaxValue;
+        _beepRun.Reset();
+        _flashRun.Reset();
         CurrentTime = 0.0;
         _form.TextBoxFrame.Enabled = false;
         _form.TextBoxFrame.Text = "";
@@ -273,10 +291,14 @@ public sealed class VariableOffsetTimer : BaseTimer
         if (StarterTool.TimerExpired)
         {
             _form.LabelTimer.LetFlashFinish();
+
+            ArmLandingWindowClose();
         }
         else
         {
             ClearFlash();
+
+            _landingWindowClose?.Stop();
 
             _hasLandingTarget = false;
         }
@@ -323,6 +345,7 @@ public sealed class VariableOffsetTimer : BaseTimer
         if (Math.Abs(deltaMs) > window) return false;
 
         _hasLandingTarget = false;
+        _landingWindowClose?.Stop();
 
         int countdownFrame = CountdownFrameAt(elapsedMs);
         int? landedFrame = StarterTool.Context.LandedFrame(countdownFrame);
@@ -339,8 +362,33 @@ public sealed class VariableOffsetTimer : BaseTimer
             _landingStartLagMs - pressLagMs,
             _landingInfo.Fps);
 
-        StarterTool.Context.RecordHit(countdownFrame);
+        StarterTool.Context.RecordHit(countdownFrame, deltaMs, chance,
+            TrainingUsesVisualOffset ? VisualOffsetMs : OffsetMs);
         return true;
+    }
+
+    private void ArmLandingWindowClose()
+    {
+        if (_landingWindowClose == null || !_hasLandingTarget) return;
+
+        double remainingMs = _landingTimerStart
+            + VariableOffsetCalculator.LandingCloseMs(_landingInfo, _landingAdjustedMs)
+            - Win32.GetTime();
+
+        if (remainingMs <= 0.0)
+        {
+            CloseLandingWindow();
+            return;
+        }
+
+        _landingWindowClose.Interval = (int)Math.Ceiling(remainingMs);
+        _landingWindowClose.Start();
+    }
+
+    private void CloseLandingWindow()
+    {
+        _landingWindowClose?.Stop();
+        StarterTool.Context.Unpressed();
     }
 
     public void CaptureSettings(AppSettings settings)
@@ -360,6 +408,8 @@ public sealed class VariableOffsetTimer : BaseTimer
     {
         OnDataChange();
         double elapsedMs = Win32.GetTime() - startTimeMs;
+
+        StarterTool.Context.FireCue(elapsedMs);
 
         CloseTrackingAtCountdown(elapsedMs);
 
@@ -391,7 +441,7 @@ public sealed class VariableOffsetTimer : BaseTimer
         bool canAdjust = error == TimerError.NoError
                          && StarterTool.IsTimerRunning
                          && (Submitted
-                             ? VariableOffsetCalculator.CanAdjust(Info, currentTime, CurrentOffset)
+                             ? VariableOffsetCalculator.CanAdjust(currentTime, CurrentOffset)
                              : VariableOffsetCalculator.CanSubmit(Info, currentTime));
         _form.ButtonPlus.Enabled = canAdjust;
         _form.ButtonMinus.Enabled = canAdjust;
@@ -411,28 +461,40 @@ public sealed class VariableOffsetTimer : BaseTimer
 
         if (!StarterTool.IsTimerRunning) return;
 
-        if (ParseInputs(out Info) != TimerError.NoError
-            || !VariableOffsetCalculator.CanSubmit(Info, CurrentTime))
+        if (ParseInputs(out Info) != TimerError.NoError)
         {
             Disarm();
             return;
         }
 
         double elapsedMs = Win32.GetTime() - StarterTool.TimerStart;
+
+        bool full = VariableOffsetCalculator.CanSubmit(Info, CurrentTime);
         double finalBeepMs = VariableOffsetCalculator.BeepOffsetMs(Info, elapsedMs, Adjusted);
+
+        if (!full && (!Submitted || finalBeepMs < 0.0))
+        {
+            Disarm();
+            return;
+        }
+
+        int beepsPlayed = full ? 0 : _beepRun.Played(elapsedMs);
+        int flashesPlayed = full ? 0 : _flashRun.Played(elapsedMs);
+
         double[] schedule = _form.CheckBoxBeepEnabled.Checked
-            ? VariableOffsetCalculator.BeepSchedule(finalBeepMs, Info.Interval, Info.NumBeeps)
+            ? ArmRemaining(full, finalBeepMs, beepsPlayed)
             : Array.Empty<double>();
 
-        StarterTool.Beeps.QueueBeeps(schedule);
+        QueueAudio(schedule);
 
-        _form.LabelTimer.SetSchedule(
-            _form.CheckBoxFlashEnabled.Checked
-                ? VariableOffsetCalculator.FlashSchedule(
-                    VariableOffsetCalculator.FlashTargetMs(Info, Adjusted), Info.Interval, Info.NumBeeps)
-                : Array.Empty<double>(),
-            Info.Interval,
-            StarterTool.TimerStart);
+        double[] flashes = _form.CheckBoxFlashEnabled.Checked
+            ? ArmRemaining(full, VariableOffsetCalculator.FlashTargetMs(Info, Adjusted), flashesPlayed, elapsedMs)
+            : Array.Empty<double>();
+
+        _form.LabelTimer.SetSchedule(flashes, CueSpacing(flashes, Info.Interval), StarterTool.TimerStart);
+
+        _beepRun.Set(FromTimerStart(schedule, elapsedMs), beepsPlayed);
+        _flashRun.Set(flashes, flashesPlayed);
 
         CurrentOffset = VariableOffsetCalculator.TargetTimeSeconds(Info, Adjusted);
 
@@ -451,7 +513,7 @@ public sealed class VariableOffsetTimer : BaseTimer
             _form.CheckBoxFlashEnabled.Checked)
             - VariableOffsetCalculator.CueGuardMs;
 
-        LogArm();
+        LogArm(full ? null : schedule.Length);
 
         _form.TrainingPanel.RoundArmed(
             _landingTargetFrame, Info.Offset, Info.VisualOffset, VariableOffsetCalculator.LandingWindowMs(Info));
@@ -460,11 +522,67 @@ public sealed class VariableOffsetTimer : BaseTimer
         OnDataChange();
     }
 
+    private double[] ArmRemaining(bool full, double finalCueMs, int played, double floorMs = 0.0) =>
+        full
+            ? VariableOffsetCalculator.BeepSchedule(finalCueMs, Info.Interval, Info.NumBeeps)
+            : VariableOffsetCalculator.RemainingSchedule(
+                finalCueMs, Info.Interval, (int)Info.NumBeeps - played, floorMs);
+
+    private static double CueSpacing(double[] schedule, uint intervalMs)
+        => schedule.Length >= 2 ? schedule[^1] - schedule[^2] : intervalMs;
+
+    private static double[] FromTimerStart(double[] offsetsMs, double elapsedMs)
+    {
+        var times = new double[offsetsMs.Length];
+        for (int i = 0; i < offsetsMs.Length; i++)
+        {
+            times[i] = offsetsMs[i] + elapsedMs;
+        }
+
+        return times;
+    }
+
+    private void QueueAudio(IReadOnlyList<double> countdown)
+    {
+        double[] cue = CueSchedule();
+        if (cue.Length == 0)
+        {
+            StarterTool.Beeps.QueueBeeps(countdown);
+            return;
+        }
+
+        var both = new List<double>(cue.Length + countdown.Count);
+        both.AddRange(cue);
+        both.AddRange(countdown);
+        StarterTool.Beeps.QueueBeeps(both);
+    }
+
+    private void QueueCueOnly()
+    {
+        double[] cue = CueSchedule();
+
+        if (cue.Length > 0) StarterTool.Beeps.QueueBeeps(cue);
+        else StarterTool.Beeps.ClearPending();
+    }
+
+    private double[] CueSchedule()
+    {
+        if (!_form.CheckBoxBeepEnabled.Checked) return Array.Empty<double>();
+        if (StarterTool.Context.CuePressMs is not { } cue) return Array.Empty<double>();
+        if (ParseScheduleInputs(out VariableInfo info) != TimerError.NoError) return Array.Empty<double>();
+
+        double elapsedMs = Win32.GetTime() - StarterTool.TimerStart;
+        double finalBeepMs = cue + VariableOffsetCalculator.TidLagFrames / info.Fps * 1000.0
+            + info.Offset - elapsedMs;
+
+        return VariableOffsetCalculator.BeepSchedule(finalBeepMs, info.Interval, info.NumBeeps);
+    }
+
     private int CountdownFrameAt(double elapsedMs) =>
         VariableOffsetCalculator.FrameAtTime(_landingInfo, elapsedMs)
         - VariableOffsetCalculator.FramesAdjusted(_landingAdjustedMs, _landingInfo.Fps);
 
-    private void LogArm()
+    private void LogArm(int? salvagedBeeps)
     {
         string line = string.Format(CultureInfo.InvariantCulture,
             "armed {0}: correction {1:+#;-#;+0} -> effective frame {2}, press due {3:F1} ms "
@@ -478,6 +596,12 @@ public sealed class VariableOffsetTimer : BaseTimer
             CurrentOffset * 1000.0,
             Info.Offset,
             Info.Fps);
+
+        if (salvagedBeeps is { } beeps)
+        {
+            line += string.Format(CultureInfo.InvariantCulture,
+                " - re-cut mid-countdown, {0} of {1} beeps left", beeps, Info.NumBeeps);
+        }
 
         if (line == _lastArmLog) return;
 
@@ -524,7 +648,9 @@ public sealed class VariableOffsetTimer : BaseTimer
         CurrentOffset = double.MaxValue;
         _hasLandingTarget = false;
         _countdownStartMs = double.MaxValue;
-        StarterTool.Beeps.ClearPending();
+        _beepRun.Reset();
+        _flashRun.Reset();
+        QueueCueOnly();
         OnDataChange();
     }
 
@@ -574,7 +700,11 @@ public sealed class VariableOffsetTimer : BaseTimer
 
     public void ApplyContextCorrection()
     {
-        if (!Submitted) return;
+        if (!Submitted)
+        {
+            QueueCueOnly();
+            return;
+        }
 
         Arm();
     }
@@ -587,4 +717,30 @@ public sealed class VariableOffsetTimer : BaseTimer
         _form.TextBoxInterval.Text,
         _form.TextBoxBeeps.Text,
         out info);
+
+    private sealed class CueRun
+    {
+        private double[] _times = Array.Empty<double>();
+
+        private int _delivered;
+
+        public int Played(double elapsedMs)
+        {
+            int played = _delivered;
+            foreach (double time in _times)
+            {
+                if (time <= elapsedMs + VariableOffsetCalculator.CueGuardMs) played++;
+            }
+
+            return played;
+        }
+
+        public void Set(double[] times, int played)
+        {
+            _times = times;
+            _delivered = played;
+        }
+
+        public void Reset() => Set(Array.Empty<double>(), 0);
+    }
 }

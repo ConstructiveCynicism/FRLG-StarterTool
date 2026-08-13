@@ -16,11 +16,15 @@ public partial class MainForm : Form
 
     private int? _landingFrame;
 
-    public bool HasLanding => _landingFrame != null;
+    private int? _landingTarget;
+
+    public bool HasLanding => _landingFrame != null || _landingTarget != null;
 
     private double _landingChance;
 
     private int? _landingAlternate;
+
+    private readonly HashSet<int> _landingContext = new();
 
     private bool _reportingLanding;
 
@@ -61,6 +65,7 @@ public partial class MainForm : Form
         MenuItemGlobalHotkeys.CheckedChanged += (_, _) => RefreshGlobalHotkeys();
         MenuItemTraining.CheckedChanged += (_, _) => ShowTraining(MenuItemTraining.Checked);
         MenuItemContextTracking.CheckedChanged += (_, _) => ShowContextTracking(MenuItemContextTracking.Checked);
+        MenuItemTroubleshooter.CheckedChanged += (_, _) => ShowTroubleshooter(MenuItemTroubleshooter.Checked);
         StarterTool.Context.Changed += (_, _) => ShowContextSession();
         ButtonContextUndo.Click += (_, _) => StarterTool.Context.Undo();
         ButtonContextClear.Click += (_, _) => StarterTool.Context.Clear();
@@ -77,6 +82,17 @@ public partial class MainForm : Form
 
         TextBoxTrainerId.KeyPress += TextBoxTrainerId_KeyPress;
         TextBoxTrainerId.KeyDown += TextBoxTrainerId_KeyDown;
+        TextBoxTrainerId.Enter += (_, _) => BounceTrainerIdCaret();
+
+        TextBoxTrainerId.TextChanged += (_, _) =>
+        {
+            if (int.TryParse(TextBoxTrainerId.Text.Trim(), NumberStyles.Integer,
+                    CultureInfo.InvariantCulture, out int typed)
+                && typed > 0 && typed <= MaxTrainerId)
+            {
+                RunLog.SetTrainerId(typed);
+            }
+        };
 
         TextBoxSearchFrame.KeyPress += TextBoxTrainerId_KeyPress;
         TextBoxSearchFrame.KeyDown += (_, e) =>
@@ -87,7 +103,10 @@ public partial class MainForm : Form
             e.SuppressKeyPress = true;
         };
 
-        foreach (Control input in new Control[] { TextBoxMinFrame, TextBoxMaxFrame, ComboBoxPokemon })
+        var searchInputs = new List<Control> { TextBoxMinFrame, TextBoxMaxFrame, ComboBoxPokemon };
+        searchInputs.AddRange(TextBoxIvThresholds.Cast<TextBox>().Distinct());
+
+        foreach (Control input in searchInputs)
         {
             input.KeyDown += (_, e) =>
             {
@@ -150,11 +169,16 @@ public partial class MainForm : Form
 
     public void ApplySettings(AppSettings settings)
     {
+        ApplyZoom(settings.ZoomPercent);
+
         ButtonLevelToggle.Checked = settings.Level == 6;
         RefreshStatBoxLevel();
         StatBoxPanel.LabelColor = StatBoxPanel.ParseColor(settings.StatBoxLabelColor);
         StatBoxPanel.FillColor = StatBoxPanel.ParseFillColor(settings.StatBoxFillColor);
         TrainingPanel.LoadRounds(settings.TrainingRounds);
+
+        ContextPanel.ShowDelayDashes = settings.ShowLabDelayDashes;
+        ContextPanel.ShowTips = settings.ShowRunTips;
 
         ApplyTimeFormat();
 
@@ -181,9 +205,9 @@ public partial class MainForm : Form
 
         if (!StarterTool.IsTimerRunning) LabelTimer.Text = TimeText.Format(0.0, format);
 
-        ListViewResults.Columns[TimeColumnIndex].Width = format == TimeFormat.Minutes
+        ListViewResults.Columns[TimeColumnIndex].Width = Scaled(format == TimeFormat.Minutes
             ? MinutesTimeColumnWidth
-            : SecondsTimeColumnWidth;
+            : SecondsTimeColumnWidth);
         FitLastColumn();
 
         if (_results.Count > 0) ListViewResults.RedrawItems(0, _results.Count - 1, true);
@@ -220,6 +244,8 @@ public partial class MainForm : Form
     {
         if (!training) TrainingPanel.Cancel();
 
+        if (training && MenuItemTroubleshooter.Checked) MenuItemTroubleshooter.Checked = false;
+
         TrainingPanel.Visible = training;
         ListViewResults.Visible = !training;
         GroupBoxResults.Text = training ? "Offset Training" : "Found List";
@@ -228,11 +254,15 @@ public partial class MainForm : Form
 
         ClearLanding();
         LabelLanding.Text = "";
+
+        RefreshContextTracking();
     }
 
     private void ShowContextTracking(bool tracking)
     {
-        StarterTool.Context.Tracking = tracking;
+        if (!tracking && MenuItemTroubleshooter.Checked) MenuItemTroubleshooter.Checked = false;
+
+        RefreshContextTracking();
 
         GroupBoxContext.Visible = tracking;
         ClientSize = new Size(
@@ -241,8 +271,48 @@ public partial class MainForm : Form
         if (tracking) ShowContextSession();
     }
 
+    private void RefreshContextTracking() =>
+        StarterTool.Context.Tracking = MenuItemContextTracking.Checked
+            && !TrainingPanel.Visible
+            && !TroubleshootPanel.Visible;
+
+    private void ShowTroubleshooter(bool showing)
+    {
+        if (showing && !MenuItemContextTracking.Checked)
+        {
+            MenuItemContextTracking.Checked = true;
+        }
+
+        if (showing && MenuItemTraining.Checked) MenuItemTraining.Checked = false;
+
+        TroubleshootPanel.Visible = showing;
+        ContextPanel.Visible = !showing;
+
+        foreach (Control button in new Control[]
+                 {
+                     ButtonContextUndo, ButtonContextClear, ButtonContextMiss,
+                     ButtonContextLate, ButtonContextFinished, ButtonContextAnchor
+                 })
+        {
+            if (showing) button.Visible = false;
+        }
+
+        RefreshContextTracking();
+
+        if (showing)
+        {
+            TroubleshootPanel.Reload();
+        }
+        else
+        {
+            ShowContextSession();
+        }
+    }
+
     private void ShowContextSession()
     {
+        if (TroubleshootPanel.Visible) return;
+
         ContextSession session = StarterTool.Context;
         ContextPanel.SetStatus(session.Summary, session.Report);
 
@@ -256,7 +326,12 @@ public partial class MainForm : Form
             ButtonContextFinished.Visible = false;
 
             ButtonContextLate.Visible = session.Hidden.Count == 0;
-            ButtonContextLate.Text = lab is { Late: true } ? "I'm Fast!" : "I'm Slow!";
+            ButtonContextLate.Text = lab?.Lateness switch
+            {
+                LabLateness.Late => "Very Late!",
+                LabLateness.VeryLate => "I'm Fast!",
+                _ => "I'm Late!",
+            };
             ButtonContextLate.Enabled = lab is { All.Count: > 0 };
 
             ContextPanel.SetLabField(
@@ -300,6 +375,8 @@ public partial class MainForm : Form
         ButtonContextMiss.Visible = session.Hidden.Count == 0;
         ButtonContextMiss.Enabled = session.CanMiss;
 
+        ContextPanel.SetTip(session.Tip);
+
         ContextPanel.SetHidden(session.Hidden);
     }
 
@@ -330,13 +407,43 @@ public partial class MainForm : Form
     public void LockTrainerId()
     {
         _trainerIdLocked = true;
+        _trainerIdCaretClosed = true;
 
         if (ReferenceEquals(ActiveControl, TextBoxTrainerId)) TakeCaret(ListViewResults);
     }
 
-    public void UnlockTrainerId() => _trainerIdLocked = false;
+    public void UnlockTrainerId()
+    {
+        _trainerIdLocked = false;
+        _trainerIdCaretClosed = false;
+    }
 
     private bool _trainerIdLocked;
+
+    private bool _trainerIdCaretClosed;
+
+    private void ReopenTrainerIdCaret() => _trainerIdCaretClosed = false;
+
+    protected override void OnActivated(EventArgs e)
+    {
+        base.OnActivated(e);
+
+        if (!_trainerIdCaretClosed || ActiveControl != null) return;
+
+        TakeCaret(ListViewResults);
+    }
+
+    private void BounceTrainerIdCaret()
+    {
+        if (!_trainerIdCaretClosed) return;
+        if (MouseButtons != MouseButtons.None) return;
+        if (!ReferenceEquals(ActiveForm, this)) return;
+
+        BeginInvoke(() =>
+        {
+            if (ReferenceEquals(ActiveControl, TextBoxTrainerId)) TakeCaret(ListViewResults);
+        });
+    }
 
     public void FocusTrainerId()
     {
@@ -399,7 +506,13 @@ public partial class MainForm : Form
         UseWaitCursor = true;
         try
         {
-            ShowResults(PredictorSearch.Search(criteria), 0);
+            List<PokemonRng> results = PredictorSearch.Search(criteria);
+
+            ContextSession.Log(string.Format(CultureInfo.InvariantCulture,
+                "search: TID {0}, frames {1}-{2}, {3} results",
+                criteria.Seed, criteria.MinFrame, criteria.MaxFrame, results.Count));
+
+            ShowResults(results, 0);
         }
         finally
         {
@@ -433,6 +546,8 @@ public partial class MainForm : Form
     private async void CalculateOdds()
     {
         PredictorSearchCriteria criteria = ReadCriteria();
+
+        if (StarterTool.Settings != null) StarterTool.Settings.TipOddsCalculated = true;
 
         ButtonCalculateOdds.Enabled = false;
         ButtonCalculateOdds.Text = "Calculating...";
@@ -475,19 +590,21 @@ public partial class MainForm : Form
         SearchAroundFrame(frame);
     }
 
+    private const int SearchRadius = 20;
+
     private void SearchAroundFrame(int centre)
     {
         ClearLanding();
         SearchAroundFrame(centre, centre, takeFocus: true);
     }
 
-    private void SearchAroundFrame(int centre, int selectFrame, bool takeFocus)
+    private void SearchAroundFrame(int centre, int selectFrame, bool takeFocus, int radius = SearchRadius)
     {
         var seed = new Seed(ReadTrainerId());
 
-        var around = new List<PokemonRng>(40);
+        var around = new List<PokemonRng>(radius * 2);
         int selected = -1;
-        for (int frame = centre - 20; frame < centre + 20; frame++)
+        for (int frame = centre - radius; frame < centre + radius; frame++)
         {
             if (frame < 0) continue;
 
@@ -599,7 +716,11 @@ public partial class MainForm : Form
         FitLastColumn();
         ListViewResults.Refresh();
 
-        if (takeFocus) TakeCaret(ListViewResults);
+        if (takeFocus)
+        {
+            _trainerIdCaretClosed = true;
+            TakeCaret(ListViewResults);
+        }
 
         if (_results.Count == 0)
         {
@@ -632,6 +753,7 @@ public partial class MainForm : Form
         const int MinLastColumnWidth = 33;
 
         ColumnHeader last = ListViewResults.Columns[ListViewResults.Columns.Count - 1];
+        int minLast = Scaled(MinLastColumnWidth);
         int used = 0;
         foreach (ColumnHeader column in ListViewResults.Columns)
         {
@@ -639,7 +761,7 @@ public partial class MainForm : Form
         }
 
         int fill = ListViewResults.ClientSize.Width - used;
-        if (fill >= MinLastColumnWidth && fill != last.Width) last.Width = fill;
+        if (fill >= minLast && fill != last.Width) last.Width = fill;
     }
 
     public void ShowLanding(
@@ -667,10 +789,26 @@ public partial class MainForm : Form
 
         if (TrainingPanel.RecordLanding(landedFrame ?? targetFrame, targetFrame, deltaMs, hitChance)) return;
 
+        _landingTarget = targetFrame;
+
         if (landedFrame is not { } landed)
         {
             _landingFrame = null;
             _landingAlternate = null;
+            _landingContext.Clear();
+
+            _reportingLanding = true;
+            try
+            {
+                SearchAroundFrame(targetFrame, targetFrame, takeFocus: false);
+            }
+            finally
+            {
+                _reportingLanding = false;
+            }
+
+            int target = _results.FindIndex(pkm => pkm.Frame == targetFrame);
+            if (target >= 0) ListViewResults.EnsureVisible(target);
             ListViewResults.Invalidate();
             return;
         }
@@ -685,18 +823,35 @@ public partial class MainForm : Form
             if (alternate != targetFrame) _landingAlternate = alternate;
         }
 
+        _landingContext.Clear();
+        if (fps > 0.0)
+        {
+            double frameMs = 1000.0 / fps;
+            double frames = deltaMs / frameMs;
+            double pressMs = (landed + (frames - Math.Floor(frames + 0.5))) * frameMs;
+
+            foreach (int frame in FrameWindow.Candidates(pressMs, fps, StarterTool.Settings?.NpcContextWindowMs ?? 0.0))
+            {
+                if (frame == landed || frame == targetFrame || frame == _landingAlternate) continue;
+                _landingContext.Add(frame);
+            }
+        }
+
         int index = _results.FindIndex(pkm => pkm.Frame == landed);
 
-        bool alternateMissing =
-            _landingAlternate.HasValue
-            && !_results.Exists(pkm => pkm.Frame == _landingAlternate.Value);
+        bool candidateMissing =
+            (_landingAlternate.HasValue && !_results.Exists(pkm => pkm.Frame == _landingAlternate.Value))
+            || _landingContext.Any(frame => !_results.Exists(pkm => pkm.Frame == frame));
 
-        if (index < 0 || alternateMissing)
+        if (index < 0 || candidateMissing)
         {
+            int radius = SearchRadius;
+            foreach (int frame in _landingContext) radius = Math.Max(radius, Math.Abs(frame - landed) + 1);
+
             _reportingLanding = true;
             try
             {
-                SearchAroundFrame(landed, targetFrame, takeFocus: false);
+                SearchAroundFrame(landed, targetFrame, takeFocus: false, radius);
             }
             finally
             {
@@ -729,10 +884,12 @@ public partial class MainForm : Form
 
     public void ClearLanding()
     {
-        if (_landingFrame == null) return;
+        if (_landingFrame == null && _landingTarget == null) return;
 
         _landingFrame = null;
+        _landingTarget = null;
         _landingAlternate = null;
+        _landingContext.Clear();
         LabelLanding.Text = "";
         ListViewResults.Invalidate();
     }
@@ -834,6 +991,14 @@ public partial class MainForm : Form
         bool alternate = !marked && inRange
                          && _landingAlternate != null
                          && _results[e.ItemIndex].Frame == _landingAlternate.Value;
+
+        bool contextOnly = !marked && !alternate && inRange
+                           && _landingContext.Contains(_results[e.ItemIndex].Frame);
+
+        bool target = !marked && !alternate && !contextOnly && inRange
+                      && _landingTarget != null
+                      && _results[e.ItemIndex].Frame == _landingTarget.Value;
+
         bool selected = ListViewResults.SelectedIndices.Contains(e.ItemIndex);
 
         Color back = marked
@@ -841,10 +1006,12 @@ public partial class MainForm : Form
                 : _landingChance > 0.0 ? Theme.LandingMaybeBack
                 : Theme.LandingMissBack
             : alternate ? Theme.LandingAlternateBack
+            : contextOnly ? Theme.LandingContextBack
+            : target ? Theme.LandingTargetBack
             : selected ? Theme.Accent
             : e.ItemIndex % 2 == 1 ? Theme.RowAlternate
             : Theme.RowPrimary;
-        Color fore = marked || alternate ? Theme.LandingRowText
+        Color fore = marked || alternate || contextOnly || target ? Theme.LandingRowText
             : selected ? Theme.AccentText
             : ListViewResults.ForeColor;
 
@@ -946,6 +1113,14 @@ public partial class MainForm : Form
 
     private void ListViewResults_KeyDown(object? sender, KeyEventArgs e)
     {
+        switch (e.KeyCode)
+        {
+            case Keys.Up or Keys.Down or Keys.Left or Keys.Right:
+            case Keys.PageUp or Keys.PageDown or Keys.Home or Keys.End:
+                e.SuppressKeyPress = true;
+                return;
+        }
+
         VariableOffsetTimer? timer = StarterTool.VariableOffset;
         if (timer == null) return;
 

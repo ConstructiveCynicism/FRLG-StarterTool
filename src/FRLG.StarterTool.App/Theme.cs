@@ -60,7 +60,15 @@ public static class Theme
 
     public static Color LandingAlternateBack => Dark ? Color.FromArgb(0x55, 0x48, 0x22) : Color.FromArgb(0xF6, 0xEC, 0xC2);
 
+    public static Color LandingContextBack => Dark ? Color.FromArgb(0x35, 0x2F, 0x1B) : Color.FromArgb(0xFB, 0xF6, 0xE4);
+
+    public static Color LandingTargetBack => Dark ? Color.FromArgb(0x1B, 0x3C, 0x6E) : Color.FromArgb(0xB4, 0xCC, 0xEC);
+
     public static Color LandingRowText => Dark ? Color.White : Color.Black;
+
+    public static Color TipBack => Dark ? Color.FromArgb(0x1D, 0x31, 0x37) : Color.FromArgb(0xE6, 0xF4, 0xF7);
+
+    public static Color TipRule => SectionBorder;
 
     public static Color LandingHitText => Dark ? Color.FromArgb(0x6E, 0xD4, 0x77) : Color.FromArgb(0x10, 0x55, 0x1B);
 
@@ -87,6 +95,7 @@ public static class Theme
         {
             form.BackColor = Window;
             form.ForeColor = Text;
+            if (form.AutoScroll) StyleScrollBars(form);
             ApplyToChildren(form);
         }
         finally

@@ -8,6 +8,11 @@ public partial class MainForm
 
     private bool _hideConstraints;
 
+    private float _zoom = 1F;
+
+    private int Scaled(int designerLength) =>
+        _zoom == 1F ? designerLength : ZoomLayout.Round(designerLength * _zoom);
+
     private bool _collapsed;
 
     private int _fullStarterTop;
@@ -37,6 +42,85 @@ public partial class MainForm
         _fullStatSearchTop = GroupBoxStatSearch.Top;
         _fullCaptureTop = GroupBoxCapture.Top;
         _fullContextTop = GroupBoxContext.Top;
+    }
+
+    private ZoomLayout.Baseline? _zoomBaseline;
+
+    public void ApplyZoom(int zoomPercent)
+    {
+        _zoomBaseline ??= ZoomLayout.Capture(this);
+
+        float zoom = zoomPercent / 100F;
+        if (zoom == _zoom) return;
+
+        bool collapsed = _collapsed;
+        if (collapsed)
+        {
+            RestoreSections();
+            _collapsed = false;
+        }
+
+        _zoom = zoom;
+        SuspendLayout();
+
+        if (AutoScaleMode != AutoScaleMode.None) AutoScaleMode = AutoScaleMode.None;
+
+        ZoomLayout.Apply(this, _zoomBaseline, _zoom, ContextPanel);
+
+        RelayoutContextSection();
+
+        CaptureFullLayout();
+
+        ClientSize = new Size(
+            ZoomLayout.Round(_zoomBaseline.ClientWidth * _zoom), GroupBoxCapture.Bottom + Scaled(6));
+        ApplyClientHeight();
+
+        ResumeLayout(true);
+
+        if (collapsed) RefreshConstraintLayout();
+
+        if (StarterTool.Settings != null) ApplyTimeFormat();
+    }
+
+    private void RelayoutContextSection()
+    {
+        GroupBoxContext.Height = ContextPanel.Bottom + Scaled(BoxBottomPad);
+
+        TroubleshootPanel.Relayout();
+
+        int buttonY = ContextPanel.Bottom - ButtonContextUndo.Height;
+        int buttonX = ContextPanel.Left + NpcGridPanel.GridPixels + Scaled(12);
+        int gap = Scaled(SectionGap);
+
+        int corner = Math.Max(
+            ButtonContextAnchor.Width, Math.Max(ButtonContextLate.Width, ButtonContextFinished.Width));
+        int wanted = ButtonContextUndo.Width + ButtonContextClear.Width + ButtonContextMiss.Width
+            + 3 * gap + corner;
+        int available = ContextPanel.Right - buttonX;
+
+        if (wanted > available)
+        {
+            float fit = (available - 3 * gap) / (float)(wanted - 3 * gap);
+
+            foreach (ThemedButton button in new[]
+            {
+                ButtonContextUndo, ButtonContextClear, ButtonContextMiss,
+                ButtonContextAnchor, ButtonContextLate, ButtonContextFinished
+            })
+            {
+                button.Width = (int)(button.Width * fit);
+            }
+        }
+
+        ButtonContextUndo.Location = new Point(buttonX, buttonY);
+        ButtonContextClear.Location = new Point(ButtonContextUndo.Right + gap, buttonY);
+        ButtonContextMiss.Location = new Point(ButtonContextClear.Right + gap, buttonY);
+
+        ButtonContextAnchor.Location =
+            new Point(ContextPanel.Right - ButtonContextAnchor.Width, buttonY);
+        ButtonContextLate.Location = new Point(ContextPanel.Right - ButtonContextLate.Width, buttonY);
+        ButtonContextFinished.Location =
+            new Point(ContextPanel.Right - ButtonContextFinished.Width, buttonY);
     }
 
     public void SetHideConstraints(bool hide)
@@ -71,33 +155,35 @@ public partial class MainForm
         LabelStarterMaxFrame.Visible = false;
         TextBoxMaxFrame.Visible = false;
 
-        int lift = _fullTrainerRow - CompactStarterRow;
+        int lift = _fullTrainerRow - Scaled(CompactStarterRow);
         LabelStarterTrainerId.Top -= lift;
         TextBoxTrainerId.Top -= lift;
         ButtonCalculateOdds.Top -= lift;
         ButtonSearch.Top -= lift;
 
-        GroupBoxStarter.Top = SectionTop;
-        GroupBoxStarter.Height = ButtonSearch.Bottom + BoxBottomPad;
+        GroupBoxStarter.Top = Scaled(SectionTop);
+        GroupBoxStarter.Height = ButtonSearch.Bottom + Scaled(BoxBottomPad);
 
-        int timerTop = GroupBoxStarter.Bottom + SectionGap;
-        int timerNeeds = ButtonTraining.Bottom + BoxBottomPad;
+        int timerTop = GroupBoxStarter.Bottom + Scaled(SectionGap);
+        int timerNeeds = ButtonTraining.Bottom + Scaled(BoxBottomPad);
         GroupBoxTimer.Top = timerTop;
 
         int belowGrid = _fullResultsHeight - _fullListHeight;
-        int tail = SectionGap + GroupBoxStatSearch.Height + SectionGap + GroupBoxCapture.Height;
+        int tail = Scaled(SectionGap) + GroupBoxStatSearch.Height + Scaled(SectionGap) + GroupBoxCapture.Height;
 
-        int listHeight = Math.Max(MinResultsHeight, GroupBoxTimer.Top + timerNeeds - tail - SectionTop - belowGrid);
+        int listHeight = Math.Max(
+            Scaled(MinResultsHeight),
+            GroupBoxTimer.Top + timerNeeds - tail - Scaled(SectionTop) - belowGrid);
 
-        GroupBoxResults.Top = SectionTop;
+        GroupBoxResults.Top = Scaled(SectionTop);
         GroupBoxResults.Height = listHeight + belowGrid;
         ListViewResults.Height = listHeight;
         TrainingPanel.Height = listHeight;
         LabelLanding.Top = ListViewResults.Bottom + (_fullLandingTop - ListViewResults.Top - _fullListHeight);
 
-        GroupBoxStatSearch.Top = GroupBoxResults.Bottom + SectionGap;
-        GroupBoxCapture.Top = GroupBoxStatSearch.Bottom + SectionGap;
-        GroupBoxContext.Top = GroupBoxCapture.Bottom + SectionGap;
+        GroupBoxStatSearch.Top = GroupBoxResults.Bottom + Scaled(SectionGap);
+        GroupBoxCapture.Top = GroupBoxStatSearch.Bottom + Scaled(SectionGap);
+        GroupBoxContext.Top = GroupBoxCapture.Bottom + Scaled(SectionGap);
 
         GroupBoxTimer.Height = Math.Max(timerNeeds, GroupBoxCapture.Bottom - timerTop);
 
@@ -109,7 +195,7 @@ public partial class MainForm
         GroupBoxStarter.Top = _fullStarterTop;
         GroupBoxStarter.Height = _fullStarterHeight;
 
-        int lift = _fullTrainerRow - CompactStarterRow;
+        int lift = _fullTrainerRow - Scaled(CompactStarterRow);
         LabelStarterTrainerId.Top += lift;
         TextBoxTrainerId.Top += lift;
         ButtonCalculateOdds.Top += lift;
@@ -144,8 +230,8 @@ public partial class MainForm
 
     private void ApplyClientHeight()
     {
-        _compactClientHeight = GroupBoxCapture.Bottom + 6;
-        _trackingClientHeight = GroupBoxContext.Bottom + 6;
+        _compactClientHeight = GroupBoxCapture.Bottom + Scaled(6);
+        _trackingClientHeight = GroupBoxContext.Bottom + Scaled(6);
         ClientSize = new Size(
             ClientSize.Width, GroupBoxContext.Visible ? _trackingClientHeight : _compactClientHeight);
     }

@@ -216,6 +216,15 @@ public sealed record LabOption(LabCandidate Representative, IReadOnlyList<LabCan
         $"{Directions.Format(Aide)} / {Directions.Format(Scientist)} ({Members.Count})";
 }
 
+public enum LabLateness
+{
+    Fast,
+
+    Late,
+
+    VeryLate,
+}
+
 public sealed class LabTracker
 {
     private readonly List<LabOption> _all;
@@ -232,17 +241,23 @@ public sealed class LabTracker
 
     public static LabTracker Build(int seed, IReadOnlyList<FenceCandidate> fence, double oakElapsedMs,
         double labElapsedMs, double fps, double contextMs,
-        IReadOnlyList<double>? fenceLikelihoods = null, bool late = false) =>
-        new(LabRun.Build(seed, fence, oakElapsedMs, labElapsedMs, fps, contextMs, Window(late)),
+        IReadOnlyList<double>? fenceLikelihoods = null, LabLateness lateness = LabLateness.Fast) =>
+        new(LabRun.Build(seed, fence, oakElapsedMs, labElapsedMs, fps, contextMs, Window(lateness)),
             labElapsedMs - oakElapsedMs, fps, contextMs, MapFence(fence, fenceLikelihoods))
         {
-            Late = late,
+            Lateness = lateness,
         };
 
-    public static int Window(bool late) =>
-        late ? RouteTimeline.LabObservableLateFrames : RouteTimeline.LabObservableFrames;
+    public static int Window(LabLateness lateness) => lateness switch
+    {
+        LabLateness.VeryLate => RouteTimeline.LabObservableVeryLateFrames,
+        LabLateness.Late => RouteTimeline.LabObservableLateFrames,
+        _ => RouteTimeline.LabObservableFrames,
+    };
 
-    public bool Late { get; private init; }
+    public LabLateness Lateness { get; private init; }
+
+    public bool Late => Lateness != LabLateness.Fast;
 
     private static Dictionary<(int, int), double>? MapFence(IReadOnlyList<FenceCandidate> fence,
         IReadOnlyList<double>? likelihoods)

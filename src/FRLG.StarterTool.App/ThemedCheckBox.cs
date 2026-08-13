@@ -2,9 +2,17 @@ namespace FRLG.StarterTool.App;
 
 public sealed class ThemedCheckBox : CheckBox
 {
-    private const int GlyphSize = 13;
+    private const int DesignGlyphSize = 13;
 
-    private const int TextGap = 4;
+    private const int DesignTextGap = 4;
+
+    private const int DesignFontHeight = 16;
+
+    private float GlyphScale => Font.Height / (float)DesignFontHeight;
+
+    private int GlyphSize => Math.Max(9, (int)Math.Round(DesignGlyphSize * GlyphScale));
+
+    private int TextGap => Math.Max(1, (int)Math.Round(DesignTextGap * GlyphScale));
 
     private bool _hot;
 
@@ -142,13 +150,14 @@ public sealed class ThemedCheckBox : CheckBox
 
         var previous = g.SmoothingMode;
         g.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.AntiAlias;
-        using (var pen = new Pen(Enabled ? Theme.CheckMark : Theme.DimText, 1.8f))
+        float unit = glyph.Width / (float)DesignGlyphSize;
+        using (var pen = new Pen(Enabled ? Theme.CheckMark : Theme.DimText, 1.8f * unit))
         {
             g.DrawLines(pen, new[]
             {
-                new PointF(glyph.Left + 2.0f, glyph.Top + 6.0f),
-                new PointF(glyph.Left + 5.0f, glyph.Top + 9.0f),
-                new PointF(glyph.Left + 10.0f, glyph.Top + 3.0f)
+                new PointF(glyph.Left + 2.0f * unit, glyph.Top + 6.0f * unit),
+                new PointF(glyph.Left + 5.0f * unit, glyph.Top + 9.0f * unit),
+                new PointF(glyph.Left + 10.0f * unit, glyph.Top + 3.0f * unit)
             });
         }
         g.SmoothingMode = previous;

@@ -234,6 +234,9 @@ public sealed class TrainingPanel : Panel
         if (timer == null) return;
 
         bool visual = timer.TrainingUsesVisualOffset;
+
+        if (StarterTool.Settings != null) StarterTool.Settings.TipTrainerUsed = true;
+
         _session = new TrainingSession(
             RoundCount, visual ? timer.VisualOffsetMs : timer.OffsetMs, timer.SelectedFps, visual);
         _running = true;

@@ -42,9 +42,13 @@ public static class RouteTimeline
 
     public const int LabLoadToReleaseFrames = 32;
 
+    public const int LabTextFloorFrames = 832;
+
     public const int LabObservableFrames = 65;
 
     public const int LabObservableLateFrames = 95;
+
+    public const int LabObservableVeryLateFrames = 111;
 
     public const int LabEntryX = 6;
 

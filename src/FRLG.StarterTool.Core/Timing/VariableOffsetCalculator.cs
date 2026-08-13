@@ -167,6 +167,30 @@ public static class VariableOffsetCalculator
         return beeps.ToArray();
     }
 
+    public const double MinCueGapMs = 100.0;
+
+    public static double[] RemainingSchedule(
+        double finalOffsetMs, uint intervalMs, int remaining, double floorMs = 0.0)
+    {
+        if (remaining <= 0 || finalOffsetMs < floorMs) return Array.Empty<double>();
+
+        double room = finalOffsetMs - floorMs;
+
+        int count = Math.Min(remaining, (int)Math.Floor(room / MinCueGapMs) + 1);
+        if (count <= 1) return new[] { finalOffsetMs };
+
+        double spacing = Math.Min(intervalMs, room / (count - 1));
+
+        var cues = new double[count];
+        for (int i = 0; i < count; i++)
+        {
+            cues[i] = finalOffsetMs - (count - 1 - i) * spacing;
+        }
+
+        cues[^1] = finalOffsetMs;
+        return cues;
+    }
+
     public static double FlashTargetMs(in VariableInfo info, double adjustedMs = 0.0)
         => EffectiveFrame(info) / info.Fps * 1000.0 + adjustedMs + info.VisualOffset;
 
@@ -215,13 +239,16 @@ public static class VariableOffsetCalculator
         return beeps;
     }
 
-    public static bool CanAdjust(in VariableInfo info, double currentTimeSeconds, double currentOffsetSeconds)
-        => currentTimeSeconds < currentOffsetSeconds - LeadInMs(info) / 1000.0 - CueGuardMs / 1000.0;
+    public static bool CanAdjust(double currentTimeSeconds, double currentOffsetSeconds)
+        => currentTimeSeconds < currentOffsetSeconds - CueGuardMs / 1000.0;
 
     public static double LandingWindowMs(in VariableInfo info) => Math.Max(info.Interval, 250.0);
 
     public static double EarlyLandingWindowMs(in VariableInfo info)
         => Math.Max(info.Interval * ((double)info.NumBeeps - 1.0), LandingWindowMs(info));
+
+    public static double LandingCloseMs(in VariableInfo info, double adjustedMs = 0.0)
+        => LandingTargetMs(info, adjustedMs) + LandingWindowMs(info);
 
     public static double AdjustmentMs(int numFrames, double fps) => numFrames * 1000.0 / fps;
 

@@ -1,5 +1,6 @@
 using FRLG.StarterTool.Core.Pokemon;
 using FRLG.StarterTool.Core.Timing;
+using FRLG.StarterTool.Core.Tips;
 
 namespace FRLG.StarterTool.Core.Settings;
 
@@ -91,7 +92,17 @@ public sealed class AppSettings
 
     public double NpcContextWindowMs { get; set; }
 
+    public bool NpcCuedLabPress { get; set; }
+
+    public int NpcCuedLabPressOffsetFrames { get; set; } = DefaultCuedLabPressOffsetFrames;
+
+    public double NpcCuedPressWindowMs { get; set; } = DefaultCuedPressWindowMs;
+
     public bool NpcGridVisible { get; set; }
+
+    public const int DefaultCuedLabPressOffsetFrames = 110;
+
+    public const double DefaultCuedPressWindowMs = 30.0;
 
     public KeyMethod KeyMethod { get; set; } = KeyMethod.OnPress;
 
@@ -107,11 +118,23 @@ public sealed class AppSettings
 
     public bool HideConstraints { get; set; }
 
+    public bool ShowLabDelayDashes { get; set; }
+
+    public int ZoomPercent { get; set; } = 100;
+
     public TimeFormat TimeFormat { get; set; } = TimeFormat.Seconds;
 
-    public string StatBoxLabelColor { get; set; } = "#4DC6D6";
+    public string StatBoxLabelColor { get; set; } = DefaultStatBoxLabelColor;
 
-    public string StatBoxFillColor { get; set; } = "#3C3C3C";
+    public string StatBoxFillColor { get; set; } = DefaultStatBoxFillColor;
+
+    public const string DefaultStatBoxLabelColor = "#4DC6D6";
+
+    public const string DefaultStatBoxFillColor = "#3C3C3C";
+
+    public bool StatBoxColorsAreDefault =>
+        string.Equals(StatBoxLabelColor, DefaultStatBoxLabelColor, StringComparison.OrdinalIgnoreCase)
+        && string.Equals(StatBoxFillColor, DefaultStatBoxFillColor, StringComparison.OrdinalIgnoreCase);
 
     public string Fps { get; set; } = "59.7275";
     public string Offset { get; set; } = "0";
@@ -129,6 +152,18 @@ public sealed class AppSettings
     public string BeepSound { get; set; } = "ping1";
 
     public int TrainingRounds { get; set; } = 10;
+
+    public bool ShowRunTips { get; set; } = true;
+
+    public bool TipTrainerUsed { get; set; }
+
+    public bool TipOddsCalculated { get; set; }
+
+    public long TipHiddenRolls { get; set; }
+
+    public int TipAttempts { get; set; }
+
+    public int TipLikelyHits { get; set; }
 
     public string MinFrame { get; set; } = "0";
     public string MaxFrame { get; set; } = "10000";
@@ -232,12 +267,20 @@ public sealed class AppSettings
         NumBeeps ??= "4";
         Volume = Math.Clamp(Volume, 0, 100);
         if (string.IsNullOrWhiteSpace(BeepSound)) BeepSound = "ping1";
-        if (string.IsNullOrWhiteSpace(StatBoxLabelColor)) StatBoxLabelColor = "#4DC6D6";
-        if (string.IsNullOrWhiteSpace(StatBoxFillColor)) StatBoxFillColor = "#3C3C3C";
+        if (string.IsNullOrWhiteSpace(StatBoxLabelColor)) StatBoxLabelColor = DefaultStatBoxLabelColor;
+        if (string.IsNullOrWhiteSpace(StatBoxFillColor)) StatBoxFillColor = DefaultStatBoxFillColor;
         TrainingRounds = Math.Clamp(TrainingRounds, 1, 999);
+
+        ZoomPercent = Math.Clamp(ZoomPercent == 0 ? 100 : ZoomPercent, 75, 125);
 
         if (double.IsNaN(NpcContextWindowMs)) NpcContextWindowMs = 0.0;
         NpcContextWindowMs = Math.Clamp(NpcContextWindowMs, 0.0, 1000.0);
+
+        if (double.IsNaN(NpcCuedPressWindowMs)) NpcCuedPressWindowMs = DefaultCuedPressWindowMs;
+        NpcCuedPressWindowMs = Math.Clamp(NpcCuedPressWindowMs, 0.0, 1000.0);
+        NpcCuedLabPressOffsetFrames = Math.Clamp(NpcCuedLabPressOffsetFrames, 0, 6000);
+
+        NormalizeTips();
 
         MinFrame ??= "0";
         MaxFrame ??= "10000";
@@ -252,6 +295,13 @@ public sealed class AppSettings
         NormalizePresets();
 
         return this;
+    }
+
+    private void NormalizeTips()
+    {
+        TipHiddenRolls = Math.Max(0L, TipHiddenRolls);
+        TipAttempts = Math.Max(0, TipAttempts);
+        TipLikelyHits = Math.Clamp(TipLikelyHits, 0, TipAttempts);
     }
 
     private void NormalizePresets()

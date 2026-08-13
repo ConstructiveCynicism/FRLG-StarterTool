@@ -9,10 +9,16 @@ partial class MainForm
 {
     private System.ComponentModel.IContainer components = null;
 
-    private static string AppVersion =>
-        typeof(MainForm).Assembly.GetCustomAttribute<AssemblyInformationalVersionAttribute>()?
-            .InformationalVersion.Split('+')[0]
-        ?? "";
+    private static string AppVersion
+    {
+        get
+        {
+            var version = typeof(MainForm).Assembly
+                .GetCustomAttribute<AssemblyInformationalVersionAttribute>()?
+                .InformationalVersion.Split('+')[0];
+            return string.IsNullOrEmpty(version) ? "" : "v" + version;
+        }
+    }
 
     protected override void Dispose(bool disposing)
     {
@@ -35,6 +41,8 @@ partial class MainForm
     public ToolStripMenuItem MenuItemTraining;
 
     public ToolStripMenuItem MenuItemContextTracking;
+
+    public ToolStripMenuItem MenuItemTroubleshooter;
 
     public ToolStripMenuItem MenuFilters;
 
@@ -77,6 +85,8 @@ partial class MainForm
     public ThemedGroupBox GroupBoxContext;
 
     public NpcGridPanel ContextPanel;
+
+    public TroubleshootPanel TroubleshootPanel;
 
     public Button ButtonContextUndo;
 
@@ -173,11 +183,14 @@ partial class MainForm
 
         MenuItemContextTracking = new ToolStripMenuItem("Context Tracking") { CheckOnClick = true };
 
+        MenuItemTroubleshooter = new ToolStripMenuItem("NPC Troubleshooter") { CheckOnClick = true };
+
         var menuExit = new ToolStripMenuItem("Exit");
         menuExit.Click += (_, _) => Close();
         var menuFile = new ToolStripMenuItem("File");
         menuFile.DropDownItems.Add(MenuFilters);
         menuFile.DropDownItems.Add(MenuItemContextTracking);
+        menuFile.DropDownItems.Add(MenuItemTroubleshooter);
         menuFile.DropDownItems.Add(MenuItemHotkeys);
         menuFile.DropDownItems.Add(new ToolStripSeparator());
         menuFile.DropDownItems.Add(menuExit);
@@ -632,6 +645,14 @@ partial class MainForm
         };
         GroupBoxContext.Controls.Add(ContextPanel);
 
+        TroubleshootPanel = new TroubleshootPanel
+        {
+            Location = ContextPanel.Location,
+            Size = ContextPanel.Size,
+            Visible = false
+        };
+        GroupBoxContext.Controls.Add(TroubleshootPanel);
+
         int contextButtonY = ContextPanel.Bottom - 24;
         int contextButtonX = ContextPanel.Left + NpcGridPanel.GridPixels + 12;
 
@@ -649,7 +670,7 @@ partial class MainForm
         };
         ButtonContextLate = new ThemedButton
         {
-            Text = "I'm Slow!",
+            Text = "I'm Late!",
             Location = new Point(ContextPanel.Right - 124, contextButtonY),
             Size = new Size(124, 24),
             Visible = false

@@ -2,6 +2,7 @@ using System.Globalization;
 using System.Text;
 using FRLG.StarterTool.Core.Npc;
 using FRLG.StarterTool.Core.Settings;
+using FRLG.StarterTool.Core.Tips;
 
 namespace FRLG.StarterTool.App;
 
@@ -26,9 +27,13 @@ public sealed class ContextSession
 
     private bool _armed;
 
+    private bool _labCued;
+
     private bool _tracking;
 
     private bool _hit;
+
+    private bool _unpressed;
 
     private bool _missed;
 
@@ -41,6 +46,10 @@ public sealed class ContextSession
     private HiddenMoves? _missEastward;
 
     private int? _hitCountdownFrame;
+
+    private string _tip = "";
+
+    private readonly Random _random = new();
 
     public event EventHandler? Changed;
 
@@ -77,6 +86,35 @@ public sealed class ContextSession
         ? FrameWindow.LikelyFrame(ms, StarterTool.VariableOffset?.SelectedFps ?? 60.0)
         : null;
 
+    private const double CueTailMs = 250.0;
+
+    public double? CuePressMs
+    {
+        get
+        {
+            if (!_tracking || !_armed || _missed || _labMs != null
+                || !StarterTool.IsTimerRunning) return null;
+            if (StarterTool.Settings is not { NpcCuedLabPress: true } settings) return null;
+            if (_oakMs is not { } oak) return null;
+
+            double fps = StarterTool.VariableOffset?.SelectedFps ?? 60.0;
+            return oak + (RouteTimeline.OakTextToLabLoadFrames + RouteTimeline.LabTextFloorFrames
+                + settings.NpcCuedLabPressOffsetFrames) * 1000.0 / fps;
+        }
+    }
+
+    public bool FireCue(double elapsedMs)
+    {
+        if (CuePressMs is not { } stamp) return false;
+        if (elapsedMs < stamp + CueTailMs) return false;
+
+        _labCued = true;
+        if (MarkNextAnchor(StarterTool.TimerStart + stamp)) return true;
+
+        _labCued = false;
+        return false;
+    }
+
     public ContextStage Stage => AnchorCount switch
     {
         >= 3 => ContextStage.Lab,
@@ -93,13 +131,16 @@ public sealed class ContextSession
         _seed = 0;
         _houseAdvances = 0;
         _armed = false;
+        _labCued = false;
         _hit = false;
+        _unpressed = false;
         _missed = false;
         _missAutomatic = false;
         _missCorrection = null;
         _missFence = null;
         _missEastward = null;
         _hitCountdownFrame = null;
+        _tip = "";
         Changed?.Invoke(this, EventArgs.Empty);
     }
 
@@ -107,7 +148,10 @@ public sealed class ContextSession
     {
         Reset();
         _armed = _tracking;
-        if (_armed) Log("--- run started ---");
+
+        RunLog.StartRun();
+
+        Log(_armed ? "--- run started ---" : "--- run started, tracker off ---");
         Changed?.Invoke(this, EventArgs.Empty);
     }
 
@@ -122,18 +166,20 @@ public sealed class ContextSession
         {
             _exitMs = elapsedMs;
             LastAnchor = RouteAnchor.ExitHouse;
-
-            _houseAdvances = StarterTool.VariableOffset?.TakeFrameAdjustment() ?? 0;
         }
         else if (_oakMs == null)
         {
             _oakMs = elapsedMs;
             LastAnchor = RouteAnchor.CloseOakText;
 
+            _houseAdvances = StarterTool.VariableOffset?.TakeFrameAdjustment() ?? 0;
+
             StarterTool.MainForm.LockTrainerId();
 
             _seed = StarterTool.MainForm.TrackerSeed;
             BuildFence();
+
+            if (CuePressMs != null) Retarget();
         }
         else
         {
@@ -143,11 +189,12 @@ public sealed class ContextSession
         }
 
         double fps = StarterTool.VariableOffset?.SelectedFps ?? 60.0;
-        Log(string.Format(CultureInfo.InvariantCulture, "anchor {0} at {1:F1} ms, frame {2}{3}",
+        Log(string.Format(CultureInfo.InvariantCulture, "anchor {0} at {1:F1} ms, frame {2}{3}{4}",
             AnchorName(LastAnchor.Value), elapsedMs, FrameWindow.LikelyFrame(elapsedMs, fps),
-            LastAnchor == RouteAnchor.ExitHouse && _houseAdvances != 0
+            LastAnchor == RouteAnchor.CloseOakText && _houseAdvances != 0
                 ? string.Format(CultureInfo.InvariantCulture, ", {0:+#;-#;0} manual", _houseAdvances)
-                : ""));
+                : "",
+            LastAnchor == RouteAnchor.CloseLabText && _labCued ? ", cued" : ""));
         if (LastAnchor == RouteAnchor.CloseOakText) LogFenceField();
 
         if (LastAnchor == RouteAnchor.CloseLabText)
@@ -188,7 +235,11 @@ public sealed class ContextSession
 
     public bool Undo()
     {
-        if (Stage == ContextStage.Lab) return SetLate(false);
+        if (Stage == ContextStage.Lab)
+        {
+            return Lab is { Lateness: var lateness } && lateness != LabLateness.Fast
+                && SetLateness(lateness - 1);
+        }
 
         if (Tracker == null || _missed || Tracker.Inputs.Count == 0) return false;
 
@@ -215,7 +266,12 @@ public sealed class ContextSession
         return true;
     }
 
-    public bool Next() => SetNext(!NextReported);
+    public bool Next() => Stage switch
+    {
+        ContextStage.Lab => Lab is { Lateness: var lateness }
+            && SetLateness(lateness == LabLateness.VeryLate ? LabLateness.Fast : lateness + 1),
+        _ => SetNext(!NextReported),
+    };
 
     public bool NextReported => Stage switch
     {
@@ -227,19 +283,19 @@ public sealed class ContextSession
     public bool SetNext(bool reported) => Stage switch
     {
         ContextStage.Fence => Tracker != null && SetComplete(reported),
-        ContextStage.Lab => SetLate(reported),
+        ContextStage.Lab => SetLateness(reported ? LabLateness.Late : LabLateness.Fast),
         _ => false,
     };
 
-    public bool SetLate(bool late)
+    public bool SetLateness(LabLateness lateness)
     {
-        if (Stage != ContextStage.Lab || Lab is not { } lab || lab.Late == late) return false;
+        if (Stage != ContextStage.Lab || Lab is not { } lab || lab.Lateness == lateness) return false;
 
         bool pinned = lab.FocusPinned;
         int focus = lab.FocusedIndex;
         LabCandidate? held = pinned ? lab.Focused?.Representative : null;
 
-        BuildLab(late);
+        BuildLab(lateness);
 
         if (Lab != null && pinned && focus >= 0)
         {
@@ -255,12 +311,19 @@ public sealed class ContextSession
 
         Log(string.Format(CultureInfo.InvariantCulture,
             "late to the ball: {0} - window {1} frames, {2} boxes",
-            late ? "yes" : "no", LabTracker.Window(late), Lab?.All.Count ?? 0));
+            LateName(lateness), LabTracker.Window(lateness), Lab?.All.Count ?? 0));
 
         Retarget();
         Changed?.Invoke(this, EventArgs.Empty);
         return true;
     }
+
+    private static string LateName(LabLateness lateness) => lateness switch
+    {
+        LabLateness.VeryLate => "very",
+        LabLateness.Late => "yes",
+        _ => "no",
+    };
 
     public bool MoveFocus(int delta)
     {
@@ -335,9 +398,11 @@ public sealed class ContextSession
                 "{0} at {1}/3 - {2} advances at the lab load, correction {3:+#;-#;0} frames",
                 how, AnchorCount, _missFence?.TotalAdvances ?? 0, correction)
             : string.Format(CultureInfo.InvariantCulture,
-                "{0} at {1}/3 - no field, countdown left uncorrected; eastward {2}",
-                how, AnchorCount,
+                "{0} at {1}/3 - no field, countdown left uncorrected; {2:+#;-#;0} manual, eastward {3}",
+                how, AnchorCount, _houseAdvances,
                 _missEastward?.ToString() ?? "not simulated (no exit anchor)"));
+
+        CloseRun(null, 0.0, 0);
 
         Retarget();
         Changed?.Invoke(this, EventArgs.Empty);
@@ -351,6 +416,11 @@ public sealed class ContextSession
         int seed = _seed != 0 ? _seed : StarterTool.MainForm.TrackerSeed;
         if (seed == 0) return null;
 
+        if (_houseAdvances == 0)
+        {
+            _houseAdvances = StarterTool.VariableOffset?.TakeFrameAdjustment() ?? 0;
+        }
+
         double fps = StarterTool.VariableOffset?.SelectedFps ?? 60.0;
 
         double shiftMs = RouteTimeline.AnchorCorrectionFrames * 1000.0 / fps;
@@ -360,7 +430,7 @@ public sealed class ContextSession
         return FenceRun.SimulateEastward(seed, exitFrame, _houseAdvances);
     }
 
-    public bool RecordHit(int countdownFrame)
+    public bool RecordHit(int countdownFrame, double deltaMs, double hitChance, int offsetMs)
     {
         if (Stage != ContextStage.Lab || _hit) return false;
 
@@ -368,15 +438,33 @@ public sealed class ContextSession
         _hitCountdownFrame = countdownFrame;
         if (Lab?.Focused is { } box) LogHidden(box.Representative);
 
+        CloseRun(deltaMs, hitChance, offsetMs);
+
         Changed?.Invoke(this, EventArgs.Empty);
         return true;
     }
 
-    public bool HitConfirmed => (_hit && Stage == ContextStage.Lab) || _missed;
+    public bool Unpressed()
+    {
+        if (!_tracking || !_armed || _hit || _unpressed || _missed) return false;
+        if (Stage != ContextStage.Lab) return false;
+
+        _unpressed = true;
+
+        Log("landing window closed with no press - account off the focused box");
+        if (Lab?.Focused is { } box) LogHidden(box.Representative);
+
+        CloseRun(null, 0.0, 0);
+
+        Changed?.Invoke(this, EventArgs.Empty);
+        return true;
+    }
+
+    public bool HitConfirmed => ((_hit || _unpressed) && Stage == ContextStage.Lab) || _missed;
 
     public IReadOnlyList<HiddenMoves> Hidden =>
         _missed ? MissedAccount
-        : _hit && Lab?.Focused is { } box ? box.Representative.Hidden
+        : (_hit || _unpressed) && Lab?.Focused is { } box ? box.Representative.Hidden
         : Array.Empty<HiddenMoves>();
 
     private IReadOnlyList<HiddenMoves> MissedAccount => new[]
@@ -386,6 +474,92 @@ public sealed class ContextSession
         HiddenMoves.Unknown(NpcId.ScientistLeft),
         HiddenMoves.Unknown(NpcId.ScientistRight),
     };
+
+    public string Tip => _tip;
+
+    private void CloseRun(double? deltaMs, double hitChance, int offsetMs)
+    {
+        AppSettings? settings = StarterTool.Settings;
+        if (settings == null) return;
+
+        var attempt = new TipAttempt
+        {
+            DeltaMs = deltaMs,
+            OffsetMs = offsetMs,
+            HitChance = hitChance
+        };
+
+        settings.TipAttempts++;
+        if (attempt.LikelyHit) settings.TipLikelyHits++;
+
+        foreach (HiddenMoves hidden in Hidden)
+        {
+            if (hidden.Known) settings.TipHiddenRolls += hidden.Total;
+        }
+
+        RunLog.LogAttempt(attempt);
+
+        IReadOnlyList<TipAttempt> recent = RunLog.RecentAttempts(RunTip.RecentWindow);
+
+        if (recent.Count == 0 || !SameAttempt(recent[^1], attempt))
+        {
+            recent = recent.Append(attempt).TakeLast(RunTip.RecentWindow).ToList();
+        }
+
+        _tip = RunTip.Pick(Facts(settings, recent), _random);
+        Log("tip: " + _tip);
+    }
+
+    private static bool SameAttempt(TipAttempt read, TipAttempt closed) =>
+        read.OffsetMs == closed.OffsetMs
+        && read.DeltaMs.HasValue == closed.DeltaMs.HasValue
+        && (read.DeltaMs is not { } delta || Math.Abs(delta - closed.DeltaMs!.Value) < 0.05)
+        && Math.Abs(read.HitChance - closed.HitChance) < 0.0005;
+
+    private TipFacts Facts(AppSettings settings, IReadOnlyList<TipAttempt> recent)
+    {
+        VariableOffsetTimer? timer = StarterTool.VariableOffset;
+
+        int streak = 0;
+        for (int i = recent.Count - 1; i >= 0 && !recent[i].LikelyHit; i--) streak++;
+
+        int likely = 0;
+        foreach (TipAttempt attempt in recent)
+        {
+            if (attempt.LikelyHit) likely++;
+        }
+
+        int? suggested = null;
+        if (streak >= RunTip.MissStreakTip && timer != null)
+        {
+            suggested = RunTip.SuggestedOffsetMs(recent,
+                timer.TrainingUsesVisualOffset ? timer.VisualOffsetMs : timer.OffsetMs,
+                timer.SelectedFps);
+        }
+
+        return new TipFacts
+        {
+            BallPressUnseen = _unpressed,
+            TrainerUsed = settings.TipTrainerUsed,
+            OddsCalculated = settings.TipOddsCalculated,
+
+            FenceStopReported = Tracker is null or { Complete: true },
+
+            CuedLabPress = settings.NpcCuedLabPress,
+            ContextWindowMs = settings.NpcContextWindowMs,
+            DefaultWindowSize = settings.ZoomPercent == 100 && !settings.HideConstraints,
+            DefaultStatBoxColors = settings.StatBoxColorsAreDefault,
+            OffsetsShared = timer?.OffsetsShared ?? false,
+            MissStreak = streak,
+            SuggestedOffsetMs = suggested,
+            RecentAttempts = recent.Count,
+            RecentLikelyHits = likely,
+            LastLikelyHit = recent.Count > 0 && recent[^1].LikelyHit,
+            HiddenRolls = settings.TipHiddenRolls,
+            Attempts = settings.TipAttempts,
+            LikelyHits = settings.TipLikelyHits
+        };
+    }
 
     private static void LogHidden(LabCandidate candidate)
     {
@@ -422,12 +596,14 @@ public sealed class ContextSession
                         what, AnchorCount + 1);
             }
 
-            if (_hit && Stage == ContextStage.Lab)
+            if ((_hit || _unpressed) && Stage == ContextStage.Lab)
             {
                 string box = Lab is { All.Count: > 0 } lab
                     ? string.Format(CultureInfo.InvariantCulture, " · box {0}/{1}",
                         lab.FocusedIndex + 1, lab.All.Count)
                     : "";
+
+                if (_unpressed) return "Window closed · no landing taken" + box;
 
                 return (_hitCountdownFrame is { } pressed && LandedFrame(pressed) is { } frame
                     ? string.Format(CultureInfo.InvariantCulture, "Hit · frame {0}", frame)
@@ -454,11 +630,24 @@ public sealed class ContextSession
                     _houseAdvances);
             }
 
+            if (CuePressMs is { } cue)
+            {
+                line += string.Format(CultureInfo.InvariantCulture, " · lab press cued, frame {0}",
+                    FrameWindow.LikelyFrame(cue, fps));
+            }
+
             if (Stage != ContextStage.Lab) return line;
             if (Lab == null || Lab.All.Count == 0) return line + " · no boxes";
 
-            return string.Format(CultureInfo.InvariantCulture, "{0} · box {1}/{2}{3}",
-                line, Lab.FocusedIndex + 1, Lab.All.Count, Lab.Late ? " · late to the ball" : "");
+            return string.Format(CultureInfo.InvariantCulture, "{0}{1} · box {2}/{3}{4}",
+                line,
+                _labCued ? " · cued" : "",
+                Lab.FocusedIndex + 1, Lab.All.Count, Lab.Lateness switch
+                {
+                    LabLateness.VeryLate => " · very late to the ball",
+                    LabLateness.Late => " · late to the ball",
+                    _ => "",
+                });
         }
     }
 
@@ -488,21 +677,23 @@ public sealed class ContextSession
         }
     }
 
-    public static string LogPath => Path.Combine(SettingsStore.DefaultDirectory, "fence-log.txt");
+    internal static void Log(string line) => RunLog.Log(line);
 
-    internal static void Log(string line)
+    public void LogStop()
     {
-        try
+        if (!_armed)
         {
-            Directory.CreateDirectory(SettingsStore.DefaultDirectory);
-            File.AppendAllText(LogPath,
-                DateTime.Now.ToString("HH:mm:ss", CultureInfo.InvariantCulture) + "  " + line
-                    + Environment.NewLine,
-                Encoding.UTF8);
+            Log(_tracking ? "--- run stopped, not tracked ---" : "--- run stopped, tracker off ---");
+            return;
         }
-        catch (Exception)
-        {
-        }
+
+        string outcome = _hit ? "hit"
+            : _missed ? (_missAutomatic ? "missed, given up by the countdown" : "missed")
+            : CanMiss ? string.Format(CultureInfo.InvariantCulture,
+                "anchor chain left open at {0}/3", AnchorCount)
+            : string.Format(CultureInfo.InvariantCulture, "{0}/3 anchors", AnchorCount);
+
+        Log("--- run stopped: " + outcome + " ---");
     }
 
     private void LogFenceField()
@@ -528,7 +719,7 @@ public sealed class ContextSession
 
         Log(string.Format(CultureInfo.InvariantCulture,
             "  {0} lab boxes, window {1} frames, press frame {2}:",
-            Lab.All.Count, LabTracker.Window(Lab.Late),
+            Lab.All.Count, LabTracker.Window(Lab.Lateness),
             Lab.All.Count == 0 ? 0 : Lab.All[0].Representative.LabPressFrame));
 
         for (int i = 0; i < Lab.All.Count; i++)
@@ -541,9 +732,10 @@ public sealed class ContextSession
                     + (shown.Completes(e) ? "" : "~")));
 
             Log(string.Format(CultureInfo.InvariantCulture,
-                "    {0}{1}  x{2}  lab {3} frozen {4}  advances {5}  [{6}]",
+                "    {0}{1}  x{2}  lab {3} frozen {4} (cue {5:+#;-#;+0})  advances {6}  [{7}]",
                 i == Lab.FocusedIndex ? "* " : "  ", option, option.Members.Count, shown.LabFrame,
-                shown.FrozenFrames, shown.AdvancesAtTextClose, events));
+                shown.FrozenFrames, shown.FrozenFrames - RouteTimeline.LabTextFloorFrames,
+                shown.AdvancesAtTextClose, events));
         }
     }
 
@@ -567,7 +759,7 @@ public sealed class ContextSession
             _houseAdvances);
     }
 
-    private void BuildLab(bool late = false)
+    private void BuildLab(LabLateness lateness = LabLateness.Fast)
     {
         if (Tracker == null || _oakMs is not { } oak || _labMs is not { } lab) return;
 
@@ -580,8 +772,12 @@ public sealed class ContextSession
             oak,
             lab,
             StarterTool.VariableOffset?.SelectedFps ?? 60.0,
-            StarterTool.Settings?.NpcContextWindowMs ?? 0.0,
+            LabContextWindowMs,
             belief,
-            late);
+            lateness);
     }
+
+    private double LabContextWindowMs => _labCued
+        ? StarterTool.Settings?.NpcCuedPressWindowMs ?? AppSettings.DefaultCuedPressWindowMs
+        : StarterTool.Settings?.NpcContextWindowMs ?? 0.0;
 }
