@@ -1117,6 +1117,7 @@ public partial class MainForm : Form
         {
             case Keys.Up or Keys.Down or Keys.Left or Keys.Right:
             case Keys.PageUp or Keys.PageDown or Keys.Home or Keys.End:
+            case Keys.Add or Keys.Subtract:
                 e.SuppressKeyPress = true;
                 return;
         }
@@ -1145,16 +1146,6 @@ public partial class MainForm : Form
             case >= Keys.NumPad0 and <= Keys.NumPad9:
                 if (!StarterTool.IsTimerRunning) break;
                 TypeTrainerIdDigit((char)('0' + (e.KeyCode - Keys.NumPad0)));
-                e.SuppressKeyPress = true;
-                break;
-
-            case Keys.Add:
-                if (ButtonPlus.Enabled) timer.Nudge(1);
-                e.SuppressKeyPress = true;
-                break;
-
-            case Keys.Subtract:
-                if (ButtonMinus.Enabled) timer.Nudge(-1);
                 e.SuppressKeyPress = true;
                 break;
         }

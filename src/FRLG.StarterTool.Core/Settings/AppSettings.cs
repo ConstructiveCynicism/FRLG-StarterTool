@@ -100,7 +100,7 @@ public sealed class AppSettings
 
     public bool NpcGridVisible { get; set; }
 
-    public const int DefaultCuedLabPressOffsetFrames = 30;
+    public const int DefaultCuedLabPressOffsetFrames = 110;
 
     public const double DefaultCuedPressWindowMs = 30.0;
 

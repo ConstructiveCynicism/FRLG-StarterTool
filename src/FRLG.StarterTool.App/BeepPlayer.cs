@@ -20,6 +20,19 @@ public sealed class BeepPlayer : IDisposable
 
     private double _lastBeepStartMs = double.MinValue;
 
+    private readonly List<int> _beepStarts = new();
+    private int _beepBytes;
+    private int _bufferLength;
+
+    private readonly List<int> _protectedStarts = new();
+
+    private System.Threading.Timer? _writeTimer;
+    private double[]? _pendingOffsetsMs;
+    private int _pendingProtectedCount;
+    private double _pendingAtMs;
+    private int _writeGeneration;
+    private int _pendingGeneration;
+
     private int _volume = 100;
     private string _sound = BeepSounds.Default;
     private short[]? _samples;
@@ -69,34 +82,63 @@ public sealed class BeepPlayer : IDisposable
 
     public bool IsAvailable => _waveOut != IntPtr.Zero;
 
-    public void QueueBeeps(IReadOnlyList<double> offsetsMs)
+    public void QueueBeeps(IReadOnlyList<double> offsetsMs, int protectedCount = 0)
     {
-        if (offsetsMs.Count == 0)
+        lock (_lock)
         {
-            Clear();
-            return;
-        }
+            CancelDeferredWrite();
 
+            if (offsetsMs.Count == 0)
+            {
+                ClearPending();
+                return;
+            }
+
+            int remainderBytes = ProtectedRemainderBytes();
+            if (remainderBytes > 0 && MutePending())
+            {
+                DeferWrite(offsetsMs, protectedCount, BytesToMs(remainderBytes) + WriteMarginMs);
+                return;
+            }
+
+            WriteSchedule(offsetsMs, protectedCount);
+        }
+    }
+
+    private void WriteSchedule(IReadOnlyList<double> offsetsMs, int protectedCount)
+    {
         double maxOffset = offsetsMs.Max();
         int length = (int)Math.Ceiling(maxOffset / 1000.0 * SampleRate) * BytesPerFrame + _beep.Length;
         var pcm = new byte[length];
 
         _lastBeepStartMs = Win32.GetTime() + maxOffset;
 
-        foreach (double offset in offsetsMs)
+        var starts = new List<int>(offsetsMs.Count);
+        var protectedStarts = new List<int>(protectedCount);
+        for (int i = 0; i < offsetsMs.Count; i++)
         {
-            int destOffset = (int)(offset / 1000.0 * SampleRate) * BytesPerFrame;
+            int destOffset = (int)(offsetsMs[i] / 1000.0 * SampleRate) * BytesPerFrame;
             if (destOffset < 0 || destOffset + _beep.Length > pcm.Length) continue;
             Array.Copy(_beep, 0, pcm, destOffset, _beep.Length);
+            starts.Add(destOffset);
+            if (i < protectedCount) protectedStarts.Add(destOffset);
         }
 
-        Queue(pcm);
+        Queue(pcm, starts, protectedStarts);
     }
 
-    private void Queue(byte[] pcm)
+    private void Queue(byte[] pcm, List<int> starts, List<int> protectedStarts)
     {
         lock (_lock)
         {
+            _beepStarts.Clear();
+            _beepStarts.AddRange(starts);
+            _beepStarts.Sort();
+            _protectedStarts.Clear();
+            _protectedStarts.AddRange(protectedStarts);
+            _beepBytes = _beep.Length;
+            _bufferLength = pcm.Length;
+
             if (_waveOut == IntPtr.Zero) return;
 
             waveOutReset(_waveOut);
@@ -132,7 +174,11 @@ public sealed class BeepPlayer : IDisposable
     {
         lock (_lock)
         {
+            CancelDeferredWrite();
             _lastBeepStartMs = double.MinValue;
+            _beepStarts.Clear();
+            _protectedStarts.Clear();
+            _bufferLength = 0;
             if (_waveOut == IntPtr.Zero) return;
             waveOutReset(_waveOut);
             ReleaseBuffer();
@@ -143,10 +189,119 @@ public sealed class BeepPlayer : IDisposable
     {
         lock (_lock)
         {
+            CancelDeferredWrite();
+
+            if (MutePending()) return;
+
             if (Win32.GetTime() >= _lastBeepStartMs) return;
 
             Clear();
         }
+    }
+
+    private bool MutePending()
+    {
+        if (_buffer == IntPtr.Zero || !_prepared || _bufferLength <= 0) return false;
+
+        int position = PositionBytes();
+        if (position < 0) return false;
+
+        int from = position + GuardBytes;
+        foreach (int start in _beepStarts)
+        {
+            if (start > from) break;
+            from = Math.Max(from, start + _beepBytes);
+        }
+
+        for (int at = Math.Min(from, _bufferLength); at < _bufferLength; at += Silence.Length)
+        {
+            Marshal.Copy(Silence, 0, _buffer + at, Math.Min(Silence.Length, _bufferLength - at));
+        }
+
+        _beepStarts.RemoveAll(start => start >= from);
+        _protectedStarts.RemoveAll(start => start >= from);
+        _lastBeepStartMs = double.MinValue;
+        return true;
+    }
+
+    private const int GuardBytes = SampleRate / 20 * BytesPerFrame;
+
+    private static readonly byte[] Silence = new byte[64 * 1024];
+
+    private const double WriteMarginMs = 10.0;
+
+    private static double BytesToMs(int bytes) => bytes / (double)BytesPerFrame / SampleRate * 1000.0;
+
+    private int ProtectedRemainderBytes()
+    {
+        if (_protectedStarts.Count == 0 || !_prepared) return -1;
+
+        int position = PositionBytes();
+        if (position < 0) return -1;
+
+        foreach (int start in _protectedStarts)
+        {
+            if (position >= start && position < start + _beepBytes) return start + _beepBytes - position;
+        }
+
+        return -1;
+    }
+
+    private void DeferWrite(IReadOnlyList<double> offsetsMs, int protectedCount, double delayMs)
+    {
+        _pendingOffsetsMs = offsetsMs.ToArray();
+        _pendingProtectedCount = protectedCount;
+        _pendingAtMs = Win32.GetTime();
+        _lastBeepStartMs = _pendingAtMs + _pendingOffsetsMs.Max();
+
+        _pendingGeneration = ++_writeGeneration;
+        _writeTimer ??= new System.Threading.Timer(WritePending, null, Timeout.Infinite, Timeout.Infinite);
+        _writeTimer.Change((int)Math.Max(1.0, Math.Ceiling(delayMs)), Timeout.Infinite);
+    }
+
+    private void WritePending(object? state)
+    {
+        lock (_lock)
+        {
+            if (_pendingOffsetsMs is not { } offsets || _pendingGeneration != _writeGeneration) return;
+
+            double elapsedMs = Win32.GetTime() - _pendingAtMs;
+
+            var shifted = new List<double>(offsets.Length);
+            int protectedCount = 0;
+            for (int i = 0; i < offsets.Length; i++)
+            {
+                double offset = offsets[i] - elapsedMs;
+                if (offset < 0.0) continue;
+                shifted.Add(offset);
+                if (i < _pendingProtectedCount) protectedCount++;
+            }
+
+            _pendingOffsetsMs = null;
+
+            if (shifted.Count == 0) return;
+
+            WriteSchedule(shifted, protectedCount);
+        }
+    }
+
+    private void CancelDeferredWrite()
+    {
+        _writeGeneration++;
+        _pendingOffsetsMs = null;
+        _writeTimer?.Change(Timeout.Infinite, Timeout.Infinite);
+    }
+
+    private int PositionBytes()
+    {
+        if (_waveOut == IntPtr.Zero) return -1;
+
+        var time = new MMTIME { wType = TIME_BYTES };
+        if (waveOutGetPosition(_waveOut, ref time, (uint)Marshal.SizeOf<MMTIME>()) != MMSYSERR_NOERROR) return -1;
+        if (time.wType != TIME_BYTES) return -1;
+
+        int position = (int)time.u;
+        return position - position % BytesPerFrame;
     }
 
     public void Preview() => QueueBeeps(new[] { 0.0 });
@@ -220,6 +375,10 @@ public sealed class BeepPlayer : IDisposable
     {
         lock (_lock)
         {
+            CancelDeferredWrite();
+            _writeTimer?.Dispose();
+            _writeTimer = null;
+
             if (_waveOut == IntPtr.Zero) return;
             waveOutReset(_waveOut);
             ReleaseBuffer();
@@ -234,6 +393,7 @@ public sealed class BeepPlayer : IDisposable
     private const int WAVE_MAPPER = -1;
     private const ushort WAVE_FORMAT_PCM = 1;
     private const uint CALLBACK_NULL = 0;
+    private const uint TIME_BYTES = 4;
 
     [StructLayout(LayoutKind.Sequential, Pack = 1)]
     private struct WAVEFORMATEX
@@ -272,8 +432,19 @@ public sealed class BeepPlayer : IDisposable
     [DllImport("winmm.dll")]
     private static extern int waveOutWrite(IntPtr hWaveOut, IntPtr lpWaveOutHdr, uint uSize);
 
+    [StructLayout(LayoutKind.Sequential)]
+    private struct MMTIME
+    {
+        public uint wType;
+        public uint u;
+        public uint uHigh;
+    }
+
     [DllImport("winmm.dll")]
     private static extern int waveOutReset(IntPtr hWaveOut);
+
+    [DllImport("winmm.dll")]
+    private static extern int waveOutGetPosition(IntPtr hWaveOut, ref MMTIME lpInfo, uint uSize);
 
     [DllImport("winmm.dll")]
     private static extern int waveOutClose(IntPtr hWaveOut);

@@ -15,6 +15,7 @@ public sealed class VariableOffsetTimer : BaseTimer
         "59.8261",
         "60",
         "59.94",
+        "56.6555",
         "50"
     };
 
@@ -554,14 +555,15 @@ public sealed class VariableOffsetTimer : BaseTimer
         var both = new List<double>(cue.Length + countdown.Count);
         both.AddRange(cue);
         both.AddRange(countdown);
-        StarterTool.Beeps.QueueBeeps(both);
+
+        StarterTool.Beeps.QueueBeeps(both, cue.Length);
     }
 
     private void QueueCueOnly()
     {
         double[] cue = CueSchedule();
 
-        if (cue.Length > 0) StarterTool.Beeps.QueueBeeps(cue);
+        if (cue.Length > 0) StarterTool.Beeps.QueueBeeps(cue, cue.Length);
         else StarterTool.Beeps.ClearPending();
     }
 

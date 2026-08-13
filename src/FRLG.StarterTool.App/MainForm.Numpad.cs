@@ -92,7 +92,7 @@ public partial class MainForm
     private static Keys TranslateNumpad(Keys key, bool extended) => key switch
     {
         >= Keys.NumPad0 and <= Keys.NumPad9 => key,
-        Keys.Decimal or Keys.Add or Keys.Subtract => key,
+        Keys.Decimal => key,
         Keys.Return => extended ? Keys.Return : Keys.None,
 
         Keys.Insert => extended ? Keys.None : Keys.NumPad0,
@@ -136,14 +136,6 @@ public partial class MainForm
 
         switch (key)
         {
-            case Keys.Add:
-                if (ButtonPlus.Enabled) timer?.Nudge(1);
-                return true;
-
-            case Keys.Subtract:
-                if (ButtonMinus.Enabled) timer?.Nudge(-1);
-                return true;
-
             case Keys.Return:
                 timer?.Arm();
                 return true;

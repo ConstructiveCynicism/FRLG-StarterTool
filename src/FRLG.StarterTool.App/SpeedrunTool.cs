@@ -80,7 +80,7 @@ public static class StarterTool
     }
 
     private static int DefaultZoomPercent() =>
-        (Screen.PrimaryScreen?.WorkingArea.Height ?? 1080) <= 1080 ? 75 : 100;
+        (Screen.PrimaryScreen?.Bounds.Height ?? 1080) < 1440 ? 75 : 100;
 
     private static void StartHookThread()
     {

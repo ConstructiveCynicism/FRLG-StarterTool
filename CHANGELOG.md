@@ -1,3 +1,9 @@
+## v1.3.1
+fix + - bindings on flow timer
+75% on more monitor sizes
+56.6555fps added for DS
+beeps no longer cut off in offset training
+
 ### v1.3.0
 
 # Features
@@ -14,3 +20,4 @@
 - Global hotkeys work while tabbed in
 - Hit predictor now accounts for the context window/os delays
 - Swapping lab frames will requeue your audio, glitchy but gives you a chance to hit the squirtle still
+- Offset trainer: pressing Start early no longer cuts off the beep you pressed on - the beep in progress always finishes, only the beeps after it are cancelled
