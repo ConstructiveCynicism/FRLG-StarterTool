@@ -462,9 +462,9 @@ public sealed class SettingsForm : Form
             Size = new Size(comboWidth, Scaled(23)),
             DropDownStyle = ComboBoxStyle.DropDownList
         };
-        parityBox.Items.Add("Post (original model)");
+        parityBox.Items.Add("Post (original)");
         parityBox.Items.Add("Pre");
-        parityBox.Items.Add("Both (two hypotheses)");
+        parityBox.Items.Add("Both");
         parityBox.SelectedIndex = (int)_settings.FenceGuyParity;
         parityBox.SelectedIndexChanged += (_, _) =>
             _settings.FenceGuyParity = (FenceGuyParity)parityBox.SelectedIndex;
