@@ -8,7 +8,7 @@ public sealed class FenceTracker
     private readonly List<FenceCandidate> _alive;
     private readonly List<FenceInput> _inputs = new();
 
-    private (int Exit, int Oak)? _focus;
+    private (int Exit, int Oak, SpawnRead Spawn, SpawnRead Respawn)? _focus;
 
     public FenceTracker(IReadOnlyList<FenceCandidate> candidates, double fps, double contextMs)
     {
@@ -20,10 +20,11 @@ public sealed class FenceTracker
     }
 
     public static FenceTracker Build(int seed, double exitElapsedMs, double oakElapsedMs,
-        double fps, double contextMs, int manualAdvances = 0)
+        double fps, double contextMs, int manualAdvances = 0,
+        FenceGuyParity parity = FenceGuyParity.Post)
     {
         return new FenceTracker(
-            FenceRun.Build(seed, exitElapsedMs, oakElapsedMs, fps, contextMs, manualAdvances),
+            FenceRun.Build(seed, exitElapsedMs, oakElapsedMs, fps, contextMs, manualAdvances, parity),
             fps, contextMs);
     }
 
@@ -69,7 +70,8 @@ public sealed class FenceTracker
             if (_alive.Count == 0) return -1;
             if (_focus is not { } focus) return MostLikelyIndex;
 
-            int index = _alive.FindIndex(c => c.ExitFrame == focus.Exit && c.OakFrame == focus.Oak);
+            int index = _alive.FindIndex(c => c.ExitFrame == focus.Exit && c.OakFrame == focus.Oak
+                && c.SpawnReadSide == focus.Spawn && c.RespawnReadSide == focus.Respawn);
             return index < 0 ? 0 : index;
         }
         set
@@ -81,7 +83,8 @@ public sealed class FenceTracker
             }
 
             int index = Math.Clamp(value, 0, _alive.Count - 1);
-            _focus = (_alive[index].ExitFrame, _alive[index].OakFrame);
+            _focus = (_alive[index].ExitFrame, _alive[index].OakFrame,
+                _alive[index].SpawnReadSide, _alive[index].RespawnReadSide);
         }
     }
 

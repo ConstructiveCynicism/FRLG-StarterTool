@@ -24,7 +24,9 @@ public readonly record struct FenceCandidate(
     int TotalAdvances,
     double AnchorWeight = 1.0,
     int ManualAdvances = 0,
-    HiddenMoves Hidden = default)
+    HiddenMoves Hidden = default,
+    SpawnRead SpawnReadSide = SpawnRead.PostVBlank,
+    SpawnRead RespawnReadSide = SpawnRead.PostVBlank)
 {
     private int PressFrame => OakFrame + RouteTimeline.AnchorCorrectionFrames;
 
@@ -56,14 +58,25 @@ public readonly record struct FenceCandidate(
         - TotalAdvances - RouteTimeline.BallGenerationAdvances
         + VariableOffsetCalculator.TidLagFrames;
 
+    public string ParityLabel => $"{Letter(SpawnReadSide)}/{Letter(RespawnReadSide)}";
+
+    public string ParitySuffix =>
+        SpawnReadSide == SpawnRead.PostVBlank && RespawnReadSide == SpawnRead.PostVBlank
+            ? ""
+            : $" (parity {ParityLabel})";
+
+    private static string Letter(SpawnRead read) =>
+        read == SpawnRead.PreVBlank ? "pre" : "post";
+
     public override string ToString() =>
-        $"exit {ExitFrame} oak {OakFrame} -> {TotalAdvances} ({LeadWalk.Count} seen)";
+        $"exit {ExitFrame} oak {OakFrame} -> {TotalAdvances} ({LeadWalk.Count} seen){ParitySuffix}";
 }
 
 public static class FenceRun
 {
     public static IReadOnlyList<FenceCandidate> Build(int seed, double exitElapsedMs,
-        double oakElapsedMs, double fps, double contextMs, int manualAdvances = 0)
+        double oakElapsedMs, double fps, double contextMs, int manualAdvances = 0,
+        FenceGuyParity parity = FenceGuyParity.Post)
     {
         double shiftMs = RouteTimeline.AnchorCorrectionFrames * 1000.0 / fps;
         double window = contextMs + StartUncertaintyMs;
@@ -75,7 +88,7 @@ public static class FenceRun
             FrameWindow.Candidates(oakAt, fps, window),
             frame => FrameWindow.Weight(exitAt, fps, window, frame),
             frame => FrameWindow.Weight(oakAt, fps, window, frame),
-            manualAdvances);
+            manualAdvances, parity);
     }
 
     public const double StartUncertaintyMs = 100.0;
@@ -83,19 +96,40 @@ public static class FenceRun
     public const double AnchorSharpness = 1.5;
 
     public static IReadOnlyList<FenceCandidate> Build(int seed,
-        IEnumerable<int> exitFrames, IEnumerable<int> oakFrames, int manualAdvances = 0) =>
-        Build(seed, exitFrames, oakFrames, null, null, manualAdvances);
+        IEnumerable<int> exitFrames, IEnumerable<int> oakFrames, int manualAdvances = 0,
+        FenceGuyParity parity = FenceGuyParity.Post) =>
+        Build(seed, exitFrames, oakFrames, null, null, manualAdvances, parity);
 
     private static IReadOnlyList<FenceCandidate> Build(int seed,
         IEnumerable<int> exitFrames, IEnumerable<int> oakFrames,
-        Func<int, double>? exitWeight, Func<int, double>? oakWeight, int manualAdvances)
+        Func<int, double>? exitWeight, Func<int, double>? oakWeight, int manualAdvances,
+        FenceGuyParity parity = FenceGuyParity.Post)
     {
         List<int> exit = exitFrames.ToList();
         List<int> oak = oakFrames.ToList();
 
-        var all = new FenceCandidate[exit.Count * oak.Count];
-        Parallel.For(0, all.Length,
-            i => all[i] = Simulate(seed, exit[i / oak.Count], oak[i % oak.Count], manualAdvances));
+        (SpawnRead Spawn, SpawnRead Respawn)[] sides = parity switch
+        {
+            FenceGuyParity.Pre => new[] { (SpawnRead.PreVBlank, SpawnRead.PreVBlank) },
+            FenceGuyParity.Both => new[]
+            {
+                (SpawnRead.PostVBlank, SpawnRead.PostVBlank),
+                (SpawnRead.PostVBlank, SpawnRead.PreVBlank),
+                (SpawnRead.PreVBlank, SpawnRead.PostVBlank),
+                (SpawnRead.PreVBlank, SpawnRead.PreVBlank),
+            },
+            _ => new[] { (SpawnRead.PostVBlank, SpawnRead.PostVBlank) },
+        };
+
+        int perSide = exit.Count * oak.Count;
+        var all = new FenceCandidate[perSide * sides.Length];
+        Parallel.For(0, all.Length, i =>
+        {
+            (SpawnRead spawn, SpawnRead respawn) = sides[i / perSide];
+            int pair = i % perSide;
+            all[i] = Simulate(seed, exit[pair / oak.Count], oak[pair % oak.Count], manualAdvances,
+                spawn, respawn);
+        });
 
         var index = new Dictionary<string, int>();
         var candidates = new List<FenceCandidate>();
@@ -103,9 +137,10 @@ public static class FenceRun
 
         for (int i = 0; i < all.Length; i++)
         {
+            int pairIndex = i % perSide;
             double weight = exitWeight is null || oakWeight is null
                 ? 1.0
-                : Math.Pow(exitWeight(exit[i / oak.Count]) * oakWeight(oak[i % oak.Count]),
+                : Math.Pow(exitWeight(exit[pairIndex / oak.Count]) * oakWeight(oak[pairIndex % oak.Count]),
                     AnchorSharpness);
 
             if (index.TryGetValue(Observable(all[i]), out int at))
@@ -136,7 +171,8 @@ public static class FenceRun
             candidate.LeadWalk.Select(e => $"{e.Direction}@{e.Frame}"));
 
     public static FenceCandidate Simulate(int seed, int exitFrame, int oakFrame,
-        int manualAdvances = 0)
+        int manualAdvances = 0, SpawnRead spawnRead = SpawnRead.PostVBlank,
+        SpawnRead respawnRead = SpawnRead.PostVBlank)
     {
         var rng = new GameRng(seed);
 
@@ -152,7 +188,7 @@ public static class FenceRun
 
         int beforeEastward = rng.Advances;
         var eastward = new List<NpcEvent>();
-        OverworldSim pallet = RouteTimeline.RunPalletTown(rng, walkFrames, eastward);
+        OverworldSim pallet = RouteTimeline.RunPalletTown(rng, walkFrames, eastward, spawnRead);
         int eastwardRolls = rng.Advances - beforeEastward
             - (RouteTimeline.FatManSpawnToControlFrames + walkFrames);
 
@@ -173,7 +209,7 @@ public static class FenceRun
                 fatMan.SingleMovementActive && fatMan.Action == MovementAction.WalkNormal
                     ? fatMan.WalkStepNo
                     : 0));
-        });
+        }, respawnRead);
 
         int leadWalkRolls = rng.Advances - beforeLeadWalk - cutsceneFrames;
 
@@ -192,10 +228,12 @@ public static class FenceRun
             .Plus(HiddenMoves.Count(NpcId.FatMan, walk, e => e.Frame >= FenceCandidate.VisibleFrame));
 
         return new FenceCandidate(exitFrame, oakFrame, eastward, seen, motion,
-            eastwardRolls, leadWalkRolls, beforeLabLoad, rng.Advances, 1.0, manualAdvances, hidden);
+            eastwardRolls, leadWalkRolls, beforeLabLoad, rng.Advances, 1.0, manualAdvances, hidden,
+            spawnRead, respawnRead);
     }
 
-    public static HiddenMoves SimulateEastward(int seed, int exitFrame, int manualAdvances = 0)
+    public static HiddenMoves SimulateEastward(int seed, int exitFrame, int manualAdvances = 0,
+        SpawnRead spawnRead = SpawnRead.PostVBlank)
     {
         var rng = new GameRng(seed);
 
@@ -205,7 +243,8 @@ public static class FenceRun
 
         var eastward = new List<NpcEvent>();
         RouteTimeline.RunPalletTown(rng,
-            RouteTimeline.FatManActiveFrames - RouteTimeline.FatManSpawnToControlFrames, eastward);
+            RouteTimeline.FatManActiveFrames - RouteTimeline.FatManSpawnToControlFrames, eastward,
+            spawnRead);
 
         return HiddenMoves
             .Count(NpcId.FatMan, eastward.Where(e => e.Npc == NpcId.FatMan), _ => false)

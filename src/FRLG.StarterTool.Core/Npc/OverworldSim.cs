@@ -29,9 +29,17 @@ public sealed class OverworldSim : INpcWorld
 
     public int Advances => Rng.Advances;
 
-    public int StepFrame(List<NpcEvent>? events = null)
+    public int StepFrame(List<NpcEvent>? events = null) => StepFrame(events, -1);
+
+    public int StepFrame(List<NpcEvent>? events, int preVBlankSlot)
     {
         int before = Rng.Advances;
+
+        if (preVBlankSlot >= 0)
+        {
+            _objects.FirstOrDefault(o => o.Slot == preVBlankSlot)
+                ?.Update(Rng, this, Frame, events);
+        }
 
         Rng.VBlank();
 
@@ -39,6 +47,7 @@ public sealed class OverworldSim : INpcWorld
 
         foreach (ObjectEventSim o in _objects)
         {
+            if (o.Slot == preVBlankSlot) continue;
             o.Update(Rng, this, Frame, events);
         }
 

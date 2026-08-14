@@ -29,41 +29,61 @@ public sealed class StatBoxPanel : Panel
 
     public const string DefaultFillColor = "#3C3C3C";
 
-    private static Color _fillColor = ParseFillColor(DefaultFillColor);
-
-    public static Color FillColor
-    {
-        get => _fillColor;
-        set
-        {
-            if (_fillColor == value) return;
-
-            _fillColor = value;
-            FillColorChanged?.Invoke(null, EventArgs.Empty);
-        }
-    }
-
-    public static event EventHandler? FillColorChanged;
-
-    private static readonly string[] StatCaptions = { "HP", "ATK", "DEF", "SPA", "SPD", "SPE" };
-
     public const string DefaultLabelColor = "#4DC6D6";
 
-    private static Color _labelColor = ParseColor(DefaultLabelColor);
+    public const string DefaultValueColor = "#FFFFFF";
+
+    public const string DefaultOutlineColor = "#000000";
+
+    public const string DefaultFrameColor = "#000000";
+
+    private static Color _labelColor = ParseColor(DefaultLabelColor, DefaultLabelColor);
+    private static Color _fillColor = ParseColor(DefaultFillColor, DefaultFillColor);
+    private static Color _valueColor = ParseColor(DefaultValueColor, DefaultValueColor);
+    private static Color _outlineColor = ParseColor(DefaultOutlineColor, DefaultOutlineColor);
+    private static Color _frameColor = ParseColor(DefaultFrameColor, DefaultFrameColor);
+
+    private static void SetColor(ref Color field, Color value)
+    {
+        if (field == value) return;
+
+        field = value;
+        ColorsChanged?.Invoke(null, EventArgs.Empty);
+    }
+
+    public static event EventHandler? ColorsChanged;
 
     public static Color LabelColor
     {
         get => _labelColor;
-        set
-        {
-            if (_labelColor == value) return;
-
-            _labelColor = value;
-            LabelColorChanged?.Invoke(null, EventArgs.Empty);
-        }
+        set => SetColor(ref _labelColor, value);
     }
 
-    public static event EventHandler? LabelColorChanged;
+    public static Color FillColor
+    {
+        get => _fillColor;
+        set => SetColor(ref _fillColor, value);
+    }
+
+    public static Color ValueColor
+    {
+        get => _valueColor;
+        set => SetColor(ref _valueColor, value);
+    }
+
+    public static Color OutlineColor
+    {
+        get => _outlineColor;
+        set => SetColor(ref _outlineColor, value);
+    }
+
+    public static Color FrameColor
+    {
+        get => _frameColor;
+        set => SetColor(ref _frameColor, value);
+    }
+
+    private static readonly string[] StatCaptions = { "HP", "ATK", "DEF", "SPA", "SPD", "SPE" };
 
     private float BoxScale => Height / (float)BoxHeight;
 
@@ -132,7 +152,7 @@ public sealed class StatBoxPanel : Panel
             DrawText(
                 g,
                 _values[stat].ToString(CultureInfo.InvariantCulture),
-                family, FontSize * scale, centre, ValueBaseline * scale, Color.White, StringAlignment.Center);
+                family, FontSize * scale, centre, ValueBaseline * scale, ValueColor, StringAlignment.Center);
         }
 
         DrawStrip(g, family);
@@ -143,9 +163,9 @@ public sealed class StatBoxPanel : Panel
         var pixels = g.SmoothingMode;
         g.SmoothingMode = SmoothingMode.None;
 
-        using (var black = new SolidBrush(Color.Black))
+        using (var border = new SolidBrush(FrameColor))
         {
-            g.FillRectangle(black, ClientRectangle);
+            g.FillRectangle(border, ClientRectangle);
         }
         using (var fill = new SolidBrush(FillColor))
         {
@@ -184,7 +204,7 @@ public sealed class StatBoxPanel : Panel
                 g, _trailingCaption, family, size, captionX, baseline, LabelColor, StringAlignment.Near);
             DrawText(
                 g, _trailingValue, family, size, captionX + captionWidth + gap, baseline,
-                Color.White, StringAlignment.Near);
+                ValueColor, StringAlignment.Near);
         }
 
         float natureCaptionRight = DrawText(
@@ -192,7 +212,7 @@ public sealed class StatBoxPanel : Panel
             StringAlignment.Near);
 
         DrawText(
-            g, _nature, family, size, natureCaptionRight + gap, baseline, Color.White,
+            g, _nature, family, size, natureCaptionRight + gap, baseline, ValueColor,
             StringAlignment.Near);
     }
 
@@ -215,7 +235,7 @@ public sealed class StatBoxPanel : Panel
 
         if (measureOnly) return path.GetBounds().Width;
 
-        using (var pen = new Pen(Color.Black, 2f) { LineJoin = LineJoin.Round })
+        using (var pen = new Pen(OutlineColor, 2f) { LineJoin = LineJoin.Round })
         {
             g.DrawPath(pen, path);
         }
@@ -227,11 +247,7 @@ public sealed class StatBoxPanel : Panel
         return path.GetBounds().Right;
     }
 
-    public static Color ParseColor(string? hex) => ParseColor(hex, DefaultLabelColor);
-
-    public static Color ParseFillColor(string? hex) => ParseColor(hex, DefaultFillColor);
-
-    private static Color ParseColor(string? hex, string fallback)
+    public static Color ParseColor(string? hex, string fallback)
     {
         try
         {

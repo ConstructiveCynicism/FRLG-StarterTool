@@ -57,8 +57,7 @@ public partial class MainForm : Form
         StatBoxStats.Click += (_, _) => ToggleLevel();
         StatBoxIvs.Click += (_, _) => ExportStats();
         StatBoxIvs.Cursor = Cursors.Hand;
-        StatBoxPanel.LabelColorChanged += (_, _) => RefreshStatBoxColors();
-        StatBoxPanel.FillColorChanged += (_, _) => RefreshStatBoxColors();
+        StatBoxPanel.ColorsChanged += (_, _) => RefreshStatBoxColors();
         InitializeStatSearch();
         MenuItemHotkeys.Click += (_, _) => StarterTool.ShowSettings();
         MenuItemAlwaysOnTop.CheckedChanged += (_, _) => RefreshAlwaysOnTop();
@@ -173,8 +172,16 @@ public partial class MainForm : Form
 
         ButtonLevelToggle.Checked = settings.Level == 6;
         RefreshStatBoxLevel();
-        StatBoxPanel.LabelColor = StatBoxPanel.ParseColor(settings.StatBoxLabelColor);
-        StatBoxPanel.FillColor = StatBoxPanel.ParseFillColor(settings.StatBoxFillColor);
+        StatBoxPanel.LabelColor =
+            StatBoxPanel.ParseColor(settings.StatBoxLabelColor, StatBoxPanel.DefaultLabelColor);
+        StatBoxPanel.FillColor =
+            StatBoxPanel.ParseColor(settings.StatBoxFillColor, StatBoxPanel.DefaultFillColor);
+        StatBoxPanel.ValueColor =
+            StatBoxPanel.ParseColor(settings.StatBoxValueColor, StatBoxPanel.DefaultValueColor);
+        StatBoxPanel.OutlineColor =
+            StatBoxPanel.ParseColor(settings.StatBoxOutlineColor, StatBoxPanel.DefaultOutlineColor);
+        StatBoxPanel.FrameColor =
+            StatBoxPanel.ParseColor(settings.StatBoxFrameColor, StatBoxPanel.DefaultFrameColor);
         TrainingPanel.LoadRounds(settings.TrainingRounds);
 
         ContextPanel.ShowDelayDashes = settings.ShowLabDelayDashes;
@@ -218,6 +225,9 @@ public partial class MainForm : Form
         settings.Level = SelectedLevel;
         settings.StatBoxLabelColor = StatBoxPanel.ToHex(StatBoxPanel.LabelColor);
         settings.StatBoxFillColor = StatBoxPanel.ToHex(StatBoxPanel.FillColor);
+        settings.StatBoxValueColor = StatBoxPanel.ToHex(StatBoxPanel.ValueColor);
+        settings.StatBoxOutlineColor = StatBoxPanel.ToHex(StatBoxPanel.OutlineColor);
+        settings.StatBoxFrameColor = StatBoxPanel.ToHex(StatBoxPanel.FrameColor);
         settings.TrainingRounds = TrainingPanel.SaveRounds();
         settings.AlwaysOnTop = MenuItemAlwaysOnTop.Checked;
         settings.GlobalHotkeysEnabled = MenuItemGlobalHotkeys.Checked;

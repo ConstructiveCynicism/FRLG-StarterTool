@@ -12,7 +12,8 @@ public readonly record struct LabCandidate(
     IReadOnlyList<NpcEvent> Scientist,
     int AdvancesAtTextClose,
     IReadOnlyList<int> AdvancesByFrame,
-    IReadOnlyList<HiddenMoves>? LabHidden = null)
+    IReadOnlyList<HiddenMoves>? LabHidden = null,
+    int StreamShift = 0)
 {
     public bool Completes(NpcEvent e) =>
         e.Kind != NpcEventKind.Step || e.Frame + ObjectEventSim.NormalWalkFrames <= ObservableFrames;
@@ -70,6 +71,10 @@ public static class LabRun
 {
     public const int HorizonFrames = 1200;
 
+    public const int StreamShiftRadius = 2;
+
+    public const int StreamShiftNarrowedParents = 1;
+
     public static IReadOnlyList<LabCandidate> Build(int seed, IReadOnlyList<FenceCandidate> fence,
         double oakElapsedMs, double labElapsedMs, double fps, double contextMs,
         int observableFrames = RouteTimeline.LabObservableFrames) =>
@@ -103,12 +108,23 @@ public static class LabRun
     private static IReadOnlyList<LabCandidate> Cross(int seed, IReadOnlyList<FenceCandidate> fence,
         int perFence, Func<FenceCandidate, int, int> labFrame, int pressFrame, int observableFrames)
     {
-        var all = new LabCandidate[fence.Count * perFence];
+        var shifts = new List<int> { 0 };
+        if (fence.Count <= StreamShiftNarrowedParents)
+        {
+            for (int s = 1; s <= StreamShiftRadius; s++)
+            {
+                shifts.Add(s);
+                shifts.Add(-s);
+            }
+        }
+
+        int perShift = fence.Count * perFence;
+        var all = new LabCandidate[perShift * shifts.Count];
         Parallel.For(0, all.Length, i =>
         {
-            FenceCandidate candidate = fence[i / perFence];
+            FenceCandidate candidate = fence[i % perShift / perFence];
             all[i] = Simulate(seed, candidate, labFrame(candidate, i % perFence), pressFrame,
-                observableFrames);
+                observableFrames, shifts[i / perShift]);
         });
 
         var seen = new HashSet<string>();
@@ -136,12 +152,13 @@ public static class LabRun
         + "/" + string.Concat(candidate.Scientist.Select(e => Directions.Letter(e.Direction)));
 
     public static LabCandidate Simulate(int seed, FenceCandidate fence, int labFrame,
-        int pressFrame = 0, int observableFrames = RouteTimeline.LabObservableFrames)
+        int pressFrame = 0, int observableFrames = RouteTimeline.LabObservableFrames,
+        int streamShift = 0)
     {
         int frozenFrames = Math.Max(0,
             labFrame - fence.OakFrame - RouteTimeline.OakTextToLabLoadFrames);
 
-        GameRng rng = GameRng.At(seed, fence.AdvancesBeforeLabLoad);
+        GameRng rng = GameRng.At(seed, fence.AdvancesBeforeLabLoad + streamShift);
 
         OverworldSim lab = RouteTimeline.EnterLab(rng, frozenFrames);
         lab.FreezeAll(false);
@@ -175,7 +192,7 @@ public static class LabRun
 
         return new LabCandidate(fence, labFrame, pressFrame, frozenFrames, observableFrames,
             Restamped(NpcId.Aide), Restamped(RouteTimeline.LabObservableScientist),
-            advancesAtTextClose, advancesByFrame, hidden);
+            advancesAtTextClose, advancesByFrame, hidden, streamShift);
     }
 }
 
@@ -227,6 +244,8 @@ public enum LabLateness
 
 public sealed class LabTracker
 {
+    public const double StreamShiftPrior = 0.15;
+
     private readonly List<LabOption> _all;
     private readonly List<double> _likelihoods;
     private int? _focus;
@@ -292,7 +311,9 @@ public sealed class LabTracker
                     ? f
                     : 1.0;
 
-                weight += gap * belief;
+                double shift = Math.Pow(StreamShiftPrior, Math.Abs(member.StreamShift));
+
+                weight += gap * belief * shift;
             }
 
             weights.Add(weight);

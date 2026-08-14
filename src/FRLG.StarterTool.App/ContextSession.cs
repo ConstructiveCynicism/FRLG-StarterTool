@@ -361,9 +361,12 @@ public sealed class ContextSession
         if (Lab?.Focused is not { } box) return;
 
         Log(string.Format(CultureInfo.InvariantCulture,
-            "box {0} [{1}]: {2} candidates, advances {3} at the close",
+            "box {0} [{1}]: {2} candidates, advances {3} at the close{4}",
             Lab.FocusedIndex + 1, box, box.Members.Count,
-            box.Representative.AdvancesAtTextClose));
+            box.Representative.AdvancesAtTextClose,
+            box.Representative.StreamShift == 0 ? ""
+                : string.Format(CultureInfo.InvariantCulture, " (stream {0:+#;-#})",
+                    box.Representative.StreamShift)));
     }
 
     public int? Correction(int targetFrame) => Lab?.Correction(targetFrame) ?? _missCorrection;
@@ -427,7 +430,11 @@ public sealed class ContextSession
         double window = (StarterTool.Settings?.NpcContextWindowMs ?? 0.0) + FenceRun.StartUncertaintyMs;
 
         int exitFrame = FrameWindow.Candidates(exitMs - shiftMs, fps, window)[0];
-        return FenceRun.SimulateEastward(seed, exitFrame, _houseAdvances);
+
+        SpawnRead spawnRead = StarterTool.Settings?.FenceGuyParity == FenceGuyParity.Pre
+            ? SpawnRead.PreVBlank
+            : SpawnRead.PostVBlank;
+        return FenceRun.SimulateEastward(seed, exitFrame, _houseAdvances, spawnRead);
     }
 
     public bool RecordHit(int countdownFrame, double deltaMs, double hitChance, int offsetMs)
@@ -587,8 +594,9 @@ public sealed class ContextSession
 
                 return _missCorrection is { } correction
                     ? string.Format(CultureInfo.InvariantCulture,
-                        "{0} {1}/3 · guessed {2:+#;-#;0} frames from the fence field",
-                        what, AnchorCount + 1, correction)
+                        "{0} {1}/3 · guessed {2:+#;-#;0} frames from the fence field{3}",
+                        what, AnchorCount + 1, correction,
+                        ParityNote(_missFence))
                     : string.Format(CultureInfo.InvariantCulture,
                         _missEastward is null
                             ? "{0} {1}/3 · nothing to guess from - countdown uncorrected"
@@ -603,11 +611,13 @@ public sealed class ContextSession
                         lab.FocusedIndex + 1, lab.All.Count)
                     : "";
 
-                if (_unpressed) return "Window closed · no landing taken" + box;
+                string parity = ParityNote(Lab?.Focused?.Representative.Fence);
+
+                if (_unpressed) return "Window closed · no landing taken" + box + parity;
 
                 return (_hitCountdownFrame is { } pressed && LandedFrame(pressed) is { } frame
                     ? string.Format(CultureInfo.InvariantCulture, "Hit · frame {0}", frame)
-                    : "Hit · frame not anchored") + box;
+                    : "Hit · frame not anchored") + box + parity;
             }
 
             if (LastAnchor == null) return "Waiting for the house exit - press Start as you leave.";
@@ -650,6 +660,12 @@ public sealed class ContextSession
                 });
         }
     }
+
+    private static string ParityNote(FenceCandidate? fence) =>
+        fence is { } candidate
+        && StarterTool.Settings?.FenceGuyParity == FenceGuyParity.Both
+            ? " · parity " + candidate.ParityLabel
+            : "";
 
     public string Report
     {
@@ -707,9 +723,10 @@ public sealed class ContextSession
                 .Select(e => $"{Directions.Letter(e.Direction)}@{e.Frame}"));
 
             Log(string.Format(CultureInfo.InvariantCulture,
-                "    exit {0} oak {1}  respawn {2}  visible {3}  advances {4}  [{5}]",
+                "    exit {0} oak {1}  respawn {2}  visible {3}  advances {4}  [{5}]{6}",
                 candidate.ExitFrame, candidate.OakFrame, candidate.LeadWalkStartFrame,
-                candidate.LeadWalkVisibleFrame, candidate.TotalAdvances, events));
+                candidate.LeadWalkVisibleFrame, candidate.TotalAdvances, events,
+                candidate.ParitySuffix));
         }
     }
 
@@ -732,10 +749,14 @@ public sealed class ContextSession
                     + (shown.Completes(e) ? "" : "~")));
 
             Log(string.Format(CultureInfo.InvariantCulture,
-                "    {0}{1}  x{2}  lab {3} frozen {4} (cue {5:+#;-#;+0})  advances {6}  [{7}]",
+                "    {0}{1}  x{2}  lab {3} frozen {4} (cue {5:+#;-#;+0})  advances {6}{7}  [{8}]",
                 i == Lab.FocusedIndex ? "* " : "  ", option, option.Members.Count, shown.LabFrame,
                 shown.FrozenFrames, shown.FrozenFrames - RouteTimeline.LabTextFloorFrames,
-                shown.AdvancesAtTextClose, events));
+                shown.AdvancesAtTextClose,
+                shown.StreamShift == 0 ? ""
+                    : string.Format(CultureInfo.InvariantCulture, " (stream {0:+#;-#})",
+                        shown.StreamShift),
+                events));
         }
     }
 
@@ -756,7 +777,8 @@ public sealed class ContextSession
             oak,
             StarterTool.VariableOffset?.SelectedFps ?? 60.0,
             StarterTool.Settings?.NpcContextWindowMs ?? 0.0,
-            _houseAdvances);
+            _houseAdvances,
+            StarterTool.Settings?.FenceGuyParity ?? FenceGuyParity.Post);
     }
 
     private void BuildLab(LabLateness lateness = LabLateness.Fast)

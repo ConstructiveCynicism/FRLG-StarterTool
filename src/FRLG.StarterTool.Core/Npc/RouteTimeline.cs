@@ -77,12 +77,15 @@ public static class RouteTimeline
         }
     }
 
-    public static OverworldSim RunPalletTown(GameRng rng, int framesToTrigger, List<NpcEvent>? events = null)
+    public static OverworldSim RunPalletTown(GameRng rng, int framesToTrigger,
+        List<NpcEvent>? events = null, SpawnRead spawnRead = SpawnRead.PostVBlank)
     {
         OverworldSim sim = MapObjects.NewPalletTown(rng);
         sim.UpdateSpawns(PalletExitX, PalletExitY);
 
-        for (int i = 0; i < FatManSpawnToControlFrames; i++)
+        sim.StepFrame(events,
+            spawnRead == SpawnRead.PreVBlank ? MapObjects.PalletFatMan : -1);
+        for (int i = 1; i < FatManSpawnToControlFrames; i++)
         {
             sim.StepFrame(events);
         }
@@ -106,7 +109,7 @@ public static class RouteTimeline
     }
 
     public static void RunFrozenCutscene(OverworldSim pallet, int frames, List<NpcEvent>? events = null,
-        Action<int, OverworldSim>? onFrame = null)
+        Action<int, OverworldSim>? onFrame = null, SpawnRead respawnRead = SpawnRead.PostVBlank)
     {
         pallet.FreezeAll(true);
 
@@ -119,7 +122,8 @@ public static class RouteTimeline
 
             if (i == refreeze) pallet.FreezeAll(true);
 
-            pallet.StepFrame(events);
+            pallet.StepFrame(events,
+                i == respawn && respawnRead == SpawnRead.PreVBlank ? MapObjects.PalletFatMan : -1);
             onFrame?.Invoke(i, pallet);
         }
     }

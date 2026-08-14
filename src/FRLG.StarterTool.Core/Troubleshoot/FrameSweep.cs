@@ -11,7 +11,8 @@ public sealed record SweepHit(
     MatchQuality Quality,
     int Distance,
     IReadOnlyList<StripLine> Lines,
-    int ObservableFrames = 0);
+    int ObservableFrames = 0,
+    int StreamShift = 0);
 
 public sealed record SweepResult
 {
@@ -34,8 +35,11 @@ public static class FrameSweep
 
     private const int MostHits = 12;
 
+    private const int StreamShiftRadius = 3;
+
     public static SweepResult Lab(RunRecord run, IReadOnlyList<StripToken>? aide,
-        IReadOnlyList<StripToken>? scientist, int radius = DefaultRadius)
+        IReadOnlyList<StripToken>? scientist, int radius = DefaultRadius,
+        IReadOnlyList<StripToken>? fenceGuy = null)
     {
         if (run.Seed <= 0 || run.Fence.Count == 0 || run.Lab.Count == 0)
         {
@@ -47,44 +51,69 @@ public static class FrameSweep
             return new SweepResult { Summary = "Report what you saw first, then sweep for it." };
         }
 
+        if (fenceGuy is { Count: 0 }) fenceGuy = null;
+
         IReadOnlyList<FenceCandidate> fence = Fence(run);
 
         int centre = (int)Math.Round(run.Lab.Average(r => (double)r.LabFrame));
-        var frames = new List<int>();
-        for (int frame = centre - radius; frame <= centre + radius; frame++) frames.Add(frame);
 
-        var hits = new List<SweepHit>();
-        int scanned = 0;
+        var pairs = new List<(int Observable, int Shift, int Frame, int Parent)>();
 
         foreach (int observable in Windows(run))
         {
-            IReadOnlyList<LabCandidate> swept =
-                LabRun.Build(run.Seed, fence, frames, run.LabPressFrame ?? 0, observable);
-
-            scanned += swept.Count;
-
-            foreach (LabCandidate box in swept)
+            for (int shift = -StreamShiftRadius; shift <= StreamShiftRadius; shift++)
             {
-                IReadOnlyList<StripToken> left = Strip(box.Aide, box);
-                IReadOnlyList<StripToken> right = Strip(box.Scientist, box);
+                int reach = shift == 0 ? radius : StreamShiftRadius;
 
-                (MatchQuality Quality, int Distance)? a =
-                    aide == null ? null : Troubleshooter.Compare(left, aide, 0);
-                (MatchQuality Quality, int Distance)? b =
-                    scientist == null ? null : Troubleshooter.Compare(right, scientist, 0);
-
-                hits.Add(new SweepHit(
-                    box.AdvancesAtTextClose,
-                    box.LabFrame,
-                    box.LabFrame - centre,
-                    Weakest(a?.Quality, b?.Quality),
-                    (a?.Distance ?? 0) + (b?.Distance ?? 0),
-                    new[] { new StripLine("L", left), new StripLine("S", right) },
-                    observable));
+                for (int frame = centre - reach; frame <= centre + reach; frame++)
+                {
+                    for (int parent = 0; parent < fence.Count; parent++)
+                    {
+                        pairs.Add((observable, shift, frame, parent));
+                    }
+                }
             }
         }
 
-        return Rank(hits, scanned, radius, "lab press", run.LabWindowFrames);
+        var walks = fenceGuy == null ? null : fence
+            .Select(parent => Troubleshooter.Compare(
+                MovementStrip.Layout(parent.LeadWalk.Select(e => new StripMove(e.Frame, e.Direction))),
+                fenceGuy, parent.FirstRequiredEvent))
+            .ToArray();
+
+        var hits = new SweepHit[pairs.Count];
+        Parallel.For(0, pairs.Count, i =>
+        {
+            (int observable, int shift, int frame, int p) = pairs[i];
+
+            FenceCandidate parent = fence[p];
+            FenceCandidate resumed = shift == 0 ? parent
+                : parent with { AdvancesBeforeLabLoad = parent.AdvancesBeforeLabLoad + shift };
+
+            LabCandidate box = LabRun.Simulate(run.Seed, resumed, frame,
+                run.LabPressFrame ?? 0, observable);
+
+            IReadOnlyList<StripToken> left = Strip(box.Aide, box);
+            IReadOnlyList<StripToken> right = Strip(box.Scientist, box);
+
+            (MatchQuality Quality, int Distance)? a =
+                aide == null ? null : Troubleshooter.Compare(left, aide, 0);
+            (MatchQuality Quality, int Distance)? b =
+                scientist == null ? null : Troubleshooter.Compare(right, scientist, 0);
+            (MatchQuality Quality, int Distance)? f = walks?[p];
+
+            hits[i] = new SweepHit(
+                box.AdvancesAtTextClose,
+                box.LabFrame,
+                box.LabFrame - centre,
+                Weakest(Weakest(a?.Quality, b?.Quality), f?.Quality),
+                (a?.Distance ?? 0) + (b?.Distance ?? 0) + (f?.Distance ?? 0),
+                new[] { new StripLine("L", left), new StripLine("S", right) },
+                observable,
+                shift);
+        });
+
+        return Rank(hits.ToList(), hits.Length, radius, "lab press", run.LabWindowFrames);
     }
 
     public static SweepResult Fence(RunRecord run, IReadOnlyList<StripToken> report,
@@ -174,6 +203,7 @@ public static class FrameSweep
         List<SweepHit> ranked = hits
             .OrderByDescending(h => h.Quality)
             .ThenBy(h => h.Distance)
+            .ThenBy(h => Math.Abs(h.StreamShift))
             .ThenBy(h => Math.Abs(h.OffsetFrames))
             .ThenBy(h => h.ObservableFrames == reportedWindow ? 0 : 1)
             .ThenBy(h => h.OffsetFrames)
@@ -238,10 +268,25 @@ public static class FrameSweep
             Math.Abs(hit.OffsetFrames), hit.OffsetFrames > 0 ? "later" : "earlier"),
     };
 
-    private static string Window(SweepHit best, int reportedWindow) =>
-        reportedWindow > 0 && best.ObservableFrames != reportedWindow
+    private static string Window(SweepHit best, int reportedWindow)
+    {
+        string window = reportedWindow > 0 && best.ObservableFrames != reportedWindow
             ? string.Format(CultureInfo.InvariantCulture,
-                "Needs a {0}-frame window, not {1}",
-                best.ObservableFrames, reportedWindow)
+                "a {0}-frame window, not {1}", best.ObservableFrames, reportedWindow)
             : "";
+
+        string shift = best.StreamShift != 0
+            ? string.Format(CultureInfo.InvariantCulture,
+                "the stream {0:+#;-#} advance{1} at the lab - the model's count, not your presses",
+                best.StreamShift, Math.Abs(best.StreamShift) == 1 ? "" : "s")
+            : "";
+
+        return (window, shift) switch
+        {
+            ("", "") => "",
+            ("", _) => "Needs " + shift,
+            (_, "") => "Needs " + window,
+            _ => "Needs " + shift + ", and " + window,
+        };
+    }
 }

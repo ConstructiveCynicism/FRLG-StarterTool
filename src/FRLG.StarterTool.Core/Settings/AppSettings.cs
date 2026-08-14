@@ -1,3 +1,4 @@
+using FRLG.StarterTool.Core.Npc;
 using FRLG.StarterTool.Core.Pokemon;
 using FRLG.StarterTool.Core.Timing;
 using FRLG.StarterTool.Core.Tips;
@@ -100,6 +101,8 @@ public sealed class AppSettings
 
     public bool NpcGridVisible { get; set; }
 
+    public FenceGuyParity FenceGuyParity { get; set; } = FenceGuyParity.Post;
+
     public const int DefaultCuedLabPressOffsetFrames = 110;
 
     public const double DefaultCuedPressWindowMs = 30.0;
@@ -128,13 +131,28 @@ public sealed class AppSettings
 
     public string StatBoxFillColor { get; set; } = DefaultStatBoxFillColor;
 
+    public string StatBoxValueColor { get; set; } = DefaultStatBoxValueColor;
+
+    public string StatBoxOutlineColor { get; set; } = DefaultStatBoxOutlineColor;
+
+    public string StatBoxFrameColor { get; set; } = DefaultStatBoxFrameColor;
+
     public const string DefaultStatBoxLabelColor = "#4DC6D6";
 
     public const string DefaultStatBoxFillColor = "#3C3C3C";
 
+    public const string DefaultStatBoxValueColor = "#FFFFFF";
+
+    public const string DefaultStatBoxOutlineColor = "#000000";
+
+    public const string DefaultStatBoxFrameColor = "#000000";
+
     public bool StatBoxColorsAreDefault =>
         string.Equals(StatBoxLabelColor, DefaultStatBoxLabelColor, StringComparison.OrdinalIgnoreCase)
-        && string.Equals(StatBoxFillColor, DefaultStatBoxFillColor, StringComparison.OrdinalIgnoreCase);
+        && string.Equals(StatBoxFillColor, DefaultStatBoxFillColor, StringComparison.OrdinalIgnoreCase)
+        && string.Equals(StatBoxValueColor, DefaultStatBoxValueColor, StringComparison.OrdinalIgnoreCase)
+        && string.Equals(StatBoxOutlineColor, DefaultStatBoxOutlineColor, StringComparison.OrdinalIgnoreCase)
+        && string.Equals(StatBoxFrameColor, DefaultStatBoxFrameColor, StringComparison.OrdinalIgnoreCase);
 
     public string Fps { get; set; } = "59.7275";
     public string Offset { get; set; } = "0";
@@ -259,6 +277,7 @@ public sealed class AppSettings
         if (!Enum.IsDefined(KeyMethod)) KeyMethod = KeyMethod.OnPress;
         if (!Enum.IsDefined(ClipboardFormat)) ClipboardFormat = ClipboardFormat.Column;
         if (!Enum.IsDefined(TimeFormat)) TimeFormat = TimeFormat.Seconds;
+        if (!Enum.IsDefined(FenceGuyParity)) FenceGuyParity = FenceGuyParity.Post;
 
         Fps ??= "59.7275";
         Offset ??= "0";
@@ -269,6 +288,9 @@ public sealed class AppSettings
         if (string.IsNullOrWhiteSpace(BeepSound)) BeepSound = "ping1";
         if (string.IsNullOrWhiteSpace(StatBoxLabelColor)) StatBoxLabelColor = DefaultStatBoxLabelColor;
         if (string.IsNullOrWhiteSpace(StatBoxFillColor)) StatBoxFillColor = DefaultStatBoxFillColor;
+        if (string.IsNullOrWhiteSpace(StatBoxValueColor)) StatBoxValueColor = DefaultStatBoxValueColor;
+        if (string.IsNullOrWhiteSpace(StatBoxOutlineColor)) StatBoxOutlineColor = DefaultStatBoxOutlineColor;
+        if (string.IsNullOrWhiteSpace(StatBoxFrameColor)) StatBoxFrameColor = DefaultStatBoxFrameColor;
         TrainingRounds = Math.Clamp(TrainingRounds, 1, 999);
 
         ZoomPercent = Math.Clamp(ZoomPercent == 0 ? 100 : ZoomPercent, 75, 125);

@@ -771,8 +771,10 @@ public sealed class NpcGridPanel : Control
             ? string.Format(CultureInfo.InvariantCulture, "{0:+#;-#;+0}", min)
             : string.Format(CultureInfo.InvariantCulture, "{0:+#;-#;+0}..{1:+#;-#;+0}", min, max);
 
+        if (shown.StreamShift != 0) correction += "~";
+
         Color correctionInk = focused
-            ? min == max ? Theme.LandingHitText : Theme.LandingMaybeText
+            ? min == max && shown.StreamShift == 0 ? Theme.LandingHitText : Theme.LandingMaybeText
             : ink;
 
         var right = new Rectangle(row.Right - RightColumnWidth, row.Y, RightColumnWidth, row.Height);

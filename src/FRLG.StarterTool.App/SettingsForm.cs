@@ -1,4 +1,5 @@
 using System.Globalization;
+using FRLG.StarterTool.Core.Npc;
 using FRLG.StarterTool.Core.Settings;
 using FRLG.StarterTool.Core.Timing;
 
@@ -29,7 +30,10 @@ public sealed class SettingsForm : Form
         "Clipboard format",
         "Time format",
         "Stat box labels",
-        "Stat box background"
+        "Stat box text",
+        "Stat box background",
+        "Stat box outline",
+        "Stat box frame"
     };
 
     private readonly AppSettings _settings;
@@ -378,8 +382,17 @@ public sealed class SettingsForm : Form
                 _settings.StatBoxLabelColor = StatBoxPanel.ToHex(colour);
             });
 
+        Panel valueSwatch = AddColorRow(
+            "Stat box text", labelSwatch.Bottom + Scaled(8), comboX, comboWidth,
+            () => StatBoxPanel.ValueColor,
+            colour =>
+            {
+                StatBoxPanel.ValueColor = colour;
+                _settings.StatBoxValueColor = StatBoxPanel.ToHex(colour);
+            });
+
         Panel fillSwatch = AddColorRow(
-            "Stat box background", labelSwatch.Bottom + Scaled(8), comboX, comboWidth,
+            "Stat box background", valueSwatch.Bottom + Scaled(8), comboX, comboWidth,
             () => StatBoxPanel.FillColor,
             colour =>
             {
@@ -387,10 +400,28 @@ public sealed class SettingsForm : Form
                 _settings.StatBoxFillColor = StatBoxPanel.ToHex(colour);
             });
 
+        Panel outlineSwatch = AddColorRow(
+            "Stat box outline", fillSwatch.Bottom + Scaled(8), comboX, comboWidth,
+            () => StatBoxPanel.OutlineColor,
+            colour =>
+            {
+                StatBoxPanel.OutlineColor = colour;
+                _settings.StatBoxOutlineColor = StatBoxPanel.ToHex(colour);
+            });
+
+        Panel frameSwatch = AddColorRow(
+            "Stat box frame", outlineSwatch.Bottom + Scaled(8), comboX, comboWidth,
+            () => StatBoxPanel.FrameColor,
+            colour =>
+            {
+                StatBoxPanel.FrameColor = colour;
+                _settings.StatBoxFrameColor = StatBoxPanel.ToHex(colour);
+            });
+
         var labDashes = new ThemedCheckBox
         {
             Text = "Lab delay timings",
-            Location = new Point(Scaled(LeftMargin), fillSwatch.Bottom + Scaled(RowGap + 4)),
+            Location = new Point(Scaled(LeftMargin), frameSwatch.Bottom + Scaled(RowGap + 4)),
             AutoSize = true,
             Checked = _settings.ShowLabDelayDashes
         };
@@ -415,6 +446,30 @@ public sealed class SettingsForm : Form
         };
         Controls.Add(runTips);
 
+        y = runTips.Bottom + Scaled(SectionGap);
+        Label experimentalHeader = AddSectionHeader("Experimental", y);
+        y = experimentalHeader.Bottom + Scaled(RowGap);
+
+        Controls.Add(new Label
+        {
+            Text = "Fence guy parity",
+            Location = new Point(Scaled(LeftMargin), y + Scaled(4)),
+            AutoSize = true
+        });
+        var parityBox = new ThemedComboBox
+        {
+            Location = new Point(comboX, y),
+            Size = new Size(comboWidth, Scaled(23)),
+            DropDownStyle = ComboBoxStyle.DropDownList
+        };
+        parityBox.Items.Add("Post (original model)");
+        parityBox.Items.Add("Pre");
+        parityBox.Items.Add("Both (two hypotheses)");
+        parityBox.SelectedIndex = (int)_settings.FenceGuyParity;
+        parityBox.SelectedIndexChanged += (_, _) =>
+            _settings.FenceGuyParity = (FenceGuyParity)parityBox.SelectedIndex;
+        Controls.Add(parityBox);
+
         int contentRight = Math.Max(
             Math.Max(Math.Max(table.Right, contextTable.Right), methodBox.Right),
             volumeBar.Right);
@@ -423,7 +478,7 @@ public sealed class SettingsForm : Form
         {
             Text = "Close", Size = new Size(Scaled(80), Scaled(28)), DialogResult = DialogResult.OK
         };
-        close.Location = new Point(contentRight - close.Width, runTips.Bottom + Scaled(SectionGap));
+        close.Location = new Point(contentRight - close.Width, parityBox.Bottom + Scaled(SectionGap));
         Controls.Add(close);
         AcceptButton = close;
 

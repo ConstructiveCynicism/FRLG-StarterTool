@@ -55,6 +55,12 @@ public sealed class TroubleshootPanel : UserControl
     private string _error = "";
     private Font? _bold;
 
+    private string _fenceReport = "";
+    private string _labAide = "";
+    private string _labScientist = "";
+
+    private TroubleshootStage _reportsFor = TroubleshootStage.Fence;
+
     public TroubleshootPanel()
     {
         DoubleBuffered = true;
@@ -194,6 +200,23 @@ public sealed class TroubleshootPanel : UserControl
     {
         bool lab = Stage == TroubleshootStage.Lab;
 
+        if (Stage != _reportsFor)
+        {
+            if (_reportsFor == TroubleshootStage.Lab)
+            {
+                _labAide = _first.Text;
+                _labScientist = _second.Text;
+            }
+            else
+            {
+                _fenceReport = _first.Text;
+            }
+
+            _reportsFor = Stage;
+            _first.Text = lab ? _labAide : _fenceReport;
+            _second.Text = lab ? _labScientist : "";
+        }
+
         _firstLabel.Text = lab ? "Lady" : "Fence guy";
         _secondLabel.Visible = lab;
         _second.Visible = lab;
@@ -275,10 +298,13 @@ public sealed class TroubleshootPanel : UserControl
         UseWaitCursor = true;
         try
         {
+            MovementStrip.TryParse(_fenceReport, out List<StripToken> fenceGuy, out _);
+
             _swept = Stage == TroubleshootStage.Lab
                 ? FrameSweep.Lab(run,
                     _first.Text.Trim().Length == 0 ? null : first,
-                    _second.Text.Trim().Length == 0 ? null : second)
+                    _second.Text.Trim().Length == 0 ? null : second,
+                    fenceGuy: _fenceReport.Trim().Length == 0 ? null : fenceGuy)
                 : FrameSweep.Fence(run, first);
         }
         finally
@@ -464,7 +490,7 @@ public sealed class TroubleshootPanel : UserControl
             int x = 0;
             int mark = ZoomLayout.Round(52 * ScaleFactor);
             int advance = ZoomLayout.Round(58 * ScaleFactor);
-            int label = ZoomLayout.Round(84 * ScaleFactor);
+            int label = ZoomLayout.Round(104 * ScaleFactor);
 
             Draw(g, hit.Quality switch
                 {
@@ -479,9 +505,13 @@ public sealed class TroubleshootPanel : UserControl
                 Theme.Text, hit.OffsetFrames == 0 ? BoldFont : Font);
             x += advance;
 
-            Draw(g, string.Format(CultureInfo.InvariantCulture, "{0:+#;-#;0}f  w{1}",
-                    hit.OffsetFrames, hit.ObservableFrames),
-                x, bounds.Y, label, height, Theme.DimText, Font);
+            Draw(g, string.Format(CultureInfo.InvariantCulture, "{0:+#;-#;0}f  w{1}{2}",
+                    hit.OffsetFrames, hit.ObservableFrames,
+                    hit.StreamShift == 0
+                        ? ""
+                        : string.Format(CultureInfo.InvariantCulture, "  s{0:+#;-#}", hit.StreamShift)),
+                x, bounds.Y, label, height,
+                hit.StreamShift == 0 ? Theme.DimText : Theme.LandingMaybeText, Font);
             x += label;
 
             PaintStrips(g, new RowMatch(0, hit.Quality, hit.Advances, hit.Lines, "", false,
@@ -491,8 +521,8 @@ public sealed class TroubleshootPanel : UserControl
         int notes = ZoomLayout.Round(NotesHeight * ScaleFactor);
 
         string legend = string.Format(CultureInfo.InvariantCulture,
-            "swept {0} frames · offset moves the press, w is the window · edit the report to return "
-            + "to the field", swept.Scanned);
+            "swept {0} frames · offset moves the press, w is the window, s the stream · edit the "
+            + "report to return to the field", swept.Scanned);
 
         if (swept.Note.Length == 0)
         {
