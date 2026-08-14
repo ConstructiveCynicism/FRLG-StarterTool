@@ -217,6 +217,16 @@ public sealed record LabOption(LabCandidate Representative, IReadOnlyList<LabCan
         return (min, max);
     }
 
+    public SpawnReadSides CompatibleReads
+    {
+        get
+        {
+            SpawnReadSides sides = SpawnReadSides.None;
+            foreach (LabCandidate member in Members) sides |= member.Fence.CompatibleReads;
+            return sides;
+        }
+    }
+
     public bool IsExact(int targetFrame, int manualAdvances = 0)
     {
         (int min, int max) = CorrectionSpan(targetFrame, manualAdvances);

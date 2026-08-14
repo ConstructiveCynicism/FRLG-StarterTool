@@ -26,7 +26,8 @@ public readonly record struct FenceCandidate(
     int ManualAdvances = 0,
     HiddenMoves Hidden = default,
     SpawnRead SpawnReadSide = SpawnRead.PostVBlank,
-    SpawnRead RespawnReadSide = SpawnRead.PostVBlank)
+    SpawnRead RespawnReadSide = SpawnRead.PostVBlank,
+    SpawnReadSides MergedReads = SpawnReadSides.None)
 {
     private int PressFrame => OakFrame + RouteTimeline.AnchorCorrectionFrames;
 
@@ -59,6 +60,9 @@ public readonly record struct FenceCandidate(
         + VariableOffsetCalculator.TidLagFrames;
 
     public string ParityLabel => $"{Letter(SpawnReadSide)}/{Letter(RespawnReadSide)}";
+
+    public SpawnReadSides CompatibleReads =>
+        MergedReads | SpawnReadSet.Of(SpawnReadSide, RespawnReadSide);
 
     public string ParitySuffix =>
         SpawnReadSide == SpawnRead.PostVBlank && RespawnReadSide == SpawnRead.PostVBlank
@@ -146,6 +150,13 @@ public static class FenceRun
             if (index.TryGetValue(Observable(all[i]), out int at))
             {
                 weights[at] += weight;
+
+                candidates[at] = candidates[at] with
+                {
+                    MergedReads = candidates[at].CompatibleReads
+                        | SpawnReadSet.Of(all[i].SpawnReadSide, all[i].RespawnReadSide),
+                };
+
                 continue;
             }
 

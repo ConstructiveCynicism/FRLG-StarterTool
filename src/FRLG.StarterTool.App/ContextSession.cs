@@ -596,7 +596,7 @@ public sealed class ContextSession
                     ? string.Format(CultureInfo.InvariantCulture,
                         "{0} {1}/3 · guessed {2:+#;-#;0} frames from the fence field{3}",
                         what, AnchorCount + 1, correction,
-                        ParityNote(_missFence))
+                        ParityNote(_missFence?.CompatibleReads ?? SpawnReadSides.None))
                     : string.Format(CultureInfo.InvariantCulture,
                         _missEastward is null
                             ? "{0} {1}/3 · nothing to guess from - countdown uncorrected"
@@ -611,7 +611,7 @@ public sealed class ContextSession
                         lab.FocusedIndex + 1, lab.All.Count)
                     : "";
 
-                string parity = ParityNote(Lab?.Focused?.Representative.Fence);
+                string parity = ParityNote(Lab?.Focused?.CompatibleReads ?? SpawnReadSides.None);
 
                 if (_unpressed) return "Window closed · no landing taken" + box + parity;
 
@@ -661,11 +661,8 @@ public sealed class ContextSession
         }
     }
 
-    private static string ParityNote(FenceCandidate? fence) =>
-        fence is { } candidate
-        && StarterTool.Settings?.FenceGuyParity == FenceGuyParity.Both
-            ? " · parity " + candidate.ParityLabel
-            : "";
+    private static string ParityNote(SpawnReadSides sides) =>
+        SpawnReadSet.Resolved(sides) is { } side ? " · parity " + side : "";
 
     public string Report
     {
