@@ -8,7 +8,7 @@ public sealed class Hotkey
 
     public int Secondary { get; set; }
 
-    public bool Global { get; set; }
+    public bool Global { get; set; } = true;
 
     [JsonIgnore]
     public bool IsBound => Primary != 0 || Secondary != 0;

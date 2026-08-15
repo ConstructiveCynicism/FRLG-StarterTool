@@ -1,4 +1,3 @@
-using FRLG.StarterTool.Core.Npc;
 using FRLG.StarterTool.Core.Pokemon;
 using FRLG.StarterTool.Core.Timing;
 using FRLG.StarterTool.Core.Tips;
@@ -71,7 +70,7 @@ public sealed class AppSettings
 
     public Hotkey ExportStats { get; set; } = new();
 
-    public Hotkey ToggleGlobalHotkeys { get; set; } = new() { Global = true };
+    public Hotkey ToggleGlobalHotkeys { get; set; } = new();
 
     public Hotkey NpcUp { get; set; } = new();
 
@@ -101,8 +100,6 @@ public sealed class AppSettings
 
     public bool NpcGridVisible { get; set; }
 
-    public FenceGuyParity FenceGuyParity { get; set; } = FenceGuyParity.Post;
-
     public const int DefaultCuedLabPressOffsetFrames = 110;
 
     public const double DefaultCuedPressWindowMs = 30.0;
@@ -122,6 +119,8 @@ public sealed class AppSettings
     public bool HideConstraints { get; set; }
 
     public bool ShowLabDelayDashes { get; set; }
+
+    public bool AutoShowLevelStats { get; set; } = true;
 
     public int ZoomPercent { get; set; } = 100;
 
@@ -153,6 +152,30 @@ public sealed class AppSettings
         && string.Equals(StatBoxValueColor, DefaultStatBoxValueColor, StringComparison.OrdinalIgnoreCase)
         && string.Equals(StatBoxOutlineColor, DefaultStatBoxOutlineColor, StringComparison.OrdinalIgnoreCase)
         && string.Equals(StatBoxFrameColor, DefaultStatBoxFrameColor, StringComparison.OrdinalIgnoreCase);
+
+    public bool StatServerEnabled { get; set; }
+
+    public int StatServerPort { get; set; } = DefaultStatServerPort;
+
+    public const int DefaultStatServerPort = 8722;
+
+    public bool StatServerAllowNetwork { get; set; }
+
+    public bool StatServerRequireToken { get; set; }
+
+    public string StatServerToken { get; set; } = "";
+
+    public bool StatServerTransparent { get; set; }
+
+    public bool StatServerPostRun { get; set; } = true;
+
+    public int StatServerPostRunSeconds { get; set; } = DefaultStatServerPostRunSeconds;
+
+    public const int DefaultStatServerPostRunSeconds = 7;
+
+    public const int MinStatServerPostRunSeconds = 1;
+
+    public const int MaxStatServerPostRunSeconds = 60;
 
     public string Fps { get; set; } = "59.7275";
     public string Offset { get; set; } = "0";
@@ -263,7 +286,7 @@ public sealed class AppSettings
         ListUp ??= new Hotkey();
         ListDown ??= new Hotkey();
         ExportStats ??= new Hotkey();
-        ToggleGlobalHotkeys ??= new Hotkey { Global = true };
+        ToggleGlobalHotkeys ??= new Hotkey();
         NpcUp ??= new Hotkey();
         NpcDown ??= new Hotkey();
         NpcLeft ??= new Hotkey();
@@ -277,7 +300,6 @@ public sealed class AppSettings
         if (!Enum.IsDefined(KeyMethod)) KeyMethod = KeyMethod.OnPress;
         if (!Enum.IsDefined(ClipboardFormat)) ClipboardFormat = ClipboardFormat.Column;
         if (!Enum.IsDefined(TimeFormat)) TimeFormat = TimeFormat.Seconds;
-        if (!Enum.IsDefined(FenceGuyParity)) FenceGuyParity = FenceGuyParity.Post;
 
         Fps ??= "59.7275";
         Offset ??= "0";
@@ -301,6 +323,13 @@ public sealed class AppSettings
         if (double.IsNaN(NpcCuedPressWindowMs)) NpcCuedPressWindowMs = DefaultCuedPressWindowMs;
         NpcCuedPressWindowMs = Math.Clamp(NpcCuedPressWindowMs, 0.0, 1000.0);
         NpcCuedLabPressOffsetFrames = Math.Clamp(NpcCuedLabPressOffsetFrames, 0, 6000);
+
+        if (StatServerPort is < 1 or > 65535) StatServerPort = DefaultStatServerPort;
+        StatServerToken ??= "";
+
+        if (StatServerPostRunSeconds <= 0) StatServerPostRunSeconds = DefaultStatServerPostRunSeconds;
+        StatServerPostRunSeconds = Math.Clamp(
+            StatServerPostRunSeconds, MinStatServerPostRunSeconds, MaxStatServerPostRunSeconds);
 
         NormalizeTips();
 

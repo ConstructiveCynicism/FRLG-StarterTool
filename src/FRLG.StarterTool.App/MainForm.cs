@@ -33,6 +33,8 @@ public partial class MainForm : Form
 
     private int _timeShiftFrames;
 
+    private bool _levelStatRows;
+
     public MainForm()
     {
         InitializeComponent();
@@ -53,6 +55,7 @@ public partial class MainForm : Form
         {
             ButtonLevelToggle.Text = ButtonLevelToggle.Checked ? "Level 6" : "Level 5";
             RefreshStatBoxLevel();
+            RefreshStatColumns();
         };
         StatBoxStats.Click += (_, _) => ToggleLevel();
         StatBoxIvs.Click += (_, _) => ExportStats();
@@ -385,7 +388,7 @@ public partial class MainForm : Form
         ButtonContextMiss.Visible = session.Hidden.Count == 0;
         ButtonContextMiss.Enabled = session.CanMiss;
 
-        ContextPanel.SetTip(session.Tip);
+        ContextPanel.SetTip(session.Tip, session.TipIsShiny);
 
         ContextPanel.SetHidden(session.Hidden);
     }
@@ -622,7 +625,8 @@ public partial class MainForm : Form
             around.Add(new PokemonMethod1(seed, frame));
         }
 
-        ShowResults(around, selected, takeFocus);
+        ShowResults(around, selected, takeFocus,
+            levelStats: StarterTool.Settings?.AutoShowLevelStats ?? true);
     }
 
     private void InitializeStatSearch()
@@ -712,13 +716,15 @@ public partial class MainForm : Form
         }
     }
 
-    private void ShowResults(List<PokemonRng> results, int selectedIndex, bool takeFocus = true)
+    private void ShowResults(List<PokemonRng> results, int selectedIndex, bool takeFocus = true,
+        bool levelStats = false)
     {
         if (MenuItemTraining.Checked) MenuItemTraining.Checked = false;
 
         _resultSpecies = SelectedSpecies;
         _resultFps = StarterTool.VariableOffset?.SelectedFps ?? 60.0;
         _timeShiftFrames = StarterTool.VariableOffset?.PressShiftFrames ?? 0;
+        _levelStatRows = levelStats;
         _results = results;
 
         ListViewResults.VirtualListSize = 0;
@@ -737,6 +743,7 @@ public partial class MainForm : Form
             StatBoxIvs.Clear();
             StatBoxIvs.TrailingValue = "";
             StatBoxStats.Clear();
+            PublishStatBoxes();
             return;
         }
 
@@ -781,10 +788,13 @@ public partial class MainForm : Form
         double hitChance,
         int adjustmentFrames = 0,
         double compensationMs = 0.0,
-        double fps = 0.0)
+        double fps = 0.0,
+        double rawChance = double.NaN)
     {
-        LabelLanding.ForeColor = hitChance > 0.5 ? Theme.LandingHitText
-            : hitChance > 0.0 ? Theme.LandingMaybeText
+        double gradedChance = double.IsNaN(rawChance) ? hitChance : rawChance;
+
+        LabelLanding.ForeColor = gradedChance > 0.5 ? Theme.LandingHitText
+            : gradedChance > 0.0 ? Theme.LandingMaybeText
             : Theme.LandingMissText;
 
         string likely = landedFrame is { } named
@@ -797,7 +807,7 @@ public partial class MainForm : Form
             + $"  ({deltaMs:+0;-0;0}ms)  Hit Chance {FormatChance(hitChance)}"
             + CompensationSuffix(compensationMs, compact: true);
 
-        if (TrainingPanel.RecordLanding(landedFrame ?? targetFrame, targetFrame, deltaMs, hitChance)) return;
+        if (TrainingPanel.RecordLanding(landedFrame ?? targetFrame, targetFrame, deltaMs, gradedChance)) return;
 
         _landingTarget = targetFrame;
 
@@ -824,7 +834,7 @@ public partial class MainForm : Form
         }
 
         _landingFrame = landed;
-        _landingChance = hitChance;
+        _landingChance = gradedChance;
 
         _landingAlternate = null;
         if (fps > 0.0 && VariableOffsetCalculator.AlternateChance(deltaMs, fps) > 0.0)
@@ -961,10 +971,16 @@ public partial class MainForm : Form
 
         var item = new ListViewItem(pkm.Frame.ToString(CultureInfo.InvariantCulture));
         item.SubItems.Add(FrameTime.Format(pkm.Frame + _timeShiftFrames, _resultFps, StarterTool.TimeFormat));
+        var nature = pkm.Nature ?? new Nature(0);
         item.SubItems.Add(pkm.Nature?.Name ?? "");
-        foreach (int iv in new[] { pkm.Hp, pkm.Atk, pkm.Def, pkm.Spa, pkm.Spd, pkm.Spe })
+        int[] values = new[] { pkm.Hp, pkm.Atk, pkm.Def, pkm.Spa, pkm.Spd, pkm.Spe };
+        if (_levelStatRows)
         {
-            item.SubItems.Add(iv.ToString(CultureInfo.InvariantCulture));
+            values = StatCalculator.Calculate(_resultSpecies.BaseStats, values, SelectedLevel, nature);
+        }
+        foreach (int value in values)
+        {
+            item.SubItems.Add(value.ToString(CultureInfo.InvariantCulture));
         }
         item.SubItems.Add(gender);
         e.Item = item;
@@ -1063,13 +1079,26 @@ public partial class MainForm : Form
     {
         StatBoxStats.TrailingValue = SelectedLevel.ToString(CultureInfo.InvariantCulture);
         UpdateStatBoxes();
+
+        PublishStatBoxes();
+    }
+
+    private void RefreshStatColumns()
+    {
+        if (!_levelStatRows || _results.Count == 0) return;
+
+        ListViewResults.RedrawItems(0, _results.Count - 1, true);
     }
 
     private void RefreshStatBoxColors()
     {
         StatBoxIvs.RefreshColors();
         StatBoxStats.RefreshColors();
+        PublishStatBoxes();
     }
+
+    private void PublishStatBoxes() =>
+        StarterTool.StatServer?.Publish(StatBoxIvs.Content, StatBoxStats.Content);
 
     public void ExportStats()
     {
@@ -1119,6 +1148,7 @@ public partial class MainForm : Form
         StatBoxStats.SetValues(
             StatCalculator.Calculate(_resultSpecies.BaseStats, ivs, SelectedLevel, nature),
             nature.Name);
+        PublishStatBoxes();
     }
 
     private void ListViewResults_KeyDown(object? sender, KeyEventArgs e)

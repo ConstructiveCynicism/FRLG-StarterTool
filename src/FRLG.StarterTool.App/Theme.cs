@@ -70,6 +70,10 @@ public static class Theme
 
     public static Color TipRule => SectionBorder;
 
+    public static Color TipShinyBack => Dark ? Color.FromArgb(0x4A, 0x40, 0x0E) : Color.FromArgb(0xFC, 0xF3, 0xB0);
+
+    public static Color TipShinyText => Dark ? Color.FromArgb(0xFF, 0xE9, 0x7A) : Color.FromArgb(0x5C, 0x4A, 0x00);
+
     public static Color LandingHitText => Dark ? Color.FromArgb(0x6E, 0xD4, 0x77) : Color.FromArgb(0x10, 0x55, 0x1B);
 
     public static Color LandingMaybeText => Dark ? Color.FromArgb(0xE6, 0xC0, 0x50) : Color.FromArgb(0x8A, 0x63, 0x00);

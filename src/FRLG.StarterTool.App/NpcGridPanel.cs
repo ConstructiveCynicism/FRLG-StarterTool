@@ -25,7 +25,7 @@ public sealed class NpcGridPanel : Control
 
     public const int ControlStripHeight = 26;
 
-    private const int StatusHeight = 32;
+    private int StatusHeight => Font.Height * 2 + 2;
 
     private const int LabRowHeight = 26;
 
@@ -34,6 +34,10 @@ public sealed class NpcGridPanel : Control
     private const int AnimationIntervalMs = 15;
 
     private readonly System.Windows.Forms.Timer _animation;
+
+    private const int BlinkIntervalMs = 700;
+
+    private readonly System.Windows.Forms.Timer _blink;
 
     private IReadOnlyList<FenceCandidate> _candidates = Array.Empty<FenceCandidate>();
     private IReadOnlyList<LabOption> _boxes = Array.Empty<LabOption>();
@@ -45,6 +49,10 @@ public sealed class NpcGridPanel : Control
     private string _report = "";
 
     private string _tip = "";
+
+    private bool _tipShiny;
+
+    private bool _blinkLit;
 
     private bool _labMode;
 
@@ -64,6 +72,14 @@ public sealed class NpcGridPanel : Control
     {
         _animation = new System.Windows.Forms.Timer { Interval = AnimationIntervalMs };
         _animation.Tick += (_, _) => Sample();
+
+        _blink = new System.Windows.Forms.Timer { Interval = BlinkIntervalMs };
+        _blink.Tick += (_, _) =>
+        {
+            _blinkLit = !_blinkLit;
+
+            Invalidate(TipStrip);
+        };
 
         SetStyle(
             ControlStyles.UserPaint
@@ -206,6 +222,7 @@ public sealed class NpcGridPanel : Control
         {
             if (_showTips == value) return;
             _showTips = value;
+            SyncBlink();
             Invalidate();
         }
     }
@@ -219,10 +236,21 @@ public sealed class NpcGridPanel : Control
         Invalidate();
     }
 
-    public void SetTip(string tip)
+    public void SetTip(string tip, bool shiny = false)
     {
         _tip = tip;
+        _tipShiny = shiny;
+
+        _blinkLit = true;
+
+        SyncBlink();
         Invalidate();
+    }
+
+    private void SyncBlink()
+    {
+        if (_tipShiny && _showTips && _tip.Length > 0) _blink.Start();
+        else _blink.Stop();
     }
 
     public void SetField(IReadOnlyList<FenceCandidate> candidates, IReadOnlyList<double> likelihoods,
@@ -318,6 +346,7 @@ public sealed class NpcGridPanel : Control
         if (disposing)
         {
             _animation.Dispose();
+            _blink.Dispose();
             _tipFont?.Dispose();
         }
 
@@ -383,10 +412,11 @@ public sealed class NpcGridPanel : Control
     {
         if (!_showTips || _tip.Length == 0) return;
 
-        var strip = new Rectangle(0, Math.Max(0, Height - ControlStripHeight), Width,
-            Math.Min(Height, ControlStripHeight));
+        Rectangle strip = TipStrip;
 
-        using (var band = new SolidBrush(Theme.TipBack))
+        bool lit = _tipShiny && _blinkLit;
+
+        using (var band = new SolidBrush(lit ? Theme.TipShinyBack : Theme.TipBack))
         {
             g.FillRectangle(band, strip);
         }
@@ -406,8 +436,11 @@ public sealed class NpcGridPanel : Control
         var text = new Rectangle(label.X + labelWidth + 5, label.Y,
             Math.Max(0, label.Width - labelWidth - 5), label.Height);
 
-        TextRenderer.DrawText(g, _tip, Font, text, Theme.Text, flags);
+        TextRenderer.DrawText(g, _tip, Font, text, lit ? Theme.TipShinyText : Theme.Text, flags);
     }
+
+    private Rectangle TipStrip => new(0, Math.Max(0, Height - ControlStripHeight), Width,
+        Math.Min(Height, ControlStripHeight));
 
     private Font BoldFont => _tipFont ??= new Font(Font, FontStyle.Bold);
 
@@ -920,9 +953,11 @@ public sealed class NpcGridPanel : Control
             g.FillRectangle(bar, track.X, track.Y, filled, track.Height);
         }
 
+        int line = Math.Max(row.Height - 4, Font.Height);
+
         TextRenderer.DrawText(g,
             (chance * 100.0).ToString("0", CultureInfo.InvariantCulture) + "%", Font,
-            new Rectangle(row.X, row.Y, row.Width, row.Height - 4), ink,
+            new Rectangle(row.X, track.Y - line, row.Width, line), ink,
             TextFormatFlags.Right | TextFormatFlags.VerticalCenter | TextFormatFlags.NoPadding);
     }
 

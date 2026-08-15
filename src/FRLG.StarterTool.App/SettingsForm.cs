@@ -1,3 +1,4 @@
+using System.Drawing.Drawing2D;
 using System.Globalization;
 using FRLG.StarterTool.Core.Npc;
 using FRLG.StarterTool.Core.Settings;
@@ -29,6 +30,8 @@ public sealed class SettingsForm : Form
         "Volume",
         "Clipboard format",
         "Time format",
+        "Port",
+        "Card seconds",
         "Stat box labels",
         "Stat box text",
         "Stat box background",
@@ -43,6 +46,8 @@ public sealed class SettingsForm : Form
     private readonly float _zoom;
 
     private readonly Font? _zoomFont;
+
+    private readonly ToolTip _copyUrlTip = new();
 
     private int Scaled(int length) => _zoom == 1F ? length : ZoomLayout.Round(length * _zoom);
 
@@ -325,7 +330,17 @@ public sealed class SettingsForm : Form
         };
         Controls.Add(hideConstraints);
 
-        int zoomY = hideConstraints.Bottom + Scaled(RowGap + 4);
+        var levelStats = new ThemedCheckBox
+        {
+            Text = "Auto Show LVL Stats",
+            Location = new Point(Scaled(LeftMargin), hideConstraints.Bottom + Scaled(RowGap)),
+            AutoSize = true,
+            Checked = _settings.AutoShowLevelStats
+        };
+        levelStats.CheckedChanged += (_, _) => _settings.AutoShowLevelStats = levelStats.Checked;
+        Controls.Add(levelStats);
+
+        int zoomY = levelStats.Bottom + Scaled(RowGap + 4);
         Controls.Add(new Label
         {
             Text = "Window zoom",
@@ -447,38 +462,193 @@ public sealed class SettingsForm : Form
         Controls.Add(runTips);
 
         y = runTips.Bottom + Scaled(SectionGap);
-        Label experimentalHeader = AddSectionHeader("Experimental", y);
-        y = experimentalHeader.Bottom + Scaled(RowGap);
+        Label captureHeader = AddSectionHeader("Capture", y);
+        y = captureHeader.Bottom + Scaled(RowGap);
 
+        var browserSource = new ThemedCheckBox
+        {
+            Text = "Browser source",
+            Location = new Point(Scaled(LeftMargin), y),
+            AutoSize = true,
+            Checked = _settings.StatServerEnabled
+        };
+        Controls.Add(browserSource);
+
+        int portY = browserSource.Bottom + Scaled(RowGap + 4);
         Controls.Add(new Label
         {
-            Text = "Fence guy parity",
-            Location = new Point(Scaled(LeftMargin), y + Scaled(4)),
+            Text = "Port", Location = new Point(Scaled(LeftMargin), portY + Scaled(4)), AutoSize = true
+        });
+        var portBox = new ThemedTextBox
+        {
+            Location = new Point(comboX, portY),
+            Width = comboWidth,
+            Text = _settings.StatServerPort.ToString(CultureInfo.InvariantCulture)
+        };
+        Controls.Add(portBox);
+
+        var allowNetwork = new ThemedCheckBox
+        {
+            Text = "Allow other computers on this network",
+            Location = new Point(Scaled(LeftMargin), portBox.Bottom + Scaled(RowGap + 2)),
+            AutoSize = true,
+            Checked = _settings.StatServerAllowNetwork
+        };
+        Controls.Add(allowNetwork);
+
+        var requireToken = new ThemedCheckBox
+        {
+            Text = "Require URL token",
+            Location = new Point(Scaled(LeftMargin), allowNetwork.Bottom + Scaled(RowGap)),
+            AutoSize = true,
+            Checked = _settings.StatServerRequireToken
+        };
+        Controls.Add(requireToken);
+
+        var transparent = new ThemedCheckBox
+        {
+            Text = "Transparent background",
+            Location = new Point(Scaled(LeftMargin), requireToken.Bottom + Scaled(RowGap)),
+            AutoSize = true,
+            Checked = _settings.StatServerTransparent
+        };
+        Controls.Add(transparent);
+
+        var postRun = new ThemedCheckBox
+        {
+            Text = "Post-run card",
+            Location = new Point(Scaled(LeftMargin), transparent.Bottom + Scaled(RowGap)),
+            AutoSize = true,
+            Checked = _settings.StatServerPostRun
+        };
+        Controls.Add(postRun);
+
+        int cardY = postRun.Bottom + Scaled(RowGap + 4);
+        Controls.Add(new Label
+        {
+            Text = "Card seconds",
+            Location = new Point(Scaled(LeftMargin), cardY + Scaled(4)),
             AutoSize = true
         });
-        var parityBox = new ThemedComboBox
+
+        var postRunSeconds = new ThemedTextBox
         {
-            Location = new Point(comboX, y),
-            Size = new Size(comboWidth, Scaled(23)),
-            DropDownStyle = ComboBoxStyle.DropDownList
+            Location = new Point(comboX, cardY),
+            Width = comboWidth,
+            Text = _settings.StatServerPostRunSeconds.ToString(CultureInfo.InvariantCulture)
         };
-        parityBox.Items.Add("Post (original model)");
-        parityBox.Items.Add("Pre");
-        parityBox.Items.Add("Both (two hypotheses)");
-        parityBox.SelectedIndex = (int)_settings.FenceGuyParity;
-        parityBox.SelectedIndexChanged += (_, _) =>
-            _settings.FenceGuyParity = (FenceGuyParity)parityBox.SelectedIndex;
-        Controls.Add(parityBox);
+        Controls.Add(postRunSeconds);
+
+        var captureStatus = new Label
+        {
+            Location = new Point(Scaled(LeftMargin), postRunSeconds.Bottom + Scaled(RowGap + 2)),
+            AutoSize = true
+        };
+        Controls.Add(captureStatus);
+
+        var copyUrl = new ThemedButton
+        {
+            Size = new Size(Scaled(24), Scaled(22)),
+            Visible = false,
+            AccessibleName = "Copy the URL"
+        };
+        copyUrl.Paint += (_, paint) => DrawCopyIcon(paint.Graphics, copyUrl);
+        copyUrl.Click += (_, _) =>
+        {
+            string? url = StarterTool.StatServer?.Url;
+            if (string.IsNullOrEmpty(url)) return;
+
+            try
+            {
+                Clipboard.SetText(url);
+            }
+            catch (Exception)
+            {
+            }
+        };
+        Controls.Add(copyUrl);
+        _copyUrlTip.SetToolTip(copyUrl, "Copy the URL");
+
+        void ShowCaptureStatus()
+        {
+            captureStatus.Text = CaptureStatusText();
+
+            copyUrl.Visible = !string.IsNullOrEmpty(StarterTool.StatServer?.Url);
+            copyUrl.Location = new Point(
+                captureStatus.Right + Scaled(6),
+                captureStatus.Top + (captureStatus.Height - copyUrl.Height) / 2);
+        }
+
+        void RestartStatServer()
+        {
+            StarterTool.StatServer?.Start(_settings);
+            ShowCaptureStatus();
+        }
+
+        browserSource.CheckedChanged += (_, _) =>
+        {
+            _settings.StatServerEnabled = browserSource.Checked;
+            RestartStatServer();
+        };
+        allowNetwork.CheckedChanged += (_, _) =>
+        {
+            _settings.StatServerAllowNetwork = allowNetwork.Checked;
+            RestartStatServer();
+        };
+        requireToken.CheckedChanged += (_, _) =>
+        {
+            _settings.StatServerRequireToken = requireToken.Checked;
+            RestartStatServer();
+        };
+        transparent.CheckedChanged += (_, _) =>
+        {
+            _settings.StatServerTransparent = transparent.Checked;
+            RestartStatServer();
+        };
+
+        portBox.TextChanged += (_, _) =>
+        {
+            if (!int.TryParse(portBox.Text, NumberStyles.Integer, CultureInfo.InvariantCulture,
+                    out int port) || port is < 1 or > 65535)
+            {
+                return;
+            }
+
+            _settings.StatServerPort = port;
+            RestartStatServer();
+        };
+
+        postRun.CheckedChanged += (_, _) =>
+        {
+            _settings.StatServerPostRun = postRun.Checked;
+            RestartStatServer();
+        };
+
+        postRunSeconds.TextChanged += (_, _) =>
+        {
+            if (!int.TryParse(postRunSeconds.Text, NumberStyles.Integer, CultureInfo.InvariantCulture,
+                    out int seconds)
+                || seconds < AppSettings.MinStatServerPostRunSeconds
+                || seconds > AppSettings.MaxStatServerPostRunSeconds)
+            {
+                return;
+            }
+
+            _settings.StatServerPostRunSeconds = seconds;
+            RestartStatServer();
+        };
+
+        ShowCaptureStatus();
 
         int contentRight = Math.Max(
             Math.Max(Math.Max(table.Right, contextTable.Right), methodBox.Right),
-            volumeBar.Right);
+            Math.Max(volumeBar.Right, copyUrl.Right));
 
         var close = new ThemedButton
         {
             Text = "Close", Size = new Size(Scaled(80), Scaled(28)), DialogResult = DialogResult.OK
         };
-        close.Location = new Point(contentRight - close.Width, parityBox.Bottom + Scaled(SectionGap));
+        close.Location = new Point(contentRight - close.Width, captureStatus.Bottom + Scaled(SectionGap));
         Controls.Add(close);
         AcceptButton = close;
 
@@ -521,7 +691,44 @@ public sealed class SettingsForm : Form
     protected override void Dispose(bool disposing)
     {
         base.Dispose(disposing);
-        if (disposing) _zoomFont?.Dispose();
+        if (!disposing) return;
+
+        _zoomFont?.Dispose();
+        _copyUrlTip.Dispose();
+    }
+
+    private static void DrawCopyIcon(Graphics g, Control button)
+    {
+        float unit = Math.Min(button.Width, button.Height) / 6f;
+        float sheetWidth = unit * 2.6f;
+        float sheetHeight = unit * 3.2f;
+        float left = (button.Width - sheetWidth) / 2f;
+        float top = (button.Height - sheetHeight) / 2f;
+
+        var back = new RectangleF(left + unit * 0.6f, top - unit * 0.5f, sheetWidth, sheetHeight);
+        var front = new RectangleF(left - unit * 0.6f, top + unit * 0.5f, sheetWidth, sheetHeight);
+
+        Color ink = button.Enabled ? button.ForeColor : Theme.DimText;
+        var previous = g.SmoothingMode;
+        g.SmoothingMode = SmoothingMode.AntiAlias;
+        using (var pen = new Pen(ink, Math.Max(1f, unit / 3f)))
+        using (var face = new SolidBrush(button.BackColor))
+        {
+            g.DrawRectangle(pen, back.X, back.Y, back.Width, back.Height);
+            g.FillRectangle(face, front);
+            g.DrawRectangle(pen, front.X, front.Y, front.Width, front.Height);
+        }
+
+        g.SmoothingMode = previous;
+    }
+
+    private static string CaptureStatusText()
+    {
+        StatServer? server = StarterTool.StatServer;
+        if (server == null) return "";
+        if (server.LastError != null) return "Not serving: " + server.LastError;
+
+        return server.Url == null ? "" : "Serving at " + server.Url;
     }
 
     private static int NearestZoomIndex(int percent)

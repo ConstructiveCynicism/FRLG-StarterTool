@@ -12,6 +12,16 @@ public readonly record struct TipFacts
 
     public bool CuedLabPress { get; init; }
 
+    public bool CaptureOn { get; init; }
+
+    public double? MinutesSinceLastRun { get; init; }
+
+    public bool RapidTriple { get; init; }
+
+    public double HitChance { get; init; }
+
+    public DateTime? TrainerIdLastSeen { get; init; }
+
     public double ContextWindowMs { get; init; }
 
     public bool DefaultWindowSize { get; init; }

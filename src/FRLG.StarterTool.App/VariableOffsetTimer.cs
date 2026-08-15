@@ -350,7 +350,9 @@ public sealed class VariableOffsetTimer : BaseTimer
 
         int countdownFrame = CountdownFrameAt(elapsedMs);
         int? landedFrame = StarterTool.Context.LandedFrame(countdownFrame);
-        double chance = VariableOffsetCalculator.HitChance(deltaMs, _landingInfo.Fps);
+        double rawChance = VariableOffsetCalculator.HitChance(deltaMs, _landingInfo.Fps);
+        double chance = FrameWindow.HitChance(deltaMs, _landingInfo.Fps,
+            StarterTool.Settings?.NpcContextWindowMs ?? 0.0);
 
         LogLanding(elapsedMs, deltaMs, landedFrame, chance, pressLagMs);
 
@@ -361,7 +363,8 @@ public sealed class VariableOffsetTimer : BaseTimer
             chance,
             VariableOffsetCalculator.FramesAdjusted(_landingAdjustedMs, _landingInfo.Fps),
             _landingStartLagMs - pressLagMs,
-            _landingInfo.Fps);
+            _landingInfo.Fps,
+            rawChance);
 
         StarterTool.Context.RecordHit(countdownFrame, deltaMs, chance,
             TrainingUsesVisualOffset ? VisualOffsetMs : OffsetMs);

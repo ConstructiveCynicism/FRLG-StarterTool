@@ -4,6 +4,33 @@ public static class FrameWindow
 {
     public const double MinimumContextMs = 10.0;
 
+    public const double ContextFloor = 0.05;
+
+    public static double HitChance(double deltaMs, double fps, double contextMs)
+    {
+        if (fps <= 0.0) return 0.0;
+
+        double frameMs = 1000.0 / fps;
+        double window = frameMs / 2.0 + Math.Max(0.0, contextMs) + MinimumContextMs;
+
+        int first = (int)Math.Ceiling((deltaMs - window) / frameMs);
+        int last = (int)Math.Floor((deltaMs + window) / frameMs);
+        if (first > 0 || last < 0) return 0.0;
+
+        int leading = (int)Math.Floor(deltaMs / frameMs + 0.5);
+        if (leading != 0) return Math.Max(Share(deltaMs, frameMs, 0), ContextFloor);
+
+        double taken = 0.0;
+        for (int offset = first; offset <= last; offset++)
+        {
+            if (offset != leading) taken += Math.Max(Share(deltaMs, frameMs, offset), ContextFloor);
+        }
+        return Math.Clamp(1.0 - taken, 0.0, 1.0);
+    }
+
+    private static double Share(double deltaMs, double frameMs, int offset)
+        => Math.Max(0.0, 1.0 - Math.Abs(deltaMs - offset * frameMs) / frameMs);
+
     public static IReadOnlyList<int> Candidates(double elapsedMs, double fps, double contextMs)
     {
         double frameMs = 1000.0 / fps;

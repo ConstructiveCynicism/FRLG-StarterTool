@@ -15,6 +15,8 @@ public static class StarterTool
     public static VariableOffsetTimer VariableOffset = null!;
     public static AppSettings Settings = null!;
 
+    public static StatServer StatServer = null!;
+
     public static readonly ContextSession Context = new();
 
     public static TimeFormat TimeFormat => Settings?.TimeFormat ?? TimeFormat.Seconds;
@@ -70,6 +72,9 @@ public static class StarterTool
 
         MainForm = mainForm;
         ApplyTheme();
+
+        StatServer = new StatServer();
+        StatServer.Start(Settings);
         Beeps = new BeepPlayer();
         VariableOffset = new VariableOffsetTimer(mainForm);
         VariableOffset.OnInit();
@@ -114,6 +119,8 @@ public static class StarterTool
 
     public static void Destroy()
     {
+        StatServer?.Dispose();
+
         if (_hookThreadId != 0)
         {
             Win32.PostThreadMessage(_hookThreadId, Win32.WM_QUIT, IntPtr.Zero, IntPtr.Zero);

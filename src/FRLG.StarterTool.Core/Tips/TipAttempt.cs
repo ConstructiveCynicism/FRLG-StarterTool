@@ -6,6 +6,8 @@ public sealed class TipAttempt
 
     public int OffsetMs { get; set; }
 
+    public DateTime? ClosedAt { get; set; }
+
     public double HitChance { get; set; }
 
     public bool LikelyHit => HitChance >= RunTip.LikelyHitChance;

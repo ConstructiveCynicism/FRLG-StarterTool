@@ -27,6 +27,11 @@ internal static class RunLog
         get { lock (Gate) return _path; }
     }
 
+    public static int CurrentTrainerId
+    {
+        get { lock (Gate) return _trainerId; }
+    }
+
     public static void StartRun()
     {
         lock (Gate)
@@ -101,7 +106,12 @@ internal static class RunLog
 
             foreach (FileInfo file in newest)
             {
-                if (TryReadAttempt(file.FullName, out TipAttempt attempt)) found.Add(attempt);
+                if (TryReadAttempt(file.FullName, out TipAttempt attempt))
+                {
+                    attempt.ClosedAt = file.LastWriteTime;
+                    found.Add(attempt);
+                }
+
                 if (found.Count == count) break;
             }
         }
@@ -111,6 +121,32 @@ internal static class RunLog
 
         found.Reverse();
         return found;
+    }
+
+    public static DateTime? TrainerIdLastSeen(int trainerId)
+    {
+        if (trainerId <= 0) return null;
+
+        string current;
+        lock (Gate) current = _path ?? "";
+
+        DateTime? newest = null;
+
+        try
+        {
+            string pattern = "*_" + trainerId.ToString(CultureInfo.InvariantCulture) + ".txt";
+            foreach (FileInfo file in new DirectoryInfo(Directory).EnumerateFiles(pattern))
+            {
+                if (string.Equals(file.FullName, current, StringComparison.OrdinalIgnoreCase)) continue;
+                if (newest is not { } best || file.LastWriteTime > best) newest = file.LastWriteTime;
+            }
+        }
+        catch (Exception)
+        {
+            return null;
+        }
+
+        return newest;
     }
 
     private const int ScanLimit = 200;

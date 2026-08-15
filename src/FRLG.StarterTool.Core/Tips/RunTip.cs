@@ -16,8 +16,34 @@ public static class RunTip
 
     public const double ConsoleContextWindowMs = 10.0;
 
+    public const double ReviveTipFromMinutes = 30.0;
+
+    public const double ReviveTipToMinutes = 120.0;
+
+    public const double SoonTipFromMinutes = 10.0;
+
+    public const double SoonTipToMinutes = 15.0;
+
+    public const double KicksTipFromMinutes = 20.0;
+
+    public const double KicksTipToMinutes = 40.0;
+
+    public const double FeelingTipMinutes = 3.0;
+
+    public const double FeelingTipChance = 0.05;
+
+    public const int RapidTripleRuns = 3;
+
+    public const double RapidTripleMinutes = 3.0;
+
+    public const int ShinyOdds = 8192;
+
+    public const string ShinyTip = "You just got a shiny tip. Yay! 1/8192 chance btw";
+
     public static string Pick(in TipFacts facts, Random random)
     {
+        if (random.Next(ShinyOdds) == 0) return ShinyTip;
+
         IReadOnlyList<string> specific = Applicable(facts);
         IReadOnlyList<string> pool = specific.Count > 0 ? specific : General(facts);
 
@@ -86,6 +112,45 @@ public static class RunTip
                 + "Most people will not have the same offset for each");
         }
 
+        if (!facts.CaptureOn)
+        {
+            tips.Add("You can use a Browser Capture in OBS for your stat box!");
+        }
+
+        if (facts.RapidTriple)
+        {
+            tips.Add("Lab streams are in fact content");
+        }
+
+        if (facts.MinutesSinceLastRun is { } gap)
+        {
+            if (gap is >= ReviveTipFromMinutes and <= ReviveTipToMinutes)
+            {
+                tips.Add("Grabbing the revive in Mt Moon can be a great safety strat!");
+            }
+
+            if (gap is >= SoonTipFromMinutes and <= SoonTipToMinutes)
+            {
+                tips.Add("Back so soon? Was it Liam?");
+            }
+
+            if (gap is >= KicksTipFromMinutes and <= KicksTipToMinutes)
+            {
+                tips.Add("Missing kicks is bad.");
+            }
+
+            if (gap < FeelingTipMinutes && facts.HitChance > FeelingTipChance)
+            {
+                tips.Add("This one's it, just have a feeling.");
+            }
+        }
+
+        if (facts.TrainerIdLastSeen is { } seen)
+        {
+            tips.Add(string.Format(CultureInfo.InvariantCulture,
+                "Yes, you have gotten this TID before, on {0:yyyy-MM-dd}", seen));
+        }
+
         return tips;
     }
 
@@ -98,6 +163,10 @@ public static class RunTip
             "You can save different constraint filters for different categories!",
             "You can toggle off global hotkeys during your run after you hit your squirtle",
             "Hit prediction can be off slightly due to computer delay",
+            "Did you know fence guy can roll RNG differently based on audio lag?",
+            "If you're reading this, your run has now been blessed.",
+            "Sometimes this tip window has funny jokes. I couldn't come up with one this time.",
+            "Good luck!",
         };
 
         if (facts.HiddenRolls > 0)

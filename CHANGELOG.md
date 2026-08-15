@@ -1,3 +1,9 @@
+### v1.4.0
+- Fence Guy Parity now modeled by default
+- Added more tips (very helpful)
+- Stat box can be streamed as a browser capture
+- Hit chances now adjusted for context and OS delay
+
 ## v1.3.1
 fix + - bindings on flow timer
 75% on more monitor sizes

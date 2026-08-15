@@ -99,6 +99,8 @@ public static class FenceRun
 
     public const double AnchorSharpness = 1.5;
 
+    public const double PreReadPrior = 66.0 / 76.0;
+
     public static IReadOnlyList<FenceCandidate> Build(int seed,
         IEnumerable<int> exitFrames, IEnumerable<int> oakFrames, int manualAdvances = 0,
         FenceGuyParity parity = FenceGuyParity.Post) =>
@@ -142,10 +144,14 @@ public static class FenceRun
         for (int i = 0; i < all.Length; i++)
         {
             int pairIndex = i % perSide;
-            double weight = exitWeight is null || oakWeight is null
+            (SpawnRead spawnSide, SpawnRead respawnSide) = sides[i / perSide];
+            double prior =
+                (spawnSide == SpawnRead.PreVBlank ? PreReadPrior : 1.0)
+                * (respawnSide == SpawnRead.PreVBlank ? PreReadPrior : 1.0);
+            double weight = prior * (exitWeight is null || oakWeight is null
                 ? 1.0
                 : Math.Pow(exitWeight(exit[pairIndex / oak.Count]) * oakWeight(oak[pairIndex % oak.Count]),
-                    AnchorSharpness);
+                    AnchorSharpness));
 
             if (index.TryGetValue(Observable(all[i]), out int at))
             {
