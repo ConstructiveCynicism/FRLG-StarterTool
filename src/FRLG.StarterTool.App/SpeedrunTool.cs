@@ -29,6 +29,8 @@ public static class StarterTool
 
     public static bool TimerExpired;
 
+    public static bool TimerCuesFinish;
+
     public static double TimerStart;
 
     public static double TimerStartLagMs;
@@ -296,18 +298,27 @@ public static class StarterTool
                     Direction? tap = typing ? null : ContextDirection(key);
                     if (tap != null)
                     {
-                        Post(() => Context.Tap(tap.Value, eventTime));
+                        Post(() =>
+                        {
+                            if (!MainForm.ReportMovement(tap.Value)) Context.Tap(tap.Value, eventTime);
+                        });
                     }
 
                     int focus = typing ? 0 : ContextFocus(key);
                     if (focus != 0)
                     {
-                        Post(() => Context.MoveFocus(focus));
+                        Post(() =>
+                        {
+                            if (!MainForm.ReportFocus(focus)) Context.MoveFocus(focus);
+                        });
                     }
 
                     if (!typing && Settings.NpcUndo.IsPressed(key))
                     {
-                        Post(() => Context.Undo());
+                        Post(() =>
+                        {
+                            if (!MainForm.ReportUndo()) Context.Undo();
+                        });
                     }
 
                     if (!typing && Settings.NpcComplete.IsPressed(key))
@@ -389,6 +400,7 @@ public static class StarterTool
 
         IsTimerRunning = true;
         TimerExpired = false;
+        TimerCuesFinish = false;
         TimerStart = startTimeMs ?? Win32.GetTime();
         TimerStartLagMs = startTimeMs != null ? lagMs : 0.0;
 
@@ -401,18 +413,19 @@ public static class StarterTool
         _timerUpdateThread.Start();
     }
 
-    public static void StopTimer(bool timerExpired, double lagMs = 0.0)
+    public static void StopTimer(bool timerExpired, double lagMs = 0.0, bool letCuesFinish = false)
     {
         if (!IsTimerRunning) return;
 
         if (!timerExpired)
         {
-            Beeps.ClearPending();
+            if (!letCuesFinish) Beeps.ClearPending();
             StopTimerThread();
         }
 
         IsTimerRunning = false;
         TimerExpired = timerExpired;
+        TimerCuesFinish = letCuesFinish;
         TimerStopLagMs = lagMs;
         CurrentTab.OnTimerStop();
 

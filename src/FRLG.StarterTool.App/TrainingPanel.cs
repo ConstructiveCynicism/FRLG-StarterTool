@@ -281,11 +281,11 @@ public sealed class TrainingPanel : Panel
 
         if (IsHandleCreated)
         {
-            BeginInvoke(() => StarterTool.StopTimer(false));
+            BeginInvoke(() => StarterTool.StopTimer(false, letCuesFinish: true));
         }
         else
         {
-            StarterTool.StopTimer(false);
+            StarterTool.StopTimer(false, letCuesFinish: true);
         }
 
         return true;

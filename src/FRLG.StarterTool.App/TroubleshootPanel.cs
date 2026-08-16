@@ -1,65 +1,81 @@
 using System.Globalization;
 
 using FRLG.StarterTool.Core.Npc;
+using FRLG.StarterTool.Core.Settings;
 using FRLG.StarterTool.Core.Troubleshoot;
 
 namespace FRLG.StarterTool.App;
 
 public sealed class TroubleshootPanel : UserControl
 {
-    private const int RowHeight = 22;
+    private const int RowHeight = 20;
     private const int Gap = 6;
-    private const int LabelWidth = 62;
-    private const int KeysTop = 52;
+    private const int LabelWidth = 44;
+
+    private const int ReportWidth = 220;
+
+    private const int NpcTop = 26;
+
+    private const int NpcRowHeight = 22;
+
+    private const int NpcCount = 3;
+
+    private const int KeysTop = NpcTop + NpcCount * NpcRowHeight + 4;
     private const int KeyHeight = 20;
-    private const int KeyWidth = 34;
-    private const int KeyGap = 4;
-    private const int ClearWidth = 52;
 
-    private const int SummaryTop = 74;
+    private const int KeyWidth = 24;
+    private const int KeyGap = 3;
+    private const int ClearWidth = 44;
 
-    private const int SummaryHeight = 30;
+    private const int NotesTop = KeysTop + KeyHeight + 8;
 
-    private const int RowsTop = 106;
+    private const int SummaryTop = NpcTop;
 
-    private static int RowHeightFor(TroubleshootStage stage) =>
-        stage == TroubleshootStage.Lab ? 26 : 18;
+    private const int SummaryHeight = 32;
 
-    private const int SlotPitch = 17;
+    private const int OptionsTop = SummaryTop + SummaryHeight + 4;
 
-    private const int GutterWidth = 15;
+    private const int OptionHeight = 17;
 
-    private const int NotesHeight = 30;
+    private const int DetailTop = OptionsTop + TroubleshootSearch.MostOptions * OptionHeight + 6;
 
-    private int _scroll;
+    private const int ReportPitch = 14;
+
+    private const int GutterWidth = 11;
+
+    private const int NameWidth = 38;
+
+    private static readonly string[] NpcNames = { "Fence", "Lady", "Sci" };
+
+    private readonly List<StripToken>[] _report =
+    {
+        new(), new(), new(),
+    };
+
+    private int _npc;
 
     private readonly ThemedComboBox _runs = new();
-    private readonly ThemedComboBox _stage = new();
-    private readonly ThemedTextBox _first = new();
-    private readonly ThemedTextBox _second = new();
+    private readonly ThemedTextBox _frameHit = new();
     private readonly Label _runLabel = new();
-    private readonly Label _stageLabel = new();
-    private readonly Label _firstLabel = new();
-    private readonly Label _secondLabel = new();
+    private readonly Label _hitLabel = new();
     private readonly ThemedButton _reload = new();
 
-    private readonly ThemedButton _sweep = new();
+    private readonly ThemedButton _window = new();
+
+    private int[] _windows = Array.Empty<int>();
+
+    private int _windowIndex;
+
+    private readonly ThemedButton _search = new();
 
     private readonly ThemedButton[] _keys;
 
-    private ThemedTextBox _target;
-
     private IReadOnlyList<RunRecord> _records = Array.Empty<RunRecord>();
-    private TroubleshootResult? _result;
-    private SweepResult? _swept;
-    private string _error = "";
+    private SearchOutcome? _found;
+
+    private int _selected;
+
     private Font? _bold;
-
-    private string _fenceReport = "";
-    private string _labAide = "";
-    private string _labScientist = "";
-
-    private TroubleshootStage _reportsFor = TroubleshootStage.Fence;
 
     public TroubleshootPanel()
     {
@@ -67,12 +83,13 @@ public sealed class TroubleshootPanel : UserControl
         SetStyle(ControlStyles.AllPaintingInWmPaint | ControlStyles.UserPaint
             | ControlStyles.OptimizedDoubleBuffer, true);
 
-        _runLabel.Text = "Run";
-        _stageLabel.Text = "Watching";
-        _firstLabel.Text = "Fence guy";
-        _secondLabel.Text = "Scientist";
+        SetStyle(ControlStyles.Selectable, true);
+        TabStop = true;
 
-        foreach (Label label in new[] { _runLabel, _stageLabel, _firstLabel, _secondLabel })
+        _runLabel.Text = "Run";
+        _hitLabel.Text = "Hit";
+
+        foreach (Label label in new[] { _runLabel, _hitLabel })
         {
             label.AutoSize = false;
             label.TextAlign = ContentAlignment.MiddleLeft;
@@ -80,82 +97,166 @@ public sealed class TroubleshootPanel : UserControl
         }
 
         _runs.DropDownStyle = ComboBoxStyle.DropDownList;
-        _stage.DropDownStyle = ComboBoxStyle.DropDownList;
-        _stage.Items.AddRange(new object[] { "Fence Guy", "Lab" });
-        _stage.SelectedIndex = 0;
 
         _reload.Text = "Reload";
-        _sweep.Text = "Sweep seed";
+        _search.Text = "Search";
 
         _keys = new[]
         {
-            Key("↑", "N"), Key("↓", "S"), Key("←", "W"), Key("→", "E"),
-            Key("–", "-"), Key("⌫", ""), Key("Clear", null),
+            Key("↑", Direction.North), Key("↓", Direction.South),
+            Key("←", Direction.West), Key("→", Direction.East),
+            Key("–", Direction.None), Key("⌫", null), Key("Clear", null, clear: true),
         };
 
-        _target = _first;
-
         Controls.Add(_runs);
-        Controls.Add(_stage);
-        Controls.Add(_first);
-        Controls.Add(_second);
+        Controls.Add(_frameHit);
+        Controls.Add(_window);
         Controls.Add(_reload);
-        Controls.Add(_sweep);
+        Controls.Add(_search);
 
-        _first.TextChanged += (_, _) => Recompute();
-        _second.TextChanged += (_, _) => Recompute();
-        _runs.SelectedIndexChanged += (_, _) => Recompute();
-        _stage.SelectedIndexChanged += (_, _) => { ApplyStage(); Recompute(); };
+        _window.TabStop = false;
+        _window.Click += (_, _) =>
+        {
+            if (_windows.Length > 0) _windowIndex = (_windowIndex + 1) % _windows.Length;
+
+            ShowWindow();
+            Focus();
+            Clear();
+        };
+
+        _runs.SelectedIndexChanged += (_, _) => LoadRun();
         _reload.Click += (_, _) => Reload();
-        _sweep.Click += (_, _) => Sweep();
+        _search.Click += (_, _) => Search();
 
-        _first.Enter += (_, _) => _target = _first;
-        _second.Enter += (_, _) => _target = _second;
+        _frameHit.TextChanged += (_, _) => Clear();
 
+        ShowWindow();
         Layout1();
-        ApplyStage();
     }
 
-    private ThemedButton Key(string caption, string? letter)
+    private ThemedButton Key(string caption, Direction? direction, bool clear = false)
     {
         var button = new ThemedButton { Text = caption, TabStop = false };
 
         button.Click += (_, _) =>
         {
-            ThemedTextBox box = Target;
+            if (clear) _report[_npc].Clear();
+            else if (direction is not { } appended) Backspace();
+            else Append(appended);
 
-            if (letter == null)
-            {
-                box.Clear();
-            }
-            else if (letter.Length == 0)
-            {
-                box.Text = Backspace(box.Text);
-            }
-            else
-            {
-                box.Text = box.Text.TrimEnd().Length == 0
-                    ? letter
-                    : box.Text.TrimEnd() + " " + letter;
-            }
-
-            box.Focus();
-            box.SelectionStart = box.TextLength;
+            Focus();
+            Clear();
         };
 
         Controls.Add(button);
         return button;
     }
 
-    private static string Backspace(string text)
+    public bool Append(Direction direction)
     {
-        string trimmed = text.TrimEnd();
-        int last = trimmed.LastIndexOf(' ');
-        return last < 0 ? "" : trimmed[..last];
+        if (!Accepting) return false;
+
+        _report[_npc].Add(direction == Direction.None
+            ? StripToken.Quiet
+            : new StripToken(direction));
+
+        Clear();
+        return true;
     }
 
-    private ThemedTextBox Target =>
-        ReferenceEquals(_target, _second) && _second.Visible ? _second : _first;
+    public bool Backspace()
+    {
+        if (!Accepting) return false;
+
+        List<StripToken> line = _report[_npc];
+        if (line.Count > 0) line.RemoveAt(line.Count - 1);
+
+        Clear();
+        return true;
+    }
+
+    public bool MoveNpc(int delta)
+    {
+        if (!Accepting) return false;
+
+        _npc = ((_npc + delta) % NpcCount + NpcCount) % NpcCount;
+        Invalidate();
+        return true;
+    }
+
+    private bool Accepting =>
+        Visible && ContainsFocus && !_frameHit.Focused && !_runs.Focused;
+
+    private void Clear()
+    {
+        _found = null;
+        _selected = 0;
+        Invalidate();
+    }
+
+    protected override bool ProcessCmdKey(ref Message message, Keys keyData)
+    {
+        if (Accepting && Bound(keyData) == null)
+        {
+            switch (keyData)
+            {
+                case Keys.Up or Keys.W: return Append(Direction.North);
+                case Keys.Down or Keys.S: return Append(Direction.South);
+                case Keys.Left or Keys.A: return Append(Direction.West);
+                case Keys.Right or Keys.D: return Append(Direction.East);
+
+                case Keys.Space or Keys.OemMinus or Keys.Subtract:
+                    return Append(Direction.None);
+
+                case Keys.Back: return Backspace();
+                case Keys.Tab: return MoveNpc(1);
+                case Keys.Tab | Keys.Shift: return MoveNpc(-1);
+            }
+        }
+
+        return base.ProcessCmdKey(ref message, keyData);
+    }
+
+    private static Direction? Bound(Keys key)
+    {
+        AppSettings? settings = StarterTool.Settings;
+        if (settings == null) return null;
+
+        if (settings.NpcUp.IsPressed(key)) return Direction.North;
+        if (settings.NpcDown.IsPressed(key)) return Direction.South;
+        if (settings.NpcLeft.IsPressed(key)) return Direction.West;
+        if (settings.NpcRight.IsPressed(key)) return Direction.East;
+
+        return null;
+    }
+
+    protected override void OnMouseDown(MouseEventArgs e)
+    {
+        base.OnMouseDown(e);
+        Focus();
+
+        int scaled(int value) => ZoomLayout.Round(value * ScaleFactor);
+
+        if (e.X < scaled(ReportWidth))
+        {
+            int row = (e.Y - scaled(NpcTop)) / Math.Max(1, scaled(NpcRowHeight));
+            if (row >= 0 && row < NpcCount)
+            {
+                _npc = row;
+                Invalidate();
+            }
+
+            return;
+        }
+
+        if (_found is not { } found || found.Options.Count == 0) return;
+
+        int option = (e.Y - scaled(OptionsTop)) / Math.Max(1, scaled(OptionHeight));
+        if (option < 0 || option >= found.Options.Count) return;
+
+        _selected = option;
+        Invalidate();
+    }
 
     public void Reload()
     {
@@ -167,62 +268,113 @@ public sealed class TroubleshootPanel : UserControl
         _runs.EndUpdate();
 
         if (_runs.Items.Count > 0) _runs.SelectedIndex = 0;
-        Recompute();
+
+        LoadRun();
+        Focus();
+    }
+
+    private void LoadRun()
+    {
+        foreach (List<StripToken> line in _report) line.Clear();
+
+        _windows = Selected is { } picked
+            ? TroubleshootSearch.WindowChoices(picked)
+            : Array.Empty<int>();
+
+        _windowIndex = 0;
+        ShowWindow();
+
+        if (Selected is { } run)
+        {
+            _report[0].AddRange(run.Taps.Select(d => new StripToken(d)));
+
+            LabRow? box = run.Lab.FirstOrDefault(r => r.Focused)
+                ?? (run.Lab.Count == 1 ? run.Lab[0] : null);
+
+            if (box != null)
+            {
+                _report[1].AddRange(box.AideStrip);
+                _report[2].AddRange(box.ScientistStrip);
+            }
+        }
+
+        Clear();
     }
 
     private static string Describe(RunRecord record)
     {
         string when = record.Started == default
             ? record.FileName
-            : record.Started.ToString("HH:mm  dd MMM", CultureInfo.CurrentCulture);
+            : record.Started.ToString("dd MMM HH:mm", CultureInfo.CurrentCulture);
 
         string seed = record.Seed > 0
-            ? "TID " + record.Seed.ToString(CultureInfo.InvariantCulture)
+            ? record.Seed.ToString(CultureInfo.InvariantCulture)
             : "no TID";
 
-        string end = record.Outcome.Length > 0 ? record.Outcome
+        string end = record.Outcome.Length > 0 ? Short(record.Outcome)
             : record.LandedFrame is { } landed
-                ? "landed " + landed.ToString(CultureInfo.InvariantCulture)
+                ? "hit " + landed.ToString(CultureInfo.InvariantCulture)
                 : "no landing";
 
-        return $"{when}   {seed}   {end}";
+        return $"{when} · {seed} · {end}";
     }
+
+    private static string Short(string outcome)
+    {
+        string text = outcome.Trim().Trim(',').Trim();
+
+        const string open = "anchor chain left open at ";
+        if (text.StartsWith(open, StringComparison.Ordinal)) return "open " + text[open.Length..];
+
+        int cut = text.IndexOf(',');
+        return cut > 0 ? text[..cut] : text;
+    }
+
+    private int? ChosenWindow =>
+        _windows.Length == 0 ? null : _windows[Math.Clamp(_windowIndex, 0, _windows.Length - 1)];
+
+    private void ShowWindow() =>
+        _window.Text = ChosenWindow is { } frames
+            ? string.Format(CultureInfo.InvariantCulture, "Win {0}", frames)
+            : "Win —";
 
     private RunRecord? Selected =>
         _runs.SelectedIndex >= 0 && _runs.SelectedIndex < _records.Count
             ? _records[_runs.SelectedIndex]
             : null;
 
-    private TroubleshootStage Stage =>
-        _stage.SelectedIndex == 1 ? TroubleshootStage.Lab : TroubleshootStage.Fence;
+    private int? FrameHit =>
+        int.TryParse(_frameHit.Text.Trim(), NumberStyles.Integer, CultureInfo.InvariantCulture,
+            out int frame) && frame >= 0
+            ? frame
+            : null;
 
-    private void ApplyStage()
+    private void Search()
     {
-        bool lab = Stage == TroubleshootStage.Lab;
+        if (Selected is not { } run) return;
 
-        if (Stage != _reportsFor)
+        UseWaitCursor = true;
+        try
         {
-            if (_reportsFor == TroubleshootStage.Lab)
-            {
-                _labAide = _first.Text;
-                _labScientist = _second.Text;
-            }
-            else
-            {
-                _fenceReport = _first.Text;
-            }
-
-            _reportsFor = Stage;
-            _first.Text = lab ? _labAide : _fenceReport;
-            _second.Text = lab ? _labScientist : "";
+            _found = TroubleshootSearch.Run(run,
+                Line(0), Line(1), Line(2),
+                FrameHit,
+                StarterTool.Settings?.NpcContextWindowMs ?? 0.0,
+                TroubleshootSearch.DefaultRadius,
+                ChosenWindow);
+        }
+        finally
+        {
+            UseWaitCursor = false;
         }
 
-        _firstLabel.Text = lab ? "Lady" : "Fence guy";
-        _secondLabel.Visible = lab;
-        _second.Visible = lab;
-
-        Layout1();
+        _selected = 0;
+        Invalidate();
+        Focus();
     }
+
+    private IReadOnlyList<StripToken>? Line(int npc) =>
+        _report[npc].Count == 0 ? null : _report[npc];
 
     private void Layout1()
     {
@@ -230,47 +382,27 @@ public sealed class TroubleshootPanel : UserControl
         int S(int value) => ZoomLayout.Round(value * factor);
 
         int right = Math.Max(S(240), Width);
-        int rowHeight = S(RowHeight);
+        int rowHeight = Math.Max(S(RowHeight), Font.Height + 5);
         int label = S(LabelWidth);
         int gap = S(Gap);
-        int reload = S(66);
+        int button = S(70);
 
         _runLabel.Bounds = new Rectangle(0, 0, label, rowHeight);
         _runs.Bounds = new Rectangle(label, 0, S(206), rowHeight);
-        _stageLabel.Bounds = new Rectangle(_runs.Right + gap * 2, 0, S(70), rowHeight);
-        _stage.Bounds = new Rectangle(
-            _stageLabel.Right, 0,
-            Math.Max(S(60), right - reload - S(84) - 2 * gap - _stageLabel.Right),
-            rowHeight);
-        int sweep = S(84);
-        _sweep.Bounds = new Rectangle(right - reload - gap - sweep, 0, sweep, rowHeight);
-        _reload.Bounds = new Rectangle(right - reload, 0, reload, rowHeight);
-
         _runs.MatchHeight(rowHeight);
-        _stage.MatchHeight(rowHeight);
 
-        int top = rowHeight + gap;
+        _hitLabel.Bounds = new Rectangle(_runs.Right + gap * 2, 0, S(24), rowHeight);
+        _frameHit.Bounds = new Rectangle(_hitLabel.Right, 0, S(60), rowHeight);
 
-        _firstLabel.Bounds = new Rectangle(0, top, label, rowHeight);
+        _window.Bounds = new Rectangle(_frameHit.Right + gap * 2, 0, button, rowHeight);
 
-        if (Stage == TroubleshootStage.Lab)
-        {
-            int half = (right - 2 * label - gap) / 2;
-
-            _first.Bounds = new Rectangle(label, top, half, rowHeight);
-            _secondLabel.Bounds = new Rectangle(_first.Right + gap, top, label, rowHeight);
-            _second.Bounds = new Rectangle(
-                _secondLabel.Right, top, right - _secondLabel.Right, rowHeight);
-        }
-        else
-        {
-            _first.Bounds = new Rectangle(label, top, right - label, rowHeight);
-        }
+        _search.Bounds = new Rectangle(right - 2 * button - gap, 0, button, rowHeight);
+        _reload.Bounds = new Rectangle(right - button, 0, button, rowHeight);
 
         int keyTop = S(KeysTop);
         int keyHeight = S(KeyHeight);
         int keyGap = S(KeyGap);
-        int x = label;
+        int x = S(GutterWidth);
 
         for (int i = 0; i < _keys.Length; i++)
         {
@@ -287,72 +419,6 @@ public sealed class TroubleshootPanel : UserControl
     }
 
     public void Relayout() => Layout1();
-
-    private void Sweep()
-    {
-        if (Selected is not { } run || _error.Length > 0) return;
-
-        MovementStrip.TryParse(_first.Text, out List<StripToken> first, out _);
-        MovementStrip.TryParse(_second.Text, out List<StripToken> second, out _);
-
-        UseWaitCursor = true;
-        try
-        {
-            MovementStrip.TryParse(_fenceReport, out List<StripToken> fenceGuy, out _);
-
-            _swept = Stage == TroubleshootStage.Lab
-                ? FrameSweep.Lab(run,
-                    _first.Text.Trim().Length == 0 ? null : first,
-                    _second.Text.Trim().Length == 0 ? null : second,
-                    fenceGuy: _fenceReport.Trim().Length == 0 ? null : fenceGuy)
-                : FrameSweep.Fence(run, first);
-        }
-        finally
-        {
-            UseWaitCursor = false;
-        }
-
-        _scroll = 0;
-        Invalidate();
-    }
-
-    private void Recompute()
-    {
-        _error = "";
-        _result = null;
-
-        _swept = null;
-
-        _scroll = 0;
-
-        if (Selected is not { } run)
-        {
-            Invalidate();
-            return;
-        }
-
-        if (!MovementStrip.TryParse(_first.Text, out List<StripToken> first, out char bad))
-        {
-            _error = $"'{bad}' is not a direction. Type N/S/E/W (or U/D/L/R) and - for a quiet 32 frames.";
-            Invalidate();
-            return;
-        }
-
-        if (!MovementStrip.TryParse(_second.Text, out List<StripToken> second, out char alsoBad))
-        {
-            _error = $"'{alsoBad}' is not a direction. Type N/S/E/W (or U/D/L/R) and - for a quiet 32 frames.";
-            Invalidate();
-            return;
-        }
-
-        _result = Stage == TroubleshootStage.Lab
-            ? Troubleshooter.Lab(run,
-                _first.Text.Trim().Length == 0 ? null : first,
-                _second.Text.Trim().Length == 0 ? null : second)
-            : Troubleshooter.Fence(run, first);
-
-        Invalidate();
-    }
 
     private Font BoldFont => _bold ??= new Font(Font, FontStyle.Bold);
 
@@ -377,252 +443,256 @@ public sealed class TroubleshootPanel : UserControl
 
         int scaled(int value) => ZoomLayout.Round(value * ScaleFactor);
 
-        if (_error.Length > 0)
+        PaintReport(g, scaled);
+
+        int left = scaled(ReportWidth) + scaled(Gap);
+        int width = Math.Max(0, Width - left);
+
+        if (Selected is null)
         {
-            Draw(g, _error, 0, scaled(SummaryTop), Width, scaled(SummaryHeight),
-                Theme.LandingMissText, BoldFont);
+            Draw(g, _records.Count == 0 ? "No runs in runs/." : "Pick a run.",
+                left, scaled(SummaryTop), width, scaled(SummaryHeight), Theme.DimText, Font);
             return;
         }
 
-        if (_result is not { } result)
+        if (_found is not { } found)
         {
-            Draw(g, _records.Count == 0
-                    ? "No runs recorded yet. Every attempt writes its own file under runs/."
-                    : "Pick a run, then type what you saw.",
-                0, scaled(SummaryTop), Width, scaled(SummaryHeight), Theme.DimText, Font);
+            Draw(g, "Report the NPCs, type the frame, Search.\r\nLines start on the box this run used.",
+                left, scaled(SummaryTop), width, scaled(SummaryHeight), Theme.DimText, Font);
             return;
         }
 
-        if (_swept is { } swept)
-        {
-            Draw(g, swept.Summary, 0, scaled(SummaryTop), Width, scaled(SummaryHeight),
-                swept.Found ? Theme.LandingHitText : Theme.LandingMaybeText, BoldFont);
+        Draw(g, found.Summary, left, scaled(SummaryTop), width, scaled(SummaryHeight),
+            found.Found ? Theme.LandingHitText : Theme.LandingMaybeText, BoldFont);
 
-            PaintSweep(g, swept, scaled(RowsTop), ResultRowHeight(result));
-            return;
-        }
-
-        Draw(g, result.Summary, 0, scaled(SummaryTop), Width, scaled(SummaryHeight),
-            SummaryInk(result), BoldFont);
-
-        PaintRows(g, result, scaled(RowsTop), ResultRowHeight(result));
-        PaintNotes(g, result, scaled(NotesHeight));
+        PaintOptions(g, found, left, width, scaled);
+        PaintDetail(g, found, left, width, scaled);
+        PaintNotes(g, found, scaled);
     }
 
-    private static Color SummaryInk(TroubleshootResult result)
+    private void PaintReport(Graphics g, Func<int, int> scaled)
     {
-        if (result.Rows.Count > 0 && result.Fits.Count == 0) return Theme.LandingMissText;
+        int rowHeight = scaled(NpcRowHeight);
+        int pitch = scaled(ReportPitch);
+        int gutter = scaled(GutterWidth);
+        int name = scaled(NameWidth);
+        int width = scaled(ReportWidth);
 
-        return result.OutByFrames switch
+        for (int npc = 0; npc < NpcCount; npc++)
         {
-            0 => Theme.LandingHitText,
-            not null => Theme.LandingMissText,
-            _ => Theme.LandingMaybeText,
-        };
-    }
+            var bounds = new Rectangle(0, scaled(NpcTop) + npc * rowHeight, width, rowHeight);
 
-    private void PaintRows(Graphics g, TroubleshootResult result, int top, int height)
-    {
-        IReadOnlyList<RowMatch> shown = result.Rows;
-        int visible = VisibleRows(top, height);
-        int drawn = Math.Min(shown.Count - _scroll, visible);
-
-        for (int i = 0; i < drawn; i++)
-        {
-            RowMatch row = shown[_scroll + i];
-            var bounds = new Rectangle(0, top + i * height, Width, height);
-
-            if (row.WasUsed)
+            if (npc == _npc)
             {
                 using var band = new SolidBrush(Theme.LandingContextBack);
                 g.FillRectangle(band, bounds);
             }
 
-            Color ink = row.Quality switch
+            Image? sprite = npc switch
             {
-                MatchQuality.Exact => Theme.LandingHitText,
-                MatchQuality.Movements => Theme.LandingMaybeText,
-                _ => Theme.DimText,
+                0 => Assets.FatMan(Direction.South, false),
+                1 => Assets.Aide(),
+                _ => Assets.Scientist(),
             };
 
-            int x = 0;
-            int mark = ZoomLayout.Round(52 * ScaleFactor);
-            int advance = ZoomLayout.Round(58 * ScaleFactor);
-            int label = ZoomLayout.Round(84 * ScaleFactor);
-
-            Draw(g, row.Quality switch
-                {
-                    MatchQuality.Exact => "exact",
-                    MatchQuality.Movements => "moves",
-                    _ => "+" + row.Distance.ToString(CultureInfo.InvariantCulture),
-                },
-                x, bounds.Y, mark, height, ink, Font);
-            x += mark;
-
-            Draw(g, row.Advances.ToString(CultureInfo.InvariantCulture), x, bounds.Y, advance, height,
-                Theme.Text, row.WasUsed ? BoldFont : Font);
-            x += advance;
-
-            Draw(g, row.Label, x, bounds.Y, label, height, Theme.DimText, Font);
-            x += label;
-
-            PaintStrips(g, row, new Rectangle(x, bounds.Y, Width - x, height));
-        }
-    }
-
-    private void PaintSweep(Graphics g, SweepResult swept, int top, int height)
-    {
-        int visible = VisibleRows(top, height);
-        int drawn = Math.Min(swept.Hits.Count - _scroll, visible);
-
-        for (int i = 0; i < drawn; i++)
-        {
-            SweepHit hit = swept.Hits[_scroll + i];
-            var bounds = new Rectangle(0, top + i * height, Width, height);
-
-            Color ink = hit.Quality switch
+            if (sprite != null)
             {
-                MatchQuality.Exact => Theme.LandingHitText,
-                MatchQuality.Movements => Theme.LandingMaybeText,
-                _ => Theme.DimText,
-            };
+                int height = bounds.Height - 2;
+                int spriteWidth = Math.Max(1, height / 2);
 
-            int x = 0;
-            int mark = ZoomLayout.Round(52 * ScaleFactor);
-            int advance = ZoomLayout.Round(58 * ScaleFactor);
-            int label = ZoomLayout.Round(104 * ScaleFactor);
-
-            Draw(g, hit.Quality switch
-                {
-                    MatchQuality.Exact => "exact",
-                    MatchQuality.Movements => "moves",
-                    _ => "+" + hit.Distance.ToString(CultureInfo.InvariantCulture),
-                },
-                x, bounds.Y, mark, height, ink, Font);
-            x += mark;
-
-            Draw(g, hit.Advances.ToString(CultureInfo.InvariantCulture), x, bounds.Y, advance, height,
-                Theme.Text, hit.OffsetFrames == 0 ? BoldFont : Font);
-            x += advance;
-
-            Draw(g, string.Format(CultureInfo.InvariantCulture, "{0:+#;-#;0}f  w{1}{2}",
-                    hit.OffsetFrames, hit.ObservableFrames,
-                    hit.StreamShift == 0
-                        ? ""
-                        : string.Format(CultureInfo.InvariantCulture, "  s{0:+#;-#}", hit.StreamShift)),
-                x, bounds.Y, label, height,
-                hit.StreamShift == 0 ? Theme.DimText : Theme.LandingMaybeText, Font);
-            x += label;
-
-            PaintStrips(g, new RowMatch(0, hit.Quality, hit.Advances, hit.Lines, "", false,
-                hit.Distance), new Rectangle(x, bounds.Y, Width - x, height));
-        }
-
-        int notes = ZoomLayout.Round(NotesHeight * ScaleFactor);
-
-        string legend = string.Format(CultureInfo.InvariantCulture,
-            "swept {0} frames · offset moves the press, w is the window, s the stream · edit the "
-            + "report to return to the field", swept.Scanned);
-
-        if (swept.Note.Length == 0)
-        {
-            Draw(g, legend, 0, Height - notes, Width, notes, Theme.DimText, Font);
-            return;
-        }
-
-        Draw(g, swept.Note, 0, Height - notes, Width, notes / 2, Theme.LandingMaybeText, BoldFont);
-        Draw(g, legend, 0, Height - notes / 2, Width, notes / 2, Theme.DimText, Font);
-    }
-
-    private void PaintStrips(Graphics g, RowMatch row, Rectangle bounds)
-    {
-        int lines = Math.Max(1, row.Lines.Count);
-        int lineHeight = bounds.Height / lines;
-        int pitch = ZoomLayout.Round(SlotPitch * ScaleFactor);
-        int gutter = row.Lines.Count > 1 ? ZoomLayout.Round(GutterWidth * ScaleFactor) : 0;
-
-        for (int i = 0; i < row.Lines.Count; i++)
-        {
-            StripLine line = row.Lines[i];
-            int y = bounds.Y + i * lineHeight;
-
-            if (gutter > 0)
-            {
-                Draw(g, line.Label, bounds.X, y, gutter, lineHeight, Theme.DimText, Font);
+                System.Drawing.Drawing2D.InterpolationMode was = g.InterpolationMode;
+                g.InterpolationMode = System.Drawing.Drawing2D.InterpolationMode.NearestNeighbor;
+                g.DrawImage(sprite, new Rectangle(bounds.X, bounds.Y + 1, spriteWidth, height));
+                g.InterpolationMode = was;
             }
 
-            int slots = Math.Max(0, (bounds.Width - gutter) / Math.Max(1, pitch));
+            Draw(g, NpcNames[npc], bounds.X + gutter, bounds.Y, name, rowHeight,
+                npc == _npc ? Theme.Text : Theme.DimText, npc == _npc ? BoldFont : Font);
 
-            if (line.Tokens.Count == 0)
+            int x = bounds.X + gutter + name;
+            int slots = Math.Max(0, (width - gutter - name) / Math.Max(1, pitch));
+
+            if (_report[npc].Count == 0)
             {
-                Draw(g, "nothing", bounds.X + gutter, y, bounds.Width - gutter, lineHeight,
-                    Theme.DimText, Font);
+                Draw(g, "—", x, bounds.Y, width - gutter - name, rowHeight, Theme.DimText, Font);
                 continue;
             }
 
-            for (int slot = 0; slot < line.Tokens.Count && slot < slots; slot++)
+            for (int slot = 0; slot < _report[npc].Count && slot < slots; slot++)
             {
-                StripToken token = line.Tokens[slot];
-
-                Draw(g, token.ToString(), bounds.X + gutter + slot * pitch, y, pitch, lineHeight,
-                    token.IsQuiet ? Theme.DimText : Theme.Text, Font);
+                Arrow(g, new Rectangle(x + slot * pitch, bounds.Y, pitch, rowHeight),
+                    _report[npc][slot], Theme.Text);
             }
 
-            if (line.Tokens.Count > slots)
+            if (_report[npc].Count > slots)
             {
-                Draw(g, "…", bounds.X + gutter + slots * pitch - pitch / 2, y, pitch, lineHeight,
+                Draw(g, "…", x + slots * pitch - pitch, bounds.Y, pitch, rowHeight,
                     Theme.DimText, Font);
             }
         }
     }
 
-    private int ResultRowHeight(TroubleshootResult result) =>
-        ZoomLayout.Round(RowHeightFor(result.Stage) * ScaleFactor);
-
-    private int VisibleRows(int top, int height) =>
-        Math.Max(1, (Height - ZoomLayout.Round(NotesHeight * ScaleFactor) - top) / height);
-
-    protected override void OnMouseWheel(MouseEventArgs e)
+    private void PaintOptions(Graphics g, SearchOutcome found, int left, int width,
+        Func<int, int> scaled)
     {
-        base.OnMouseWheel(e);
+        int height = scaled(OptionHeight);
+        int top = scaled(OptionsTop);
 
-        if (_result is not { } result) return;
+        for (int i = 0; i < found.Options.Count; i++)
+        {
+            RouteOption option = found.Options[i];
+            var bounds = new Rectangle(left, top + i * height, width, height);
 
-        int visible = VisibleRows(
-            ZoomLayout.Round(RowsTop * ScaleFactor), ResultRowHeight(result));
-        int most = Math.Max(0, result.Rows.Count - visible);
+            if (i == _selected)
+            {
+                using var band = new SolidBrush(Theme.LandingContextBack);
+                g.FillRectangle(band, bounds);
+            }
 
-        int moved = Math.Clamp(_scroll - Math.Sign(e.Delta), 0, most);
-        if (moved == _scroll) return;
+            Color ink = option.Quality switch
+            {
+                MatchQuality.Exact => Theme.LandingHitText,
+                MatchQuality.Movements => Theme.LandingMaybeText,
+                _ => Theme.DimText,
+            };
 
-        _scroll = moved;
-        Invalidate();
+            Color context = option.InContext ? Theme.LandingHitText : Theme.LandingMissText;
+
+            int x = bounds.X;
+            int mark = scaled(40);
+            int advances = scaled(48);
+            int cost = scaled(52);
+
+            Draw(g, option.Quality switch
+                {
+                    MatchQuality.Exact => "exact",
+                    MatchQuality.Movements => "moves",
+                    _ => "+" + option.Distance.ToString(CultureInfo.InvariantCulture),
+                },
+                x, bounds.Y, mark, height, ink, Font);
+            x += mark;
+
+            Draw(g, option.Advances.ToString(CultureInfo.InvariantCulture), x, bounds.Y, advances,
+                height, Theme.Text, i == _selected ? BoldFont : Font);
+            x += advances;
+
+            Draw(g, option.InContext
+                    ? "in ctx"
+                    : string.Format(CultureInfo.InvariantCulture, "+{0}f", option.OutOfContextFrames),
+                x, bounds.Y, cost, height, context, Font);
+            x += cost;
+
+            Draw(g, option.Offsets, x, bounds.Y, bounds.Right - x, height, context, Font);
+        }
     }
 
-    private void PaintNotes(Graphics g, TroubleshootResult result, int height)
+    private static void Arrow(Graphics g, Rectangle slot, StripToken token, Color ink)
     {
-        var parts = new List<string>();
-
-        if (result.Rows.Count > 0)
+        if (token.IsQuiet)
         {
-            int visible = VisibleRows(
-                ZoomLayout.Round(RowsTop * ScaleFactor), ResultRowHeight(result));
-
-            string count = string.Format(CultureInfo.InvariantCulture, "{0} of {1} fit",
-                result.Fits.Count, result.Rows.Count);
-
-            parts.Add(result.Rows.Count > visible
-                ? count + string.Format(CultureInfo.InvariantCulture,
-                    " · showing {0}-{1}, scroll for the rest",
-                    _scroll + 1, Math.Min(result.Rows.Count, _scroll + visible))
-                : count);
+            int bar = Math.Max(1, slot.Height / 12);
+            using var dim = new SolidBrush(Theme.DimText);
+            g.FillRectangle(dim, slot.X + slot.Width / 4, slot.Y + slot.Height / 2 - bar / 2,
+                Math.Max(2, slot.Width / 2), Math.Max(1, bar));
+            return;
         }
 
-        parts.AddRange(result.Notes);
+        int size = Math.Max(4, Math.Min(slot.Width, slot.Height) - 6);
+        int cx = slot.X + slot.Width / 2;
+        int cy = slot.Y + slot.Height / 2;
+        int half = size / 2;
 
-        if (parts.Count == 0) return;
+        PointF[] points = token.Direction switch
+        {
+            Direction.North => new PointF[]
+                { new(cx, cy - half), new(cx - half, cy + half), new(cx + half, cy + half) },
+            Direction.South => new PointF[]
+                { new(cx, cy + half), new(cx - half, cy - half), new(cx + half, cy - half) },
+            Direction.West => new PointF[]
+                { new(cx - half, cy), new(cx + half, cy - half), new(cx + half, cy + half) },
+            _ => new PointF[]
+                { new(cx + half, cy), new(cx - half, cy - half), new(cx - half, cy + half) },
+        };
 
-        Draw(g, string.Join("  ·  ", parts), 0, Height - height, Width, height,
+        System.Drawing.Drawing2D.SmoothingMode was = g.SmoothingMode;
+        g.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.AntiAlias;
+
+        if (token.Complete)
+        {
+            using var brush = new SolidBrush(ink);
+            g.FillPolygon(brush, points);
+        }
+        else
+        {
+            using var pen = new Pen(ink);
+            g.DrawPolygon(pen, points);
+        }
+
+        g.SmoothingMode = was;
+    }
+
+    private void PaintDetail(Graphics g, SearchOutcome found, int left, int width,
+        Func<int, int> scaled)
+    {
+        if (found.Options.Count == 0) return;
+
+        int index = Math.Clamp(_selected, 0, found.Options.Count - 1);
+        RouteOption option = found.Options[index];
+
+        int top = scaled(DetailTop);
+        int line = scaled(14);
+
+        var parts = new List<string>
+        {
+            string.Format(CultureInfo.InvariantCulture, "advances {0}", option.Advances),
+            "parity " + option.Parity,
+        };
+
+        if (option.ObservableFrames > 0)
+        {
+            parts.Add(string.Format(CultureInfo.InvariantCulture, "window {0}",
+                option.ObservableFrames));
+        }
+
+        if (option.Landing is { } landing)
+        {
+            parts.Add(string.Format(CultureInfo.InvariantCulture, "lands on {0}", landing));
+        }
+
+        if (option.StreamShift != 0)
+        {
+            parts.Add(string.Format(CultureInfo.InvariantCulture, "stream {0:+#;-#}",
+                option.StreamShift));
+        }
+
+        Draw(g, string.Join(" · ", parts), left, top, width, line, Theme.DimText, Font);
+        top += line;
+
+        if (option.Corrections.Count > 0)
+        {
+            Draw(g, string.Join("  ", option.Corrections), left, top, width, Height - top,
+                Theme.LandingMaybeText, BoldFont);
+            return;
+        }
+
+        Draw(g, option.InContext
+                ? "The run's own box — tracker was right, frame went elsewhere."
+                : string.Format(CultureInfo.InvariantCulture,
+                    "Never on screen: needs +{0}f of context on one anchor.",
+                    option.OutOfContextFrames),
+            left, top, width, Height - top, Theme.DimText, Font);
+    }
+
+    private void PaintNotes(Graphics g, SearchOutcome found, Func<int, int> scaled)
+    {
+        var parts = new List<string>(found.Notes)
+        {
+            string.Format(CultureInfo.InvariantCulture, "{0} readings · green = in context",
+                found.Scanned),
+        };
+
+        int top = scaled(NotesTop);
+        Draw(g, string.Join("  ", parts), 0, top, scaled(ReportWidth), Height - top,
             Theme.DimText, Font);
     }
 

@@ -52,7 +52,7 @@ public partial class MainForm
         Keys.Enter or Keys.Escape or Keys.Tab => true,
         Keys.Back or Keys.Delete or Keys.Insert => true,
         Keys.Left or Keys.Right or Keys.Up or Keys.Down => true,
-        Keys.Home or Keys.End or Keys.PageUp or Keys.PageDown => true,
+        Keys.Home or Keys.End => true,
 
         _ => false
     };

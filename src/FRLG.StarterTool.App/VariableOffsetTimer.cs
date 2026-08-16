@@ -289,16 +289,21 @@ public sealed class VariableOffsetTimer : BaseTimer
         _form.TextBoxFrame.Text = "";
         _form.LabelTimer.Text = TimeText.Format(0.0, StarterTool.TimeFormat);
 
-        if (StarterTool.TimerExpired)
+        if (StarterTool.TimerExpired || StarterTool.TimerCuesFinish)
         {
             _form.LabelTimer.LetFlashFinish();
-
-            ArmLandingWindowClose();
         }
         else
         {
             ClearFlash();
+        }
 
+        if (StarterTool.TimerExpired)
+        {
+            ArmLandingWindowClose();
+        }
+        else
+        {
             _landingWindowClose?.Stop();
 
             _hasLandingTarget = false;

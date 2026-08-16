@@ -175,7 +175,24 @@ public sealed class ContextSession
         RunLog.StartRun();
 
         Log(_armed ? "--- run started ---" : "--- run started, tracker off ---");
+        LogTolerances();
         Changed?.Invoke(this, EventArgs.Empty);
+    }
+
+    private static void LogTolerances()
+    {
+        AppSettings? settings = StarterTool.Settings;
+
+        double context = settings?.NpcContextWindowMs ?? 0.0;
+        bool cued = settings?.NpcCuedLabPress ?? false;
+
+        Log(string.Format(CultureInfo.InvariantCulture,
+            "  context window {0:0.###} ms, lab cue {1}", context,
+            cued
+                ? string.Format(CultureInfo.InvariantCulture, "on: {0:+#;-#;+0} frames, window {1:0.###} ms",
+                    settings?.NpcCuedLabPressOffsetFrames ?? AppSettings.DefaultCuedLabPressOffsetFrames,
+                    settings?.NpcCuedPressWindowMs ?? AppSettings.DefaultCuedPressWindowMs)
+                : "off"));
     }
 
     public bool MarkNextAnchor(double pressTimeMs)

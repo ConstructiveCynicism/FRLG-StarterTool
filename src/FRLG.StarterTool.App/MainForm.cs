@@ -301,6 +301,8 @@ public partial class MainForm : Form
         TroubleshootPanel.Visible = showing;
         ContextPanel.Visible = !showing;
 
+        GroupBoxContext.Text = showing ? "NPC Troubleshooter" : "Context Tracking";
+
         foreach (Control button in new Control[]
                  {
                      ButtonContextUndo, ButtonContextClear, ButtonContextMiss,
@@ -321,6 +323,12 @@ public partial class MainForm : Form
             ShowContextSession();
         }
     }
+
+    public bool ReportMovement(Direction direction) => TroubleshootPanel.Append(direction);
+
+    public bool ReportUndo() => TroubleshootPanel.Backspace();
+
+    public bool ReportFocus(int delta) => TroubleshootPanel.MoveNpc(delta);
 
     private void ShowContextSession()
     {

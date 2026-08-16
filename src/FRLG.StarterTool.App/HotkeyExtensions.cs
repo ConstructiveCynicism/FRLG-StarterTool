@@ -50,7 +50,21 @@ public static class HotkeyExtensions
         _ => false
     };
 
-    public static string ToFormattedString(this Keys key) => key == Keys.None ? "Unset" : key.ToString();
+    public static string ToFormattedString(this Keys key) => key switch
+    {
+        Keys.None => "Unset",
+
+        Keys.Prior => "Page Up",
+        Keys.Next => "Page Down",
+
+        Keys.Return => "Enter",
+        Keys.Back => "Backspace",
+        Keys.Capital => "Caps Lock",
+        Keys.Scroll => "Scroll Lock",
+        Keys.Apps => "Menu",
+
+        _ => key.ToString()
+    };
 
     public static string ToFormattedString(this KeyMethod method) => method switch
     {
