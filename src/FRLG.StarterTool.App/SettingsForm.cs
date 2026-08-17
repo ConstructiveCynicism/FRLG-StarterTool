@@ -58,9 +58,11 @@ public sealed class SettingsForm : Form
         _settings = settings;
 
         _zoom = Math.Clamp(settings.ZoomPercent, 75, 125) / 100F;
-        if (_zoom != 1F)
+
+        float fontZoom = _zoom * 96F / StarterTool.MainForm.DeviceDpi;
+        if (fontZoom != 1F)
         {
-            _zoomFont = new Font(Font.FontFamily, Font.Size * _zoom, Font.Style, Font.Unit);
+            _zoomFont = new Font(Font.FontFamily, Font.Size * fontZoom, Font.Style, Font.Unit);
             Font = _zoomFont;
         }
 

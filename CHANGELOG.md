@@ -1,4 +1,5 @@
 ### v1.4.0
+- window scaling hotfix (untested)
 - fixed more hotkey overlap bugs
 - Fence Guy Parity now modeled by default
 - Added more tips (very helpful)

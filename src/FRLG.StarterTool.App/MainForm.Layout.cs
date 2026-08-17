@@ -10,6 +10,8 @@ public partial class MainForm
 
     private float _zoom = 1F;
 
+    private int _zoomDpi;
+
     private int Scaled(int designerLength) =>
         _zoom == 1F ? designerLength : ZoomLayout.Round(designerLength * _zoom);
 
@@ -51,7 +53,9 @@ public partial class MainForm
         _zoomBaseline ??= ZoomLayout.Capture(this);
 
         float zoom = zoomPercent / 100F;
-        if (zoom == _zoom) return;
+
+        if (zoom == _zoom && DeviceDpi == _zoomDpi) return;
+        _zoomDpi = DeviceDpi;
 
         bool collapsed = _collapsed;
         if (collapsed)
@@ -80,6 +84,13 @@ public partial class MainForm
         if (collapsed) RefreshConstraintLayout();
 
         if (StarterTool.Settings != null) ApplyTimeFormat();
+    }
+
+    protected override void OnDpiChanged(DpiChangedEventArgs e)
+    {
+        base.OnDpiChanged(e);
+
+        if (StarterTool.Settings is { } settings) ApplyZoom(settings.ZoomPercent);
     }
 
     private void RelayoutContextSection()

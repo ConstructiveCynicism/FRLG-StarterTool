@@ -12,6 +12,8 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <AssemblyName>FRLGStarterTool</AssemblyName>
     <ApplicationIcon>Resources\app.ico</ApplicationIcon>
+
+    <ApplicationHighDpiMode>PerMonitorV2</ApplicationHighDpiMode>
   </PropertyGroup>
 
   <PropertyGroup>

@@ -702,7 +702,7 @@ public sealed class TroubleshootPanel : UserControl
             TextFormatFlags.Left | TextFormatFlags.VerticalCenter | TextFormatFlags.NoPadding
             | TextFormatFlags.EndEllipsis | TextFormatFlags.WordBreak);
 
-    private float ScaleFactor => Font.SizeInPoints / DesignerFontPoints;
+    private float ScaleFactor => ZoomLayout.FontPixelFactor(this, DesignerFontPoints);
 
     private const float DesignerFontPoints = 9F;
 }

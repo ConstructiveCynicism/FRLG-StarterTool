@@ -4,6 +4,11 @@ public static class ZoomLayout
 {
     private const int ClearTypeBleed = 2;
 
+    private const float DesignerDpi = 96F;
+
+    public static float FontPixelFactor(Control control, float designerPoints) =>
+        control.Font.SizeInPoints * control.DeviceDpi / (DesignerDpi * designerPoints);
+
     internal readonly record struct FontSpec(FontFamily Family, float Size, FontStyle Style, GraphicsUnit Unit)
     {
         internal static FontSpec Of(Font font) => new(font.FontFamily, font.Size, font.Style, font.Unit);
@@ -56,8 +61,10 @@ public static class ZoomLayout
         var replaced = new List<Font>(baseline.Created);
         baseline.Created.Clear();
 
-        Scale(root, baseline, factor, keepNativeSize);
-        root.Font = Take(baseline, baseline.FormFont, factor);
+        float dpi = root.DeviceDpi;
+
+        Scale(root, baseline, factor, dpi, keepNativeSize);
+        root.Font = Take(baseline, baseline.FormFont, factor, dpi);
 
         foreach (ColumnHeader column in baseline.Columns.Keys)
         {
@@ -67,7 +74,8 @@ public static class ZoomLayout
         foreach (Font font in replaced) font.Dispose();
     }
 
-    private static void Scale(Control parent, Baseline baseline, float factor, Control[] keepNativeSize)
+    private static void Scale(
+        Control parent, Baseline baseline, float factor, float dpi, Control[] keepNativeSize)
     {
         foreach (Control child in parent.Controls)
         {
@@ -75,7 +83,7 @@ public static class ZoomLayout
 
             bool nativeHeight = Array.IndexOf(keepNativeSize, child) >= 0;
 
-            child.Font = Take(baseline, baseline.Fonts[child], factor);
+            child.Font = Take(baseline, baseline.Fonts[child], factor, dpi);
 
             if (child is TextBoxBase text) text.AutoSize = factor == 1F && baseline.AutoSizes[child];
 
@@ -117,13 +125,14 @@ public static class ZoomLayout
                 }
             }
 
-            Scale(child, baseline, factor, keepNativeSize);
+            Scale(child, baseline, factor, dpi, keepNativeSize);
         }
     }
 
-    private static Font Take(Baseline baseline, FontSpec spec, float factor)
+    private static Font Take(Baseline baseline, FontSpec spec, float factor, float dpi)
     {
-        Font scaled = spec.Scaled(factor);
+        Font scaled = spec.Scaled(
+            spec.Unit == GraphicsUnit.Pixel ? factor : factor * DesignerDpi / dpi);
         baseline.Created.Add(scaled);
         return scaled;
     }
