@@ -89,6 +89,9 @@ public partial class MainForm : Form
         TextBoxTrainerId.KeyDown += TextBoxTrainerId_KeyDown;
         TextBoxTrainerId.Enter += (_, _) => BounceTrainerIdCaret();
 
+        TextBoxTrainerId.Enter += (_, _) => _trainerIdFocused = true;
+        TextBoxTrainerId.Leave += (_, _) => _trainerIdFocused = false;
+
         TextBoxTrainerId.TextChanged += (_, _) =>
         {
             if (int.TryParse(TextBoxTrainerId.Text.Trim(), NumberStyles.Integer,
@@ -538,11 +541,13 @@ public partial class MainForm : Form
         {
             case Keys.Decimal:
             case Keys.Escape:
+                if (StarterTool.IsBoundKey(e.KeyCode)) break;
                 TextBoxTrainerId.Clear();
                 e.SuppressKeyPress = true;
                 break;
 
             case Keys.Enter:
+                if (StarterTool.TakeIdleStart(e.KeyCode)) break;
                 RunSearch();
                 e.SuppressKeyPress = true;
                 break;
@@ -1207,17 +1212,19 @@ public partial class MainForm : Form
         switch (e.KeyCode)
         {
             case Keys.Enter:
+                if (StarterTool.TakeIdleStart(e.KeyCode)) break;
                 timer.Arm();
                 e.SuppressKeyPress = true;
                 break;
 
             case Keys.Escape:
+                if (StarterTool.IsBoundKey(e.KeyCode)) break;
                 ResetTrainerId();
                 e.SuppressKeyPress = true;
                 break;
 
             case Keys.Decimal:
-                if (!StarterTool.IsTimerRunning) break;
+                if (!StarterTool.IsTimerRunning || StarterTool.IsBoundKey(e.KeyCode)) break;
                 ResetTrainerId();
                 e.SuppressKeyPress = true;
                 break;

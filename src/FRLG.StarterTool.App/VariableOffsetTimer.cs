@@ -83,6 +83,8 @@ public sealed class VariableOffsetTimer : BaseTimer
         {
             if (e.KeyCode != Keys.Enter) return;
 
+            if (StarterTool.TakeIdleStart(e.KeyCode)) return;
+
             Arm();
             e.SuppressKeyPress = true;
         };

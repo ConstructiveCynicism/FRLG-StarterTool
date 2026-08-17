@@ -5,6 +5,7 @@
 - Stat box can be streamed as a browser capture
 - Hit chances now adjusted for context and OS delay
 - savestate editor (WIP, not ready for use)
+- num row global entry bugfix
 
 ## v1.3.1
 fix + - bindings on flow timer

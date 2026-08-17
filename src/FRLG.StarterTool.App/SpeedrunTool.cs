@@ -257,13 +257,24 @@ public static class StarterTool
                 if (Settings.KeyMethod.IsActivatedByEvent(wParam) && wParam != LastKeyEvent[index]
                     && !IsMasterSwitch(key))
                 {
+                    bool aliased = entryKey != key && entryKey != Keys.None
+                                                   && key is not (>= Keys.D0 and <= Keys.D9);
+
+                    bool claimed = IsBoundKey(key) || (aliased && IsBoundKey(entryKey));
+
+                    bool clearing = entryKey == Keys.Decimal;
+
+                    bool starting = IsIdleStartKey(key);
+
+                    _idleStartPress = starting && Win32.IsForeground(MainFormHandle) ? key : Keys.None;
+
                     bool typing = MainForm.NumberFieldFocused
                                   && ((Win32.IsForeground(MainFormHandle) && MainForm.IsTextEntryKey(key))
-                                      || (IsTimerRunning && MainForm.IsNumberKey(entryKey)));
+                                      || (IsTimerRunning && MainForm.IsNumberKey(entryKey)))
+                                  && !(clearing && claimed)
+                                  && !starting;
 
-                    bool bound = !typing
-                        && (IsBoundKey(key)
-                            || (entryKey != key && entryKey != Keys.None && IsBoundKey(entryKey)));
+                    bool bound = !typing && claimed;
 
                     if (typing)
                     {
@@ -363,7 +374,19 @@ public static class StarterTool
         return !Settings.GlobalHotkeysEnabled && !Win32.IsForeground(MainFormHandle);
     }
 
-    private static bool IsBoundKey(Keys key) =>
+    private static bool IsIdleStartKey(Keys key) => !IsTimerRunning && Settings.Start.IsPressed(key);
+
+    private static volatile Keys _idleStartPress;
+
+    public static bool TakeIdleStart(Keys key)
+    {
+        if (key == Keys.None || _idleStartPress != key) return false;
+
+        _idleStartPress = Keys.None;
+        return true;
+    }
+
+    public static bool IsBoundKey(Keys key) =>
         Settings.Start.IsPressed(key) || Settings.Stop.IsPressed(key)
         || Settings.ToggleLevel.IsPressed(key) || Settings.ExportStats.IsPressed(key)
         || Settings.AddFrame.IsPressed(key) || Settings.SubFrame.IsPressed(key)

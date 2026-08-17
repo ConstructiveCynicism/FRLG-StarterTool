@@ -8,6 +8,10 @@ public partial class MainForm
 
     public static bool NumberFieldFocused => _numberFieldFocused;
 
+    private static volatile bool _trainerIdFocused;
+
+    public static bool TrainerIdFocused => _trainerIdFocused;
+
     private void WatchNumberFields(Control parent)
     {
         foreach (Control control in parent.Controls)
@@ -94,6 +98,8 @@ public partial class MainForm
         >= Keys.NumPad0 and <= Keys.NumPad9 => key,
         Keys.Decimal => key,
         Keys.Return => extended ? Keys.Return : Keys.None,
+
+        >= Keys.D0 and <= Keys.D9 => TrainerIdFocused ? Keys.NumPad0 + (key - Keys.D0) : Keys.None,
 
         Keys.Insert => extended ? Keys.None : Keys.NumPad0,
         Keys.End => extended ? Keys.None : Keys.NumPad1,
