@@ -251,22 +251,19 @@ public static class StarterTool
                 double lagMs = Win32.EventLagMs(kbd.time);
                 eventTime -= lagMs;
 
+                bool extended = (kbd.flags & Win32.LLKHF_EXTENDED) != 0;
+                Keys entryKey = MainForm.TranslateNumpad(key, extended);
+
                 if (Settings.KeyMethod.IsActivatedByEvent(wParam) && wParam != LastKeyEvent[index]
                     && !IsMasterSwitch(key))
                 {
                     bool typing = MainForm.NumberFieldFocused
                                   && ((Win32.IsForeground(MainFormHandle) && MainForm.IsTextEntryKey(key))
-                                      || (IsTimerRunning && MainForm.IsNumberKey(key)));
+                                      || (IsTimerRunning && MainForm.IsNumberKey(entryKey)));
 
                     bool bound = !typing
-                        && (Settings.Start.IsPressed(key) || Settings.Stop.IsPressed(key)
-                            || Settings.ToggleLevel.IsPressed(key) || Settings.ExportStats.IsPressed(key)
-                            || Settings.AddFrame.IsPressed(key) || Settings.SubFrame.IsPressed(key)
-                            || Settings.Multiply2.IsPressed(key) || Settings.Multiply3.IsPressed(key)
-                            || ContextDirection(key) != null || ContextFocus(key) != 0
-                            || Settings.NpcUndo.IsPressed(key) || Settings.NpcComplete.IsPressed(key)
-                            || Settings.NpcMiss.IsPressed(key)
-                            || ListAction(key) != null);
+                        && (IsBoundKey(key)
+                            || (entryKey != key && entryKey != Keys.None && IsBoundKey(entryKey)));
 
                     if (typing)
                     {
@@ -341,7 +338,6 @@ public static class StarterTool
 
                     if (!bound)
                     {
-                        bool extended = (kbd.flags & Win32.LLKHF_EXTENDED) != 0;
                         Post(() => MainForm.HandleGlobalNumpad(key, extended));
                     }
                 }
@@ -366,6 +362,16 @@ public static class StarterTool
 
         return !Settings.GlobalHotkeysEnabled && !Win32.IsForeground(MainFormHandle);
     }
+
+    private static bool IsBoundKey(Keys key) =>
+        Settings.Start.IsPressed(key) || Settings.Stop.IsPressed(key)
+        || Settings.ToggleLevel.IsPressed(key) || Settings.ExportStats.IsPressed(key)
+        || Settings.AddFrame.IsPressed(key) || Settings.SubFrame.IsPressed(key)
+        || Settings.Multiply2.IsPressed(key) || Settings.Multiply3.IsPressed(key)
+        || ContextDirection(key) != null || ContextFocus(key) != 0
+        || Settings.NpcUndo.IsPressed(key) || Settings.NpcComplete.IsPressed(key)
+        || Settings.NpcMiss.IsPressed(key)
+        || ListAction(key) != null;
 
     private static HotkeyAction? ListAction(Keys key)
     {

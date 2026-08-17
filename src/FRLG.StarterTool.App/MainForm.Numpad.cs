@@ -89,7 +89,7 @@ public partial class MainForm
         HandleTrainerIdNumpad(key);
     }
 
-    private static Keys TranslateNumpad(Keys key, bool extended) => key switch
+    public static Keys TranslateNumpad(Keys key, bool extended) => key switch
     {
         >= Keys.NumPad0 and <= Keys.NumPad9 => key,
         Keys.Decimal => key,

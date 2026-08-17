@@ -131,7 +131,7 @@ public partial class MainForm
 
     private void RefreshConstraintLayout()
     {
-        bool collapse = _hideConstraints && !TrainingPanel.Visible;
+        bool collapse = _hideConstraints && !TrainingPanel.Visible && !SavestatePanel.Visible;
         if (collapse == _collapsed) return;
 
         _collapsed = collapse;

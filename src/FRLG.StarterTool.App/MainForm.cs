@@ -68,6 +68,9 @@ public partial class MainForm : Form
         MenuItemTraining.CheckedChanged += (_, _) => ShowTraining(MenuItemTraining.Checked);
         MenuItemContextTracking.CheckedChanged += (_, _) => ShowContextTracking(MenuItemContextTracking.Checked);
         MenuItemTroubleshooter.CheckedChanged += (_, _) => ShowTroubleshooter(MenuItemTroubleshooter.Checked);
+        MenuItemSavestateEditor.CheckedChanged += (_, _) => ShowSavestateEditor(MenuItemSavestateEditor.Checked);
+        SavestatePanel.FilterSource = () => CaptureFilter();
+        SavestatePanel.CloseRequested += (_, _) => MenuItemSavestateEditor.Checked = false;
         StarterTool.Context.Changed += (_, _) => ShowContextSession();
         ButtonContextUndo.Click += (_, _) => StarterTool.Context.Undo();
         ButtonContextClear.Click += (_, _) => StarterTool.Context.Clear();
@@ -187,6 +190,9 @@ public partial class MainForm : Form
             StatBoxPanel.ParseColor(settings.StatBoxFrameColor, StatBoxPanel.DefaultFrameColor);
         TrainingPanel.LoadRounds(settings.TrainingRounds);
 
+        SavestatePanel.LoadFolder = settings.SavestateLoadPath;
+        SavestatePanel.SaveFolder = settings.SavestateSavePath;
+
         ContextPanel.ShowDelayDashes = settings.ShowLabDelayDashes;
         ContextPanel.ShowTips = settings.ShowRunTips;
 
@@ -232,6 +238,8 @@ public partial class MainForm : Form
         settings.StatBoxOutlineColor = StatBoxPanel.ToHex(StatBoxPanel.OutlineColor);
         settings.StatBoxFrameColor = StatBoxPanel.ToHex(StatBoxPanel.FrameColor);
         settings.TrainingRounds = TrainingPanel.SaveRounds();
+        settings.SavestateLoadPath = SavestatePanel.LoadFolder;
+        settings.SavestateSavePath = SavestatePanel.SaveFolder;
         settings.AlwaysOnTop = MenuItemAlwaysOnTop.Checked;
         settings.GlobalHotkeysEnabled = MenuItemGlobalHotkeys.Checked;
         settings.NpcGridVisible = MenuItemContextTracking.Checked;
@@ -259,8 +267,10 @@ public partial class MainForm : Form
 
         if (training && MenuItemTroubleshooter.Checked) MenuItemTroubleshooter.Checked = false;
 
+        if (training && MenuItemSavestateEditor.Checked) MenuItemSavestateEditor.Checked = false;
+
         TrainingPanel.Visible = training;
-        ListViewResults.Visible = !training;
+        ListViewResults.Visible = !training && !SavestatePanel.Visible;
         GroupBoxResults.Text = training ? "Offset Training" : "Found List";
 
         RefreshConstraintLayout();
@@ -269,6 +279,25 @@ public partial class MainForm : Form
         LabelLanding.Text = "";
 
         RefreshContextTracking();
+    }
+
+    private void ShowSavestateEditor(bool showing)
+    {
+        if (showing && MenuItemTraining.Checked) MenuItemTraining.Checked = false;
+        if (showing && MenuItemTroubleshooter.Checked) MenuItemTroubleshooter.Checked = false;
+
+        SavestatePanel.Visible = showing;
+        ListViewResults.Visible = !showing && !TrainingPanel.Visible;
+        GroupBoxResults.Text = showing ? "Savestate Editor" : "Found List";
+
+        RefreshConstraintLayout();
+
+        ClearLanding();
+        LabelLanding.Text = "";
+
+        RefreshContextTracking();
+
+        if (showing) SavestatePanel.Rescan();
     }
 
     private void ShowContextTracking(bool tracking)
@@ -287,7 +316,8 @@ public partial class MainForm : Form
     private void RefreshContextTracking() =>
         StarterTool.Context.Tracking = MenuItemContextTracking.Checked
             && !TrainingPanel.Visible
-            && !TroubleshootPanel.Visible;
+            && !TroubleshootPanel.Visible
+            && !SavestatePanel.Visible;
 
     private void ShowTroubleshooter(bool showing)
     {
@@ -297,6 +327,7 @@ public partial class MainForm : Form
         }
 
         if (showing && MenuItemTraining.Checked) MenuItemTraining.Checked = false;
+        if (showing && MenuItemSavestateEditor.Checked) MenuItemSavestateEditor.Checked = false;
 
         TroubleshootPanel.Visible = showing;
         ContextPanel.Visible = !showing;

@@ -44,6 +44,8 @@ partial class MainForm
 
     public ToolStripMenuItem MenuItemTroubleshooter;
 
+    public ToolStripMenuItem MenuItemSavestateEditor;
+
     public ToolStripMenuItem MenuFilters;
 
     public ThemedGroupBox GroupBoxIvConstraint;
@@ -74,6 +76,8 @@ partial class MainForm
     public ThemedListView ListViewResults;
 
     public TrainingPanel TrainingPanel;
+
+    public SavestatePanel SavestatePanel;
 
     public Label LabelLanding;
 
@@ -185,12 +189,15 @@ partial class MainForm
 
         MenuItemTroubleshooter = new ToolStripMenuItem("NPC Troubleshooter") { CheckOnClick = true };
 
+        MenuItemSavestateEditor = new ToolStripMenuItem("Savestate Editor") { CheckOnClick = true };
+
         var menuExit = new ToolStripMenuItem("Exit");
         menuExit.Click += (_, _) => Close();
         var menuFile = new ToolStripMenuItem("File");
         menuFile.DropDownItems.Add(MenuFilters);
         menuFile.DropDownItems.Add(MenuItemContextTracking);
         menuFile.DropDownItems.Add(MenuItemTroubleshooter);
+        menuFile.DropDownItems.Add(MenuItemSavestateEditor);
         menuFile.DropDownItems.Add(MenuItemHotkeys);
         menuFile.DropDownItems.Add(new ToolStripSeparator());
         menuFile.DropDownItems.Add(menuExit);
@@ -513,6 +520,14 @@ partial class MainForm
             Visible = false
         };
         GroupBoxResults.Controls.Add(TrainingPanel);
+
+        SavestatePanel = new SavestatePanel
+        {
+            Location = ListViewResults.Location,
+            Size = ListViewResults.Size,
+            Visible = false
+        };
+        GroupBoxResults.Controls.Add(SavestatePanel);
 
         LabelLanding = new Label
         {
