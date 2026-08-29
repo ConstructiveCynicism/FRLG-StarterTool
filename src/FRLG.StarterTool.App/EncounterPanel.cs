@@ -358,7 +358,6 @@ public sealed class EncounterPanel : Panel
         _results.Columns.Add("Where", 78, HorizontalAlignment.Left);
         _results.HandleCreated += (_, _) => FitLastColumn();
         _results.SelectedIndexChanged += (_, _) => ShowSelected();
-        _results.DoubleClick += (_, _) => CopyTarget();
         _results.KeyDown += (_, e) =>
         {
             if (e.KeyCode != Keys.Escape || _around is null) return;
@@ -1471,50 +1470,6 @@ public sealed class EncounterPanel : Panel
 
     private static string Delta(int frames) =>
         frames > 0 ? "+" + frames.ToString(CultureInfo.InvariantCulture) : frames.ToString(CultureInfo.InvariantCulture);
-
-    private void CopyTarget()
-    {
-        EncounterMatch match;
-        if (_around is not null)
-        {
-            if (_picked is not { } picked) return;
-            match = picked;
-        }
-        else
-        {
-            if (_results.SelectedIndices.Count == 0 || _results.SelectedIndices[0] >= _matches.Count) return;
-            match = _matches[_results.SelectedIndices[0]];
-        }
-        PressFrame press = match.Press;
-        string block = string.Join('\n', new[]
-        {
-            "protocol " + (press.Protocol == TitleProtocol.Rta ? "rta" : "sweep"),
-            "offset " + press.Offset.ToString(CultureInfo.InvariantCulture),
-            "pass " + press.Pass.ToString(CultureInfo.InvariantCulture),
-            "recorded " + press.Recorded.ToString("X4", CultureInfo.InvariantCulture),
-            "true " + press.Seed.ToString("X4", CultureInfo.InvariantCulture),
-            "wild " + match.WildSeed.ToString("X4", CultureInfo.InvariantCulture),
-            "cycles " + press.Cycles.ToString(CultureInfo.InvariantCulture),
-            "standing " + (press.Measured ? "measured" : "predicted " + press.Band.ToString(CultureInfo.InvariantCulture)),
-            "buttons " + press.Variant.ButtonsKey,
-            "sound " + press.Variant.SoundKey,
-            "intro " + press.Variant.IntroKey,
-            "window " + press.Window.ToString(CultureInfo.InvariantCulture),
-            "game " + press.Variant.GameKey,
-            "combo " + TitleCombos.Of(press).Key,
-        }) + "\n";
-
-        try
-        {
-            Clipboard.SetText(block);
-            _status.Text = $"Copied the hit_e5ae target for offset {press.Offset} - paste it into "
-                + "LuaScriptData/hit_e5ae/hit_target.txt.";
-        }
-        catch (Exception)
-        {
-            _status.Text = "The clipboard is busy - try the double-click again.";
-        }
-    }
 
     private const TextFormatFlags CellFlags = TextFormatFlags.VerticalCenter | TextFormatFlags.EndEllipsis
                                               | TextFormatFlags.NoPrefix;
