@@ -57,6 +57,46 @@ public sealed class ThemedListView : ListView
         g.FillRectangle(background, client.Left, top, client.Right - client.Left, client.Bottom - top);
     }
 
+    protected override void OnKeyDown(KeyEventArgs e)
+    {
+        if (e.Control && !e.Alt && e.KeyCode == Keys.C)
+        {
+            CopySelection();
+            e.SuppressKeyPress = true;
+            e.Handled = true;
+            return;
+        }
+
+        base.OnKeyDown(e);
+    }
+
+    private void CopySelection()
+    {
+        var lines = new List<string>();
+        foreach (int index in SelectedIndices)
+        {
+            if (index < 0 || index >= Items.Count) continue;
+
+            ListViewItem item = Items[index];
+            var cells = new List<string>();
+            foreach (ListViewItem.ListViewSubItem cell in item.SubItems)
+            {
+                cells.Add(cell.Text);
+            }
+            lines.Add(string.Join("	", cells));
+        }
+
+        if (lines.Count == 0) return;
+
+        try
+        {
+            Clipboard.SetText(string.Join(Environment.NewLine, lines));
+        }
+        catch (ExternalException)
+        {
+        }
+    }
+
     protected override void OnHandleCreated(EventArgs e)
     {
         base.OnHandleCreated(e);

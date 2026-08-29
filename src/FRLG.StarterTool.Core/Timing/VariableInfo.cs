@@ -10,6 +10,8 @@ public struct VariableInfo
 
     public int VisualOffset;
 
+    public int DelayOffset;
+
     public uint Interval;
 
     public uint NumBeeps;

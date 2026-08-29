@@ -17,13 +17,24 @@ public static class VariableOffsetCalculator
         string? intervalText,
         string? numBeepsText,
         out VariableInfo info)
-        => Parse(frameText, fpsText, offsetText, "0", intervalText, numBeepsText, out info);
+        => Parse(frameText, fpsText, offsetText, "0", "0", intervalText, numBeepsText, out info);
 
     public static TimerError Parse(
         string? frameText,
         string? fpsText,
         string? offsetText,
         string? visualOffsetText,
+        string? intervalText,
+        string? numBeepsText,
+        out VariableInfo info)
+        => Parse(frameText, fpsText, offsetText, visualOffsetText, "0", intervalText, numBeepsText, out info);
+
+    public static TimerError Parse(
+        string? frameText,
+        string? fpsText,
+        string? offsetText,
+        string? visualOffsetText,
+        string? delayOffsetText,
         string? intervalText,
         string? numBeepsText,
         out VariableInfo info)
@@ -52,6 +63,15 @@ public static class VariableOffsetCalculator
             info.VisualOffset = 0;
         }
         else if (!int.TryParse(visualOffsetText, NumberStyles.Integer | NumberStyles.AllowLeadingSign, CultureInfo.InvariantCulture, out info.VisualOffset))
+        {
+            return TimerError.InvalidOffset;
+        }
+
+        if (string.IsNullOrWhiteSpace(delayOffsetText))
+        {
+            info.DelayOffset = 0;
+        }
+        else if (!int.TryParse(delayOffsetText, NumberStyles.Integer | NumberStyles.AllowLeadingSign, CultureInfo.InvariantCulture, out info.DelayOffset))
         {
             return TimerError.InvalidOffset;
         }
@@ -114,14 +134,14 @@ public static class VariableOffsetCalculator
         => Math.Max(0, (int)info.Frame + info.AdvanceCorrection);
 
     public static double TargetTimeSeconds(in VariableInfo info, double adjustedMs = 0.0)
-        => EffectiveFrame(info) / info.Fps + (info.Offset + adjustedMs) / 1000.0;
+        => EffectiveFrame(info) / info.Fps + (info.Offset + info.DelayOffset + adjustedMs) / 1000.0;
 
     public static double LandingTargetMs(in VariableInfo info, double adjustedMs = 0.0)
-        => (EffectiveFrame(info) - TidLagFrames) / info.Fps * 1000.0 + adjustedMs;
+        => (EffectiveFrame(info) - TidLagFrames) / info.Fps * 1000.0 + adjustedMs + info.DelayOffset;
 
     public static int FrameAtTime(in VariableInfo info, double elapsedMs)
     {
-        double frame = Math.Floor(elapsedMs / 1000.0 * info.Fps + 0.5) + TidLagFrames;
+        double frame = Math.Floor((elapsedMs - info.DelayOffset) / 1000.0 * info.Fps + 0.5) + TidLagFrames;
         return frame < 0.0 ? 0 : (int)frame;
     }
 
@@ -154,7 +174,7 @@ public static class VariableOffsetCalculator
                        - info.AdvanceCorrection);
 
     public static double BeepOffsetMs(in VariableInfo info, double elapsedMs, double adjustedMs = 0.0)
-        => EffectiveFrame(info) / info.Fps * 1000.0 - elapsedMs + info.Offset + adjustedMs;
+        => EffectiveFrame(info) / info.Fps * 1000.0 - elapsedMs + info.Offset + info.DelayOffset + adjustedMs;
 
     public static double[] BeepSchedule(double finalBeepOffsetMs, uint intervalMs, uint numBeeps)
     {
@@ -192,7 +212,7 @@ public static class VariableOffsetCalculator
     }
 
     public static double FlashTargetMs(in VariableInfo info, double adjustedMs = 0.0)
-        => EffectiveFrame(info) / info.Fps * 1000.0 + adjustedMs + info.VisualOffset;
+        => EffectiveFrame(info) / info.Fps * 1000.0 + adjustedMs + info.VisualOffset + info.DelayOffset;
 
     public static double[] FlashSchedule(double finalFlashMs, uint intervalMs, uint numBeeps)
         => BeepSchedule(finalFlashMs, intervalMs, numBeeps);
@@ -242,10 +262,15 @@ public static class VariableOffsetCalculator
     public static bool CanAdjust(double currentTimeSeconds, double currentOffsetSeconds)
         => currentTimeSeconds < currentOffsetSeconds - CueGuardMs / 1000.0;
 
-    public static double LandingWindowMs(in VariableInfo info) => Math.Max(info.Interval, 250.0);
+    public static double LandingWindowMs(in VariableInfo info)
+        => Math.Max(info.Interval, 250.0) + Math.Max(0, info.Offset) + Math.Max(0, info.DelayOffset);
 
     public static double EarlyLandingWindowMs(in VariableInfo info)
-        => Math.Max(info.Interval * ((double)info.NumBeeps - 1.0), LandingWindowMs(info));
+        => Math.Max(
+            info.Interval * ((double)info.NumBeeps - 1.0)
+                + Math.Max(0, -info.Offset)
+                + Math.Max(0, -info.DelayOffset),
+            LandingWindowMs(info));
 
     public static double LandingCloseMs(in VariableInfo info, double adjustedMs = 0.0)
         => LandingTargetMs(info, adjustedMs) + LandingWindowMs(info);

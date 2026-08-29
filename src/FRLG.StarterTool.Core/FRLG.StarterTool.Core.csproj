@@ -9,6 +9,7 @@
   <ItemGroup>
     <EmbeddedResource Include="Data\*.csv" />
     <EmbeddedResource Include="Data\maps.txt" />
+    <EmbeddedResource Include="Data\*.ips" />
   </ItemGroup>
 
 </Project>

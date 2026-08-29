@@ -17,6 +17,8 @@ public sealed class FilterPreset
     public int[] IvNeutral { get; set; } = new int[6];
     public int[] IvPlus { get; set; } = new int[6];
 
+    public List<ConstraintRange> Ranges { get; set; } = new();
+
     public FilterPreset Normalize()
     {
         Name = (Name ?? "").Trim();
@@ -29,8 +31,14 @@ public sealed class FilterPreset
         IvNeutral = SettingsArrays.Resize(IvNeutral, 6);
         IvPlus = SettingsArrays.Resize(IvPlus, 6);
 
+        Ranges = SettingsArrays.Repair(Ranges, Natures, IvMinus, IvNeutral, IvPlus);
+        (Natures, IvMinus, IvNeutral, IvPlus) = SettingsArrays.MirrorPrimary(Primary);
+
         return this;
     }
+
+    public ConstraintRange Primary =>
+        Ranges.FirstOrDefault(range => !range.Backup) ?? Ranges.FirstOrDefault() ?? new ConstraintRange();
 
     public FilterPreset Clone(string? name = null) => new()
     {
@@ -41,7 +49,8 @@ public sealed class FilterPreset
         Natures = (bool[])Natures.Clone(),
         IvMinus = (int[])IvMinus.Clone(),
         IvNeutral = (int[])IvNeutral.Clone(),
-        IvPlus = (int[])IvPlus.Clone()
+        IvPlus = (int[])IvPlus.Clone(),
+        Ranges = Ranges.Select(range => range.Clone()).ToList()
     };
 
     public bool SameFilterAs(FilterPreset other) =>
@@ -49,10 +58,20 @@ public sealed class FilterPreset
         && SpeciesId == other.SpeciesId
         && FrameEquals(MinFrame, other.MinFrame)
         && FrameEquals(MaxFrame, other.MaxFrame)
-        && Natures.AsSpan().SequenceEqual(other.Natures)
-        && IvMinus.AsSpan().SequenceEqual(other.IvMinus)
-        && IvNeutral.AsSpan().SequenceEqual(other.IvNeutral)
-        && IvPlus.AsSpan().SequenceEqual(other.IvPlus);
+        && SameRangesAs(other);
+
+    private bool SameRangesAs(FilterPreset other)
+    {
+        if (Ranges.Count != other.Ranges.Count) return false;
+
+        for (int i = 0; i < Ranges.Count; i++)
+        {
+            if (!NameEquals(Ranges[i].Name, other.Ranges[i].Name)) return false;
+            if (!Ranges[i].SameRangeAs(other.Ranges[i])) return false;
+        }
+
+        return true;
+    }
 
     private static bool FrameEquals(string a, string b) =>
         (a ?? "").Trim().TrimStart('0') == (b ?? "").Trim().TrimStart('0');
@@ -86,6 +105,39 @@ internal static class SettingsArrays
         }
         return resized;
     }
+
+    public static List<ConstraintRange> Repair(
+        List<ConstraintRange>? ranges, bool[] natures, int[] minus, int[] neutral, int[] plus)
+    {
+        var repaired = new List<ConstraintRange>();
+        foreach (ConstraintRange range in ranges ?? new List<ConstraintRange>())
+        {
+            if (range != null) repaired.Add(range.Normalize());
+        }
+
+        if (repaired.Count == 0)
+        {
+            repaired.Add(new ConstraintRange
+            {
+                Name = DefaultRangeName,
+                Color = ConstraintRange.Screen,
+                Natures = (bool[])natures.Clone(),
+                IvMinus = (int[])minus.Clone(),
+                IvNeutral = (int[])neutral.Clone(),
+                IvPlus = (int[])plus.Clone()
+            }.Normalize());
+        }
+
+        return repaired;
+    }
+
+    public const string DefaultRangeName = "Target";
+
+    public static (bool[] Natures, int[] Minus, int[] Neutral, int[] Plus) MirrorPrimary(ConstraintRange primary) =>
+        ((bool[])primary.Natures.Clone(),
+            (int[])primary.IvMinus.Clone(),
+            (int[])primary.IvNeutral.Clone(),
+            (int[])primary.IvPlus.Clone());
 
     public static int[] Resize(int[]? source, int length)
     {

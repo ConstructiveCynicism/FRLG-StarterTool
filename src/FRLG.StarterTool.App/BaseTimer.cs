@@ -8,7 +8,7 @@ public abstract class BaseTimer
 
     public abstract void OnTimerStop();
 
-    public abstract void OnKeyEvent(Keys key);
+    public abstract void OnKeyEvent(InputPress press);
 
     public abstract double TimerCallback(double startTimeMs);
 }

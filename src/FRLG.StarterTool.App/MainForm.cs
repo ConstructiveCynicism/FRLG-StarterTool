@@ -35,6 +35,23 @@ public partial class MainForm : Form
 
     private bool _levelStatRows;
 
+    private bool _allSeedRows;
+
+    private bool _encounterGrid;
+
+    private List<EncounterGridRow> _encounterRows = new();
+
+    private readonly record struct EncounterGridRow(string[] Cells, double? Chance);
+
+    private static readonly (string Text, int Width)[] EncounterLandingColumns =
+        { ("Press", 52), ("Target", 76), ("Landed", 60), ("Off", 62), ("Hit", 60) };
+
+    private (string Text, int Width)[] _designedColumns = Array.Empty<(string, int)>();
+
+    private int _encounterFill = 4;
+
+    private bool _allSeedSearchRunning;
+
     public MainForm()
     {
         InitializeComponent();
@@ -45,10 +62,8 @@ public partial class MainForm : Form
         }
         ComboBoxPokemon.SelectedIndexChanged += (_, _) => UpdateSprite();
         SelectSpecies(1);
-        ButtonNaturesAll.Click += (_, _) => SetAllNatures(true);
-        ButtonNaturesNone.Click += (_, _) => SetAllNatures(false);
+        InitializeRanges();
         ButtonSearch.Click += (_, _) => RunSearch();
-        ButtonClearIvs.Click += (_, _) => ClearIvThresholds();
         ButtonCalculateOdds.Click += (_, _) => CalculateOdds();
         ButtonSearchFrame.Click += (_, _) => SearchTypedFrame();
         ButtonLevelToggle.CheckedChanged += (_, _) =>
@@ -65,12 +80,10 @@ public partial class MainForm : Form
         MenuItemHotkeys.Click += (_, _) => StarterTool.ShowSettings();
         MenuItemAlwaysOnTop.CheckedChanged += (_, _) => RefreshAlwaysOnTop();
         MenuItemGlobalHotkeys.CheckedChanged += (_, _) => RefreshGlobalHotkeys();
-        MenuItemTraining.CheckedChanged += (_, _) => ShowTraining(MenuItemTraining.Checked);
-        MenuItemContextTracking.CheckedChanged += (_, _) => ShowContextTracking(MenuItemContextTracking.Checked);
-        MenuItemTroubleshooter.CheckedChanged += (_, _) => ShowTroubleshooter(MenuItemTroubleshooter.Checked);
-        MenuItemSavestateEditor.CheckedChanged += (_, _) => ShowSavestateEditor(MenuItemSavestateEditor.Checked);
+        InitializeTabs();
+        EncounterPanel.RoutesChanged += (_, _) => RefreshEncounterRoutes(SelectedEncounterRoute);
         SavestatePanel.FilterSource = () => CaptureFilter();
-        SavestatePanel.CloseRequested += (_, _) => MenuItemSavestateEditor.Checked = false;
+        SavestatePanel.CloseRequested += (_, _) => SelectTab(TabKey.Manip);
         StarterTool.Context.Changed += (_, _) => ShowContextSession();
         ButtonContextUndo.Click += (_, _) => StarterTool.Context.Undo();
         ButtonContextClear.Click += (_, _) => StarterTool.Context.Clear();
@@ -82,7 +95,7 @@ public partial class MainForm : Form
         ContextPanel.CueChanged += (_, _) => ShowContextSession();
         ButtonTraining.Click += (_, _) => ToggleTraining();
         TrainingPanel.StateChanged += (_, _) => RefreshTrainingButton();
-        TrainingPanel.CloseRequested += (_, _) => MenuItemTraining.Checked = false;
+        TrainingPanel.CloseRequested += (_, _) => SelectTab(TabKey.Manip);
         InitializeFilters();
 
         TextBoxTrainerId.KeyPress += TextBoxTrainerId_KeyPress;
@@ -112,7 +125,6 @@ public partial class MainForm : Form
         };
 
         var searchInputs = new List<Control> { TextBoxMinFrame, TextBoxMaxFrame, ComboBoxPokemon };
-        searchInputs.AddRange(TextBoxIvThresholds.Cast<TextBox>().Distinct());
 
         foreach (Control input in searchInputs)
         {
@@ -125,6 +137,8 @@ public partial class MainForm : Form
             };
         }
 
+        _designedColumns = ListViewResults.Columns.Cast<ColumnHeader>()
+            .Select(column => (column.Text, column.Width)).ToArray();
         ListViewResults.RetrieveVirtualItem += ListViewResults_RetrieveVirtualItem;
         ListViewResults.SelectedIndexChanged += ListViewResults_SelectedIndexChanged;
         ListViewResults.KeyDown += ListViewResults_KeyDown;
@@ -196,17 +210,33 @@ public partial class MainForm : Form
         SavestatePanel.LoadFolder = settings.SavestateLoadPath;
         SavestatePanel.SaveFolder = settings.SavestateSavePath;
 
+        RomPatchPanel.RomPath = settings.RomPatchRomPath;
+        RomPatchPanel.OutputPath = settings.RomPatchOutputPath;
+
+        EncounterPanel.LoadRoute(settings.EncounterRoute);
+        EncounterPanel.Cycles = settings.EncounterCycles;
+        EncounterPanel.Variant = Core.Encounters.TitleVariant.Parse(settings.EncounterButtons, settings.EncounterSound,
+            settings.EncounterIntro, settings.EncounterTitle, settings.EncounterCombo, settings.EncounterGame);
+        EncounterPanel.SoundAny = settings.EncounterSound == "any";
+        EncounterPanel.IntroAny = settings.EncounterIntro == "any";
+        EncounterPanel.DelayMs = settings.EncounterDelayMs;
+        EncounterPanel.IntroFrame = settings.EncounterIntroFrame;
+        EncounterPanel.IntroWindow = settings.EncounterIntroWindow;
+        EncounterPanel.TitleFrame = settings.EncounterTitleFrame;
+        EncounterPanel.TitleWindow = settings.EncounterTitleWindow;
+        EncounterPanel.SetRoutes(settings.EncounterRoutes, settings.EncounterActiveRoute);
+        RefreshEncounterRoutes(settings.TimerEncounterRoute);
+
         ContextPanel.ShowDelayDashes = settings.ShowLabDelayDashes;
         ContextPanel.ShowTips = settings.ShowRunTips;
 
         ApplyTimeFormat();
 
-        SetHideConstraints(settings.HideConstraints);
+        ApplyTabSettings(settings);
 
         MenuItemAlwaysOnTop.Checked = settings.AlwaysOnTop;
         MenuItemGlobalHotkeys.Checked = settings.GlobalHotkeysEnabled;
-        MenuItemContextTracking.Checked = settings.NpcGridVisible;
-        ShowContextTracking(MenuItemContextTracking.Checked);
+        RefreshContextTracking();
         RefreshGlobalHotkeys();
         RefreshAlwaysOnTop();
 
@@ -219,14 +249,17 @@ public partial class MainForm : Form
 
         Font previous = LabelTimer.Font;
         LabelTimer.Font = FitFont(
-            Font.FontFamily, TimeText.Widest(format), LabelTimer.Width - 4, LabelTimer.Height, 44F);
+            Font.FontFamily, TimeText.Widest(format), LabelTimer.Width - 4, Scaled(ClockFitHeight), 44F);
         previous.Dispose();
 
         if (!StarterTool.IsTimerRunning) LabelTimer.Text = TimeText.Format(0.0, format);
 
-        ListViewResults.Columns[TimeColumnIndex].Width = Scaled(format == TimeFormat.Minutes
-            ? MinutesTimeColumnWidth
-            : SecondsTimeColumnWidth);
+        if (!_allSeedRows && !_encounterGrid)
+        {
+            ListViewResults.Columns[TimeColumnIndex].Width = Scaled(format == TimeFormat.Minutes
+                ? MinutesTimeColumnWidth
+                : SecondsTimeColumnWidth);
+        }
         FitLastColumn();
 
         if (_results.Count > 0) ListViewResults.RedrawItems(0, _results.Count - 1, true);
@@ -243,9 +276,27 @@ public partial class MainForm : Form
         settings.TrainingRounds = TrainingPanel.SaveRounds();
         settings.SavestateLoadPath = SavestatePanel.LoadFolder;
         settings.SavestateSavePath = SavestatePanel.SaveFolder;
+        settings.RomPatchRomPath = RomPatchPanel.RomPath;
+        settings.RomPatchOutputPath = RomPatchPanel.OutputPath;
+        settings.EncounterRoute = EncounterPanel.SaveRoute();
+        settings.EncounterCycles = EncounterPanel.Cycles;
+        settings.EncounterGame = EncounterPanel.Variant.GameKey;
+        settings.EncounterButtons = EncounterPanel.Variant.ButtonsKey;
+        settings.EncounterSound = EncounterPanel.SoundAny ? "any" : EncounterPanel.Variant.SoundKey;
+        settings.EncounterIntro = EncounterPanel.IntroAny ? "any" : EncounterPanel.Variant.IntroKey;
+        settings.EncounterTitle = EncounterPanel.Variant.AnimationKey;
+        settings.EncounterCombo = EncounterPanel.Variant.ComboKey;
+        settings.EncounterDelayMs = EncounterPanel.DelayMs;
+        settings.EncounterIntroFrame = EncounterPanel.IntroFrame;
+        settings.EncounterIntroWindow = EncounterPanel.IntroWindow;
+        settings.EncounterTitleFrame = EncounterPanel.TitleFrame;
+        settings.EncounterTitleWindow = EncounterPanel.TitleWindow;
+        settings.EncounterRoutes = EncounterPanel.Routes;
+        settings.EncounterActiveRoute = EncounterPanel.ActiveRoute;
+        settings.TimerEncounterRoute = SelectedEncounterRoute;
         settings.AlwaysOnTop = MenuItemAlwaysOnTop.Checked;
         settings.GlobalHotkeysEnabled = MenuItemGlobalHotkeys.Checked;
-        settings.NpcGridVisible = MenuItemContextTracking.Checked;
+        CaptureTabSettings(settings);
         settings.SetCurrentFilter(CaptureFilter());
     }
 
@@ -253,110 +304,18 @@ public partial class MainForm : Form
     {
         if (TrainingPanel.IsRunning)
         {
-            MenuItemTraining.Checked = false;
+            TrainingPanel.Cancel();
+            SelectTab(TabKey.Manip);
             return;
         }
 
-        MenuItemTraining.Checked = true;
+        if (!MenuItemViewTraining.Checked) MenuItemViewTraining.Checked = true;
+        SelectTab(TabKey.Training);
         TrainingPanel.StartSession();
     }
 
     private void RefreshTrainingButton()
         => ButtonTraining.Text = TrainingPanel.IsRunning ? "Stop Offset Training" : "Start Offset Training";
-
-    private void ShowTraining(bool training)
-    {
-        if (!training) TrainingPanel.Cancel();
-
-        if (training && MenuItemTroubleshooter.Checked) MenuItemTroubleshooter.Checked = false;
-
-        if (training && MenuItemSavestateEditor.Checked) MenuItemSavestateEditor.Checked = false;
-
-        TrainingPanel.Visible = training;
-        ListViewResults.Visible = !training && !SavestatePanel.Visible;
-        GroupBoxResults.Text = training ? "Offset Training" : "Found List";
-
-        RefreshConstraintLayout();
-
-        ClearLanding();
-        LabelLanding.Text = "";
-
-        RefreshContextTracking();
-    }
-
-    private void ShowSavestateEditor(bool showing)
-    {
-        if (showing && MenuItemTraining.Checked) MenuItemTraining.Checked = false;
-        if (showing && MenuItemTroubleshooter.Checked) MenuItemTroubleshooter.Checked = false;
-
-        SavestatePanel.Visible = showing;
-        ListViewResults.Visible = !showing && !TrainingPanel.Visible;
-        GroupBoxResults.Text = showing ? "Savestate Editor" : "Found List";
-
-        RefreshConstraintLayout();
-
-        ClearLanding();
-        LabelLanding.Text = "";
-
-        RefreshContextTracking();
-
-        if (showing) SavestatePanel.Rescan();
-    }
-
-    private void ShowContextTracking(bool tracking)
-    {
-        if (!tracking && MenuItemTroubleshooter.Checked) MenuItemTroubleshooter.Checked = false;
-
-        RefreshContextTracking();
-
-        GroupBoxContext.Visible = tracking;
-        ClientSize = new Size(
-            ClientSize.Width, tracking ? _trackingClientHeight : _compactClientHeight);
-
-        if (tracking) ShowContextSession();
-    }
-
-    private void RefreshContextTracking() =>
-        StarterTool.Context.Tracking = MenuItemContextTracking.Checked
-            && !TrainingPanel.Visible
-            && !TroubleshootPanel.Visible
-            && !SavestatePanel.Visible;
-
-    private void ShowTroubleshooter(bool showing)
-    {
-        if (showing && !MenuItemContextTracking.Checked)
-        {
-            MenuItemContextTracking.Checked = true;
-        }
-
-        if (showing && MenuItemTraining.Checked) MenuItemTraining.Checked = false;
-        if (showing && MenuItemSavestateEditor.Checked) MenuItemSavestateEditor.Checked = false;
-
-        TroubleshootPanel.Visible = showing;
-        ContextPanel.Visible = !showing;
-
-        GroupBoxContext.Text = showing ? "NPC Troubleshooter" : "Context Tracking";
-
-        foreach (Control button in new Control[]
-                 {
-                     ButtonContextUndo, ButtonContextClear, ButtonContextMiss,
-                     ButtonContextLate, ButtonContextFinished, ButtonContextAnchor
-                 })
-        {
-            if (showing) button.Visible = false;
-        }
-
-        RefreshContextTracking();
-
-        if (showing)
-        {
-            TroubleshootPanel.Reload();
-        }
-        else
-        {
-            ShowContextSession();
-        }
-    }
 
     public bool ReportMovement(Direction direction) => TroubleshootPanel.Append(direction);
 
@@ -366,8 +325,6 @@ public partial class MainForm : Form
 
     private void ShowContextSession()
     {
-        if (TroubleshootPanel.Visible) return;
-
         ContextSession session = StarterTool.Context;
         ContextPanel.SetStatus(session.Summary, session.Report);
 
@@ -437,14 +394,6 @@ public partial class MainForm : Form
 
     public void SampleContextPanel() => ContextPanel.Sample();
 
-    private void ApplyStatPack(int pack, int[] values)
-    {
-        for (int stat = pack == 1 ? 0 : 1; stat < 6 && stat < values.Length; stat++)
-        {
-            TextBoxIvThresholds[pack, stat].Text = values[stat].ToString(CultureInfo.InvariantCulture);
-        }
-    }
-
     private void SelectSpecies(int dexNumber)
     {
         for (int i = 0; i < ComboBoxPokemon.Items.Count; i++)
@@ -463,14 +412,16 @@ public partial class MainForm : Form
     {
         _trainerIdLocked = true;
         _trainerIdCaretClosed = true;
+        TextBoxTrainerId.ReadOnly = true;
 
-        if (ReferenceEquals(ActiveControl, TextBoxTrainerId)) TakeCaret(ListViewResults);
+        if (ReferenceEquals(ActiveControl, TextBoxTrainerId)) HandCaretToResults();
     }
 
     public void UnlockTrainerId()
     {
         _trainerIdLocked = false;
         _trainerIdCaretClosed = false;
+        TextBoxTrainerId.ReadOnly = false;
     }
 
     private bool _trainerIdLocked;
@@ -485,46 +436,30 @@ public partial class MainForm : Form
 
         if (!_trainerIdCaretClosed || ActiveControl != null) return;
 
-        TakeCaret(ListViewResults);
+        HandCaretToResults();
     }
 
     private void BounceTrainerIdCaret()
     {
         if (!_trainerIdCaretClosed) return;
-        if (MouseButtons != MouseButtons.None) return;
+
+        if (!_trainerIdLocked && MouseButtons != MouseButtons.None) return;
         if (!ReferenceEquals(ActiveForm, this)) return;
 
         BeginInvoke(() =>
         {
-            if (ReferenceEquals(ActiveControl, TextBoxTrainerId)) TakeCaret(ListViewResults);
+            if (ReferenceEquals(ActiveControl, TextBoxTrainerId)) HandCaretToResults();
         });
     }
 
     public void FocusTrainerId()
     {
+        SelectTab(TabKey.Manip);
+
         if (!TextBoxTrainerId.CanFocus) return;
 
         TakeCaret(TextBoxTrainerId);
         TextBoxTrainerId.SelectAll();
-    }
-
-    private void SetAllNatures(bool @checked)
-    {
-        foreach (CheckBox box in CheckBoxNatures)
-        {
-            box.Checked = @checked;
-        }
-    }
-
-    private void ClearIvThresholds()
-    {
-        for (int pack = 0; pack < 3; pack++)
-        {
-            for (int stat = 0; stat < 6; stat++)
-            {
-                TextBoxIvThresholds[pack, stat].Text = "0";
-            }
-        }
     }
 
     private void TextBoxTrainerId_KeyPress(object? sender, KeyPressEventArgs e)
@@ -542,6 +477,8 @@ public partial class MainForm : Form
             case Keys.Decimal:
             case Keys.Escape:
                 if (StarterTool.IsBoundKey(e.KeyCode)) break;
+
+                if (_trainerIdLocked) break;
                 TextBoxTrainerId.Clear();
                 e.SuppressKeyPress = true;
                 break;
@@ -556,18 +493,27 @@ public partial class MainForm : Form
 
     private void RunSearch()
     {
-        ClearLanding();
+        if (TrainerIdBoxEmpty && !StarterTool.IsTimerRunning)
+        {
+            RunAllSeedSearch();
+            return;
+        }
 
-        PredictorSearchCriteria criteria = ReadCriteria();
+        ClearLanding();
+        ClearSearchNote();
+
+        List<RangeSearchCriteria> criteria = ReadRangeCriteria();
 
         UseWaitCursor = true;
         try
         {
-            List<PokemonRng> results = PredictorSearch.Search(criteria);
+            List<PokemonRng> results = RangeSearch.Search(criteria);
 
+            ReadFrameRange(out int loggedMin, out int loggedMax);
             ContextSession.Log(string.Format(CultureInfo.InvariantCulture,
-                "search: TID {0}, frames {1}-{2}, {3} results",
-                criteria.Seed, criteria.MinFrame, criteria.MaxFrame, results.Count));
+                "search: TID {0}, frames {1}-{2}, {3} range{4}, {5} results",
+                ReadTrainerId(), loggedMin, loggedMax, criteria.Count, criteria.Count == 1 ? "" : "s",
+                results.Count));
 
             ShowResults(results, 0);
         }
@@ -577,32 +523,59 @@ public partial class MainForm : Form
         }
     }
 
-    private PredictorSearchCriteria ReadCriteria()
+    private void ClearSearchNote()
     {
-        int seedValue = ReadTrainerId();
-        ReadFrameRange(out int minFrame, out int maxFrame);
+        if (LabelLanding.Text.Length > 0) LabelLanding.Text = "";
+    }
 
-        var natures = new bool[Nature.NatureCount];
-        for (int i = 0; i < Nature.NatureCount; i++)
+    private bool TrainerIdBoxEmpty => TextBoxTrainerId.Text.Trim().Length == 0;
+
+    private async void RunAllSeedSearch()
+    {
+        if (_allSeedSearchRunning) return;
+
+        ClearLanding();
+        ClearSearchNote();
+
+        List<RangeSearchCriteria> criteria = ReadRangeCriteria(seedless: true);
+
+        _allSeedSearchRunning = true;
+        ButtonSearch.Enabled = false;
+        UseWaitCursor = true;
+        try
         {
-            natures[i] = CheckBoxNatures[i].Checked;
+            AllSeedSearchResult found = await Task.Run(() => RangeSearch.AllSeeds(criteria));
+
+            ReadFrameRange(out int loggedMin, out int loggedMax);
+            ContextSession.Log(string.Format(CultureInfo.InvariantCulture,
+                "search: all TIDs, frames {0}-{1}, {2} range{3}, {4} results{5}",
+                loggedMin, loggedMax, criteria.Count, criteria.Count == 1 ? "" : "s", found.TotalMatches,
+                found.Truncated ? " (showing " + found.Matches.Count + ")" : ""));
+
+            ShowResults(found.Matches, -1, takeFocus: false, allSeed: true);
+
+            if (found.Truncated)
+            {
+                LabelLanding.Text = string.Format(CultureInfo.InvariantCulture,
+                    "{0} matches across all TIDs - showing the first {1}. Tighten the filter.",
+                    found.TotalMatches, found.Matches.Count);
+            }
         }
-
-        return new PredictorSearchCriteria
+        catch (Exception)
         {
-            Seed = seedValue,
-            MinFrame = minFrame,
-            MaxFrame = maxFrame,
-            Natures = natures,
-            Minus = ReadStatPack(0),
-            Neutral = ReadStatPack(1),
-            Plus = ReadStatPack(2)
-        };
+            LabelLanding.Text = "All-TID search failed.";
+        }
+        finally
+        {
+            UseWaitCursor = false;
+            ButtonSearch.Enabled = true;
+            _allSeedSearchRunning = false;
+        }
     }
 
     private async void CalculateOdds()
     {
-        PredictorSearchCriteria criteria = ReadCriteria();
+        List<RangeSearchCriteria> criteria = ReadRangeCriteria();
 
         if (StarterTool.Settings != null) StarterTool.Settings.TipOddsCalculated = true;
 
@@ -610,7 +583,7 @@ public partial class MainForm : Form
         ButtonCalculateOdds.Text = "Calculating...";
         try
         {
-            double odds = await Task.Run(() => SeedOdds.Calculate(criteria));
+            double odds = await Task.Run(() => RangeSearch.Odds(criteria));
             ButtonCalculateOdds.Text = (odds * 100.0).ToString("0.00", CultureInfo.InvariantCulture) + "%";
         }
         catch (Exception)
@@ -629,6 +602,11 @@ public partial class MainForm : Form
 
         int index = ListViewResults.SelectedIndices[0];
         if (index < 0 || index >= _results.Count) return;
+
+        if (_allSeedRows)
+        {
+            TextBoxTrainerId.Text = _results[index].Seed.ToString(CultureInfo.InvariantCulture);
+        }
 
         SearchAroundFrame(_results[index].Frame);
     }
@@ -761,17 +739,20 @@ public partial class MainForm : Form
     }
 
     private void ShowResults(List<PokemonRng> results, int selectedIndex, bool takeFocus = true,
-        bool levelStats = false)
+        bool levelStats = false, bool allSeed = false)
     {
-        if (MenuItemTraining.Checked) MenuItemTraining.Checked = false;
+        SelectTab(TabKey.Manip);
 
         _resultSpecies = SelectedSpecies;
         _resultFps = StarterTool.VariableOffset?.SelectedFps ?? 60.0;
         _timeShiftFrames = StarterTool.VariableOffset?.PressShiftFrames ?? 0;
         _levelStatRows = levelStats;
-        _results = results;
 
         ListViewResults.VirtualListSize = 0;
+        _results = results;
+
+        ApplyResultColumns(allSeed);
+
         ListViewResults.VirtualListSize = _results.Count;
         FitLastColumn();
         ListViewResults.Refresh();
@@ -779,7 +760,7 @@ public partial class MainForm : Form
         if (takeFocus)
         {
             _trainerIdCaretClosed = true;
-            TakeCaret(ListViewResults);
+            HandCaretToResults();
         }
 
         if (_results.Count == 0)
@@ -800,6 +781,58 @@ public partial class MainForm : Form
         UpdateStatBoxes();
     }
 
+    private void ApplyResultColumns(bool allSeed, (string Text, int Width)[]? encounter = null)
+    {
+        _allSeedRows = allSeed;
+
+        bool wasEncounter = _encounterGrid;
+        _encounterGrid = encounter is not null;
+        if (encounter is not null)
+        {
+            _encounterFill = encounter.Length - 1;
+            for (int i = 0; i < ListViewResults.Columns.Count; i++)
+            {
+                ColumnHeader column = ListViewResults.Columns[i];
+                if (i < encounter.Length)
+                {
+                    column.Text = encounter[i].Text;
+                    column.Width = Scaled(encounter[i].Width);
+                }
+                else
+                {
+                    column.Width = 0;
+                }
+            }
+
+            FitLastColumn();
+            return;
+        }
+
+        if (wasEncounter)
+        {
+            for (int i = TimeColumnIndex + 1; i < ListViewResults.Columns.Count && i < _designedColumns.Length; i++)
+            {
+                ListViewResults.Columns[i].Text = _designedColumns[i].Text;
+                ListViewResults.Columns[i].Width = Scaled(_designedColumns[i].Width);
+            }
+        }
+
+        ColumnHeader lead = ListViewResults.Columns[LeadColumnIndex];
+        ColumnHeader second = ListViewResults.Columns[TimeColumnIndex];
+
+        lead.Text = allSeed ? "TID" : "Frame";
+        lead.Width = Scaled(allSeed ? TidColumnWidth : FrameColumnWidth);
+
+        second.Text = allSeed ? "Frame" : "Time";
+        second.Width = allSeed
+            ? Scaled(FrameColumnWidth)
+            : Scaled(StarterTool.TimeFormat == TimeFormat.Minutes
+                ? MinutesTimeColumnWidth
+                : SecondsTimeColumnWidth);
+
+        FitLastColumn();
+    }
+
     public void RefreshTimeColumn()
     {
         int shift = StarterTool.VariableOffset?.PressShiftFrames ?? 0;
@@ -812,6 +845,17 @@ public partial class MainForm : Form
     private void FitLastColumn()
     {
         const int MinLastColumnWidth = 33;
+
+        if (_encounterGrid)
+        {
+            int taken = 0;
+            for (int i = 0; i < _encounterFill; i++) taken += ListViewResults.Columns[i].Width;
+
+            ColumnHeader shown = ListViewResults.Columns[_encounterFill];
+            int room = ListViewResults.ClientSize.Width - taken;
+            if (room >= Scaled(MinLastColumnWidth) && room != shown.Width) shown.Width = room;
+            return;
+        }
 
         ColumnHeader last = ListViewResults.Columns[ListViewResults.Columns.Count - 1];
         int minLast = Scaled(MinLastColumnWidth);
@@ -837,7 +881,8 @@ public partial class MainForm : Form
     {
         double gradedChance = double.IsNaN(rawChance) ? hitChance : rawChance;
 
-        LabelLanding.ForeColor = gradedChance > 0.5 ? Theme.LandingHitText
+        Label readout = ActiveLandingLabel;
+        readout.ForeColor = gradedChance > 0.5 ? Theme.LandingHitText
             : gradedChance > 0.0 ? Theme.LandingMaybeText
             : Theme.LandingMissText;
 
@@ -845,7 +890,7 @@ public partial class MainForm : Form
             ? $"Likely Frame {named}, Target "
             : "Frame not anchored (no lab box), Target ";
 
-        LabelLanding.Text =
+        readout.Text =
             likely
             + VariableOffsetCalculator.FormatFrameWithAdjustment((uint)Math.Max(targetFrame, 0), adjustmentFrames)
             + $"  ({deltaMs:+0;-0;0}ms)  Hit Chance {FormatChance(hitChance)}"
@@ -901,7 +946,7 @@ public partial class MainForm : Form
             }
         }
 
-        int index = _results.FindIndex(pkm => pkm.Frame == landed);
+        int index = _allSeedRows ? -1 : _results.FindIndex(pkm => pkm.Frame == landed);
 
         bool candidateMissing =
             (_landingAlternate.HasValue && !_results.Exists(pkm => pkm.Frame == _landingAlternate.Value))
@@ -942,8 +987,93 @@ public partial class MainForm : Form
         ClearLanding();
 
         string suffix = CompensationSuffix(compensationMs);
-        LabelLanding.ForeColor = Theme.DimText;
-        LabelLanding.Text = suffix.Length == 0 ? "" : what + suffix;
+        Label readout = ActiveLandingLabel;
+        readout.ForeColor = Theme.DimText;
+        readout.Text = suffix.Length == 0 ? "" : what + suffix;
+    }
+
+    public void ShowEncounterLanding(IReadOnlyList<EncounterLandingRow> rows, string status, double? worstChance)
+    {
+        ClearLanding();
+
+        ListViewResults.VirtualListSize = 0;
+        _results = new List<PokemonRng>();
+        _encounterRows = rows
+            .Select(r => new EncounterGridRow(new[] { r.Press, r.Target, r.Landed, r.Off, r.Hit }, r.Chance))
+            .ToList();
+        ApplyResultColumns(allSeed: false, EncounterLandingColumns);
+        ListViewResults.VirtualListSize = _encounterRows.Count;
+        FitLastColumn();
+        ListViewResults.SelectedIndices.Clear();
+        ListViewResults.Refresh();
+
+        LabelLanding.ForeColor = worstChance is not { } chance ? Theme.DimText
+            : chance > 0.5 ? Theme.LandingHitText
+            : chance > 0.0 ? Theme.LandingMaybeText
+            : Theme.LandingMissText;
+        LabelLanding.Text = status;
+    }
+
+    private void DrawEncounterSubItem(DrawListViewSubItemEventArgs e)
+    {
+        double? chance = e.ItemIndex >= 0 && e.ItemIndex < _encounterRows.Count
+            ? _encounterRows[e.ItemIndex].Chance
+            : null;
+
+        Color back = chance is not { } scored
+                ? e.ItemIndex % 2 == 1 ? Theme.RowAlternate : Theme.RowPrimary
+            : scored > 0.5 ? Theme.LandingHitBack
+            : scored > 0.0 ? Theme.LandingMaybeBack
+            : Theme.LandingMissBack;
+        Color fore = chance != null ? Theme.LandingRowText : ListViewResults.ForeColor;
+
+        using (var brush = new SolidBrush(back))
+        {
+            e.Graphics.FillRectangle(brush, e.Bounds);
+        }
+
+        using (var pen = new Pen(Theme.GridLine))
+        {
+            e.Graphics.DrawLine(pen, e.Bounds.Left, e.Bounds.Bottom - 1, e.Bounds.Right, e.Bounds.Bottom - 1);
+            if (e.ColumnIndex < _encounterFill)
+            {
+                e.Graphics.DrawLine(pen, e.Bounds.Right - 1, e.Bounds.Top, e.Bounds.Right - 1, e.Bounds.Bottom - 1);
+            }
+        }
+
+        TextFormatFlags flags = TextFormatFlags.VerticalCenter | TextFormatFlags.EndEllipsis
+                                | TextFormatFlags.NoPrefix | TextFormatFlags.HorizontalCenter;
+        Rectangle bounds = e.Bounds;
+        bounds.Inflate(-1, 0);
+        bounds.Height -= ThemedListView.RuleClearance;
+        TextRenderer.DrawText(e.Graphics, e.SubItem?.Text ?? "", ListViewResults.Font, bounds, fore, flags);
+    }
+
+    public string SelectedEncounterRoute =>
+        ComboBoxEncounterRoute.SelectedIndex > 0 ? ComboBoxEncounterRoute.SelectedItem as string ?? "" : "";
+
+    public void RefreshEncounterRoutes(string keep)
+    {
+        ComboBoxEncounterRoute.BeginUpdate();
+        try
+        {
+            ComboBoxEncounterRoute.Items.Clear();
+            ComboBoxEncounterRoute.Items.Add("None");
+            int index = 0;
+            foreach (Core.Settings.EncounterRoutePreset route in EncounterPanel.Routes)
+            {
+                ComboBoxEncounterRoute.Items.Add(route.Name);
+                if (Core.Settings.EncounterRoutePreset.NameEquals(route.Name, keep))
+                {
+                    index = ComboBoxEncounterRoute.Items.Count - 1;
+                }
+            }
+            ComboBoxEncounterRoute.SelectedIndex = index;
+        }
+        finally
+        {
+            ComboBoxEncounterRoute.EndUpdate();
+        }
     }
 
     public void ClearLanding()
@@ -954,7 +1084,7 @@ public partial class MainForm : Form
         _landingTarget = null;
         _landingAlternate = null;
         _landingContext.Clear();
-        LabelLanding.Text = "";
+        ActiveLandingLabel.Text = "";
         ListViewResults.Invalidate();
     }
 
@@ -989,22 +1119,30 @@ public partial class MainForm : Form
         }
     }
 
-    private StatPack ReadStatPack(int pack)
-    {
-        var stats = new int[6];
-        for (int stat = 0; stat < 6; stat++)
-        {
-            _ = int.TryParse(TextBoxIvThresholds[pack, stat].Text, NumberStyles.Integer, CultureInfo.InvariantCulture, out stats[stat]);
-            stats[stat] = Math.Clamp(stats[stat], 0, 31);
-        }
-        return new StatPack(stats[0], stats[1], stats[2], stats[3], stats[4], stats[5]);
-    }
-
     private void ListViewResults_RetrieveVirtualItem(object? sender, RetrieveVirtualItemEventArgs e)
     {
+        if (_encounterGrid)
+        {
+            var row = new ListViewItem(string.Empty);
+            if (e.ItemIndex >= 0 && e.ItemIndex < _encounterRows.Count)
+            {
+                string[] cells = _encounterRows[e.ItemIndex].Cells;
+                row.Text = cells[0];
+                for (int cell = 1; cell < cells.Length; cell++) row.SubItems.Add(cells[cell]);
+            }
+            while (row.SubItems.Count < ListViewResults.Columns.Count) row.SubItems.Add(string.Empty);
+            e.Item = row;
+            return;
+        }
+
         if (e.ItemIndex < 0 || e.ItemIndex >= _results.Count)
         {
-            e.Item = new ListViewItem(string.Empty);
+            var blank = new ListViewItem(string.Empty);
+            for (int column = 1; column < ListViewResults.Columns.Count; column++)
+            {
+                blank.SubItems.Add(string.Empty);
+            }
+            e.Item = blank;
             return;
         }
 
@@ -1013,8 +1151,17 @@ public partial class MainForm : Form
         GenderRate rate = _resultSpecies.GenderRate;
         string gender = pkm.IsFemale(rate) ? "F" : rate == GenderRate.Genderless ? "-" : "M";
 
-        var item = new ListViewItem(pkm.Frame.ToString(CultureInfo.InvariantCulture));
-        item.SubItems.Add(FrameTime.Format(pkm.Frame + _timeShiftFrames, _resultFps, StarterTool.TimeFormat));
+        ListViewItem item;
+        if (_allSeedRows)
+        {
+            item = new ListViewItem(pkm.Seed.ToString(CultureInfo.InvariantCulture));
+            item.SubItems.Add(pkm.Frame.ToString(CultureInfo.InvariantCulture));
+        }
+        else
+        {
+            item = new ListViewItem(pkm.Frame.ToString(CultureInfo.InvariantCulture));
+            item.SubItems.Add(FrameTime.Format(pkm.Frame + _timeShiftFrames, _resultFps, StarterTool.TimeFormat));
+        }
         var nature = pkm.Nature ?? new Nature(0);
         item.SubItems.Add(pkm.Nature?.Name ?? "");
         int[] values = new[] { pkm.Hp, pkm.Atk, pkm.Def, pkm.Spa, pkm.Spd, pkm.Spe };
@@ -1055,6 +1202,12 @@ public partial class MainForm : Form
 
     private void ListViewResults_DrawSubItem(object? sender, DrawListViewSubItemEventArgs e)
     {
+        if (_encounterGrid)
+        {
+            DrawEncounterSubItem(e);
+            return;
+        }
+
         bool inRange = e.ItemIndex >= 0 && e.ItemIndex < _results.Count;
         bool marked = inRange && _landingFrame != null && _results[e.ItemIndex].Frame == _landingFrame.Value;
 
@@ -1071,6 +1224,10 @@ public partial class MainForm : Form
 
         bool selected = ListViewResults.SelectedIndices.Contains(e.ItemIndex);
 
+        Color? range = !marked && !alternate && !contextOnly && !target && inRange
+            ? RangeRowColor(_results[e.ItemIndex].RangeIndex)
+            : null;
+
         Color back = marked
                 ? _landingChance > 0.5 ? Theme.LandingHitBack
                 : _landingChance > 0.0 ? Theme.LandingMaybeBack
@@ -1078,11 +1235,12 @@ public partial class MainForm : Form
             : alternate ? Theme.LandingAlternateBack
             : contextOnly ? Theme.LandingContextBack
             : target ? Theme.LandingTargetBack
-            : selected ? Theme.Accent
-            : e.ItemIndex % 2 == 1 ? Theme.RowAlternate
-            : Theme.RowPrimary;
+            : range ?? (e.ItemIndex % 2 == 1 ? Theme.RowAlternate : Theme.RowPrimary);
+
+        if (selected) back = Theme.Selected(back);
+
         Color fore = marked || alternate || contextOnly || target ? Theme.LandingRowText
-            : selected ? Theme.AccentText
+            : range != null ? Theme.RangeRowText(back)
             : ListViewResults.ForeColor;
 
         using (var brush = new SolidBrush(back))
@@ -1106,6 +1264,29 @@ public partial class MainForm : Form
         bounds.Inflate(-1, 0);
         bounds.Height -= ThemedListView.RuleClearance;
         TextRenderer.DrawText(e.Graphics, e.SubItem?.Text ?? "", ListViewResults.Font, bounds, fore, flags);
+
+        DrawSelectionOutline(e, selected);
+    }
+
+    private void DrawSelectionOutline(DrawListViewSubItemEventArgs e, bool selected)
+    {
+        if (!selected) return;
+
+        const int Thickness = 2;
+        Rectangle cell = e.Bounds;
+        using var brush = new SolidBrush(Theme.Accent);
+
+        e.Graphics.FillRectangle(brush, cell.Left, cell.Top, cell.Width, Thickness);
+        e.Graphics.FillRectangle(brush, cell.Left, cell.Bottom - Thickness, cell.Width, Thickness);
+
+        if (e.ColumnIndex == 0)
+        {
+            e.Graphics.FillRectangle(brush, cell.Left, cell.Top, Thickness, cell.Height);
+        }
+        if (e.ColumnIndex == ListViewResults.Columns.Count - 1)
+        {
+            e.Graphics.FillRectangle(brush, cell.Right - Thickness, cell.Top, Thickness, cell.Height);
+        }
     }
 
     private void ListViewResults_SelectedIndexChanged(object? sender, EventArgs e)
@@ -1171,9 +1352,10 @@ public partial class MainForm : Form
 
         if (HasLanding) return;
 
-        LabelLanding.ForeColor = Theme.DimText;
-        LabelLanding.Text = $"Copied frame {pkm.Frame}: nature and IVs, "
-                            + (asRow ? "one row" : "one per line");
+        Label readout = ActiveLandingLabel;
+        readout.ForeColor = Theme.DimText;
+        readout.Text = $"Copied frame {pkm.Frame}: nature and IVs, "
+                       + (asRow ? "one row" : "one per line");
     }
 
     private void UpdateStatBoxes()

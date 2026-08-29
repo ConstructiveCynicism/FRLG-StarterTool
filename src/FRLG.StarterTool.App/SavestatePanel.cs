@@ -8,18 +8,29 @@ namespace FRLG.StarterTool.App;
 
 public sealed class SavestatePanel : Panel
 {
-    private const int PanelWidth = 390;
+    public const int PanelWidth = 594;
+
+    private const int BrowseX = PanelWidth - 62;
 
     private const int RowHeight = 22;
 
+    private const int ListTop = 52;
+
+    private const int ListHeight = 400;
+
+    private const int EditTop = ListTop + ListHeight + 3;
+
+    public const int PanelHeight = EditTop + 146 + RowHeight;
+
     private const int StatColumnX = 50;
-    private const int StatColumnPitch = 50;
-    private const int StatColumnWidth = 48;
+
+    private const int StatColumnPitch = 86;
+    private const int StatColumnWidth = 60;
 
     private const int RowLeaderWidth = 48;
 
-    private const int RowButtonX = 352;
     private const int RowButtonWidth = 38;
+    private const int RowButtonX = PanelWidth - RowButtonWidth;
 
     private const int ModeKeep = 0;
     private const int ModeRandom = 1;
@@ -39,6 +50,7 @@ public sealed class SavestatePanel : Panel
     private readonly Label _evTotal;
     private readonly Label _status;
     private readonly Button _buttonApply;
+    private readonly Button _buttonRescan;
 
     private List<SavestateEntry> _entries = new();
 
@@ -50,10 +62,14 @@ public sealed class SavestatePanel : Panel
 
     private readonly System.Windows.Forms.Timer _rescanDelay;
 
+    private int _scanGeneration;
+
+    private bool _scanning;
+
     public SavestatePanel()
     {
-        _loadBox = MakeBox(64, 0, 262);
-        _saveBox = MakeBox(64, 26, 262);
+        _loadBox = MakeBox(64, 0, BrowseX - 66, numeric: false);
+        _saveBox = MakeBox(64, 26, BrowseX - 66, numeric: false);
         _rescanDelay = new System.Windows.Forms.Timer { Interval = RescanDelayMs };
         _rescanDelay.Tick += (_, _) =>
         {
@@ -67,15 +83,15 @@ public sealed class SavestatePanel : Panel
         };
         _saveBox.TextChanged += (_, _) => Touched();
 
-        var browseLoad = MakeButton("Browse…", 328, 0, 62);
+        var browseLoad = MakeButton("Browse…", BrowseX, 0, 62);
         browseLoad.Click += (_, _) => Browse(_loadBox, "Folder to read GSE states from");
-        var browseSave = MakeButton("Browse…", 328, 26, 62);
+        var browseSave = MakeButton("Browse…", BrowseX, 26, 62);
         browseSave.Click += (_, _) => Browse(_saveBox, "Folder to write edited states to");
 
         _list = new ThemedListView
         {
-            Location = new Point(0, 52),
-            Size = new Size(PanelWidth, 84),
+            Location = new Point(0, ListTop),
+            Size = new Size(PanelWidth, ListHeight),
             View = View.Details,
             FullRowSelect = true,
             MultiSelect = true,
@@ -92,16 +108,16 @@ public sealed class SavestatePanel : Panel
         _list.SelectedIndexChanged += (_, _) => Touched();
         _list.HandleCreated += (_, _) => FitLastColumn();
 
-        Controls.Add(MakeLabel("Nature", 0, 139, 48, ContentAlignment.MiddleLeft));
-        _natureCombo = MakeCombo(50, 139, 142);
+        Controls.Add(MakeLabel("Nature", 0, EditTop, 48, ContentAlignment.MiddleLeft));
+        _natureCombo = MakeCombo(50, EditTop, 240);
         _natureCombo.Items.Add("— keep —");
         _natureCombo.Items.Add("Roll from filter");
         foreach (Nature nature in Nature.GetList()) _natureCombo.Items.Add(nature.Name);
         _natureCombo.SelectedIndex = ModeKeep;
         _natureCombo.SelectedIndexChanged += (_, _) => Touched();
 
-        Controls.Add(MakeLabel("IVs", 200, 139, 28));
-        _ivCombo = MakeCombo(230, 139, 160);
+        Controls.Add(MakeLabel("IVs", 300, EditTop, 28));
+        _ivCombo = MakeCombo(332, EditTop, PanelWidth - 332);
         _ivCombo.Items.Add("— keep —");
         _ivCombo.Items.Add("Roll from filter");
         _ivCombo.Items.Add("Set below");
@@ -110,70 +126,70 @@ public sealed class SavestatePanel : Panel
 
         for (int stat = 0; stat < 6; stat++)
         {
-            Controls.Add(MakeLabel(StatNames[stat], StatColumnX + stat * StatColumnPitch, 165, StatColumnWidth));
+            Controls.Add(MakeLabel(StatNames[stat], StatColumnX + stat * StatColumnPitch, EditTop + 26, StatColumnWidth));
 
-            _ivBoxes[stat] = MakeBox(StatColumnX + stat * StatColumnPitch, 181, StatColumnWidth);
+            _ivBoxes[stat] = MakeBox(StatColumnX + stat * StatColumnPitch, EditTop + 42, StatColumnWidth);
             _ivBoxes[stat].TextAlign = HorizontalAlignment.Center;
             _ivBoxes[stat].Text = "31";
             Controls.Add(_ivBoxes[stat]);
 
-            _evBoxes[stat] = MakeBox(StatColumnX + stat * StatColumnPitch, 207, StatColumnWidth);
+            _evBoxes[stat] = MakeBox(StatColumnX + stat * StatColumnPitch, EditTop + 68, StatColumnWidth);
             _evBoxes[stat].TextAlign = HorizontalAlignment.Center;
             _evBoxes[stat].Text = "0";
             _evBoxes[stat].TextChanged += (_, _) => Touched();
             Controls.Add(_evBoxes[stat]);
         }
 
-        Controls.Add(MakeLabel("IVs", 0, 181, RowLeaderWidth, ContentAlignment.MiddleLeft));
+        Controls.Add(MakeLabel("IVs", 0, EditTop + 42, RowLeaderWidth, ContentAlignment.MiddleLeft));
 
         _evCheck = new ThemedCheckBox
         {
             Text = "EVs",
-            Location = new Point(0, 207),
+            Location = new Point(0, EditTop + 68),
             Size = new Size(RowLeaderWidth, RowHeight),
             AutoSize = false
         };
         _evCheck.CheckedChanged += (_, _) => Touched();
         Controls.Add(_evCheck);
 
-        var ivMax = MakeButton("Max", RowButtonX, 181, RowButtonWidth);
+        var ivMax = MakeButton("Max", RowButtonX, EditTop + 42, RowButtonWidth);
         ivMax.Click += (_, _) => { foreach (TextBox box in _ivBoxes) box.Text = "31"; };
-        var evZero = MakeButton("Zero", RowButtonX, 207, RowButtonWidth);
+        var evZero = MakeButton("Zero", RowButtonX, EditTop + 68, RowButtonWidth);
         evZero.Click += (_, _) => { foreach (TextBox box in _evBoxes) box.Text = "0"; };
 
-        Controls.Add(MakeLabel("Beat", 0, 233, 32, ContentAlignment.MiddleLeft));
-        _evSpecies = MakeCombo(34, 233, 140);
+        Controls.Add(MakeLabel("Beat", 0, EditTop + 94, 32, ContentAlignment.MiddleLeft));
+        _evSpecies = MakeCombo(34, EditTop + 94, 240);
         foreach (PokemonSpecies species in PokemonSpecies.GetList()) _evSpecies.Items.Add(species.Name);
         _evSpecies.SelectedIndex = 0;
 
-        Controls.Add(MakeLabel("×", 176, 233, 14));
-        _evCount = MakeBox(192, 233, 34);
+        Controls.Add(MakeLabel("×", 282, EditTop + 94, 14));
+        _evCount = MakeBox(300, EditTop + 94, 34);
         _evCount.TextAlign = HorizontalAlignment.Center;
         _evCount.Text = "1";
         Controls.Add(_evCount);
 
-        var addEv = MakeButton("Add", 230, 233, 54);
+        var addEv = MakeButton("Add", 342, EditTop + 94, 54);
         addEv.Click += (_, _) => AddEvYield();
 
-        _evTotal = MakeLabel("", 288, 233, 102, ContentAlignment.MiddleRight);
+        _evTotal = MakeLabel("", PanelWidth - 150, EditTop + 94, 150, ContentAlignment.MiddleRight);
         Controls.Add(_evTotal);
 
         _status = new Label
         {
-            Location = new Point(0, 257),
+            Location = new Point(0, EditTop + 118),
             Size = new Size(PanelWidth, 26),
             TextAlign = ContentAlignment.MiddleCenter,
             Tag = Theme.KeepForeColor
         };
         Controls.Add(_status);
 
-        _buttonApply = MakeButton("Apply to Selected", 0, 285, 150);
+        _buttonApply = MakeButton("Apply to Selected", 0, EditTop + 146, 150);
         _buttonApply.Click += (_, _) => ApplyToSelection();
 
-        var rescan = MakeButton("Rescan", 154, 285, 80);
-        rescan.Click += (_, _) => Rescan();
+        _buttonRescan = MakeButton("Rescan", 154, EditTop + 146, 80);
+        _buttonRescan.Click += (_, _) => Rescan();
 
-        var close = MakeButton("Close", PanelWidth - 80, 285, 80);
+        var close = MakeButton("Close", PanelWidth - 80, EditTop + 146, 80);
         close.Click += (_, _) => CloseRequested?.Invoke(this, EventArgs.Empty);
 
         Controls.Add(MakeLabel("Load", 0, 0, 60, ContentAlignment.MiddleLeft));
@@ -190,7 +206,7 @@ public sealed class SavestatePanel : Panel
         Controls.Add(_evSpecies);
         Controls.Add(addEv);
         Controls.Add(_buttonApply);
-        Controls.Add(rescan);
+        Controls.Add(_buttonRescan);
         Controls.Add(close);
 
         UpdateReadouts();
@@ -219,9 +235,51 @@ public sealed class SavestatePanel : Panel
 
         _status.Text = "Scanning…";
         _status.ForeColor = Theme.Text;
-        _status.Update();
 
-        _entries = SavestateEditor.Scan(LoadFolder, SavestateEditor.DefaultTargets);
+        _scanning = true;
+        _buttonRescan.Enabled = false;
+        _buttonApply.Enabled = false;
+
+        string folder = LoadFolder;
+        int generation = ++_scanGeneration;
+
+        SynchronizationContext? ui = SynchronizationContext.Current;
+        if (ui == null)
+        {
+            ShowScan(generation, Sweep(folder));
+            return;
+        }
+
+        ThreadPool.QueueUserWorkItem(_ =>
+        {
+            List<SavestateEntry> entries = Sweep(folder);
+            ui.Post(_ => ShowScan(generation, entries), null);
+        });
+    }
+
+    private static List<SavestateEntry> Sweep(string folder)
+    {
+        try
+        {
+            return SavestateEditor.Scan(folder, SavestateEditor.DefaultTargets);
+        }
+        catch (IOException)
+        {
+            return new List<SavestateEntry>();
+        }
+        catch (UnauthorizedAccessException)
+        {
+            return new List<SavestateEntry>();
+        }
+    }
+
+    private void ShowScan(int generation, List<SavestateEntry> entries)
+    {
+        if (generation != _scanGeneration || IsDisposed) return;
+
+        _scanning = false;
+        _buttonRescan.Enabled = true;
+        _entries = entries;
 
         int shared = SharedPrefix(_entries);
 
@@ -240,6 +298,8 @@ public sealed class SavestatePanel : Panel
         {
             item.Selected = item.Tag is SavestateEntry { Editable: true };
         }
+
+        _sticky = false;
 
         UpdateReadouts();
     }
@@ -308,7 +368,7 @@ public sealed class SavestatePanel : Panel
 
     private MonEdit BuildEdit()
     {
-        FilterPreset filter = (FilterSource?.Invoke() ?? new FilterPreset()).Normalize();
+        ConstraintRange filter = (FilterSource?.Invoke() ?? new FilterPreset()).Normalize().Primary;
 
         var edit = new MonEdit
         {
@@ -382,9 +442,9 @@ public sealed class SavestatePanel : Panel
         int editable = _entries.Count(entry => entry.Editable);
         int selected = _list.SelectedItems.Cast<ListViewItem>()
             .Count(item => item.Tag is SavestateEntry { Editable: true });
-        _buttonApply.Enabled = selected > 0;
+        _buttonApply.Enabled = selected > 0 && !_scanning;
 
-        if (_sticky) return;
+        if (_sticky || _scanning) return;
 
         _status.Text = _entries.Count == 0
             ? "No .gqs states in the load folder."
@@ -487,9 +547,10 @@ public sealed class SavestatePanel : Panel
             TextAlign = align
         };
 
-    private static TextBox MakeBox(int x, int y, int width) =>
+    private static TextBox MakeBox(int x, int y, int width, bool numeric = true) =>
         new ThemedTextBox
         {
+            Numeric = numeric,
             AutoSize = false,
             Location = new Point(x, y),
             Size = new Size(width, RowHeight)

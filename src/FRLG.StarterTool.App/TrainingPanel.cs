@@ -13,7 +13,9 @@ public sealed class TrainingPanel : Panel
     private readonly TextBox _roundsBox;
     private const int RowHeight = 23;
 
-    private const int PanelWidth = 390;
+    public const int PanelWidth = 390;
+
+    public const int PanelHeight = 306;
 
     private readonly Button _buttonRun;
 
@@ -40,6 +42,7 @@ public sealed class TrainingPanel : Panel
     {
         _roundsBox = new ThemedTextBox
         {
+            Numeric = true,
             AutoSize = false,
             Location = new Point(50, 0),
             Size = new Size(40, RowHeight),
@@ -156,7 +159,7 @@ public sealed class TrainingPanel : Panel
         Controls.Add(_buttonApply);
         Controls.Add(_hint);
 
-        BackColorChanged += (_, _) => RefreshRowColours();
+        BackColorChanged += (_, _) => RefreshRowcolors();
 
         UpdateReadouts(complete: false);
     }
@@ -424,7 +427,7 @@ public sealed class TrainingPanel : Panel
         if (fill >= 60 && fill != last.Width) last.Width = fill;
     }
 
-    private void RefreshRowColours()
+    private void RefreshRowcolors()
     {
         foreach (ListViewItem item in _list.Items)
         {

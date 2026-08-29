@@ -1,6 +1,7 @@
 using System.Drawing.Drawing2D;
 using System.Drawing.Text;
 using System.Globalization;
+using FRLG.StarterTool.Core.Settings;
 
 namespace FRLG.StarterTool.App;
 
@@ -14,6 +15,22 @@ public sealed class StatBoxPanel : Panel
     internal static int FrameAt(float scale) => Math.Max(1, (int)Math.Round(FrameThickness * scale));
 
     private const int StripTop = 48;
+
+    public const int SideBoxWidth = BoxWidth + SideStripWidth;
+
+    public const int SideBoxHeight = StripTop + FrameThickness;
+
+    internal const int SideStripWidth = 108;
+
+    private const int SideTopBaseline = CaptionBaseline + (SideBoxHeight - StripTop) / 2;
+
+    private const int SideBottomBaseline = ValueBaseline + (SideBoxHeight - StripTop) / 2;
+
+    public static int WidthOf(StatStripSide side) =>
+        side == StatStripSide.Bottom ? BoxWidth : SideBoxWidth;
+
+    public static int HeightOf(StatStripSide side) =>
+        side == StatStripSide.Bottom ? BoxHeight : SideBoxHeight;
 
     private const int CaptionBaseline = 20;
     private const int ValueBaseline = 38;
@@ -89,7 +106,8 @@ public sealed class StatBoxPanel : Panel
 
     internal const string FontFamilyName = "Microsoft Sans Serif";
 
-    internal static float ScaleOf(int height) => height / (float)BoxHeight;
+    internal static float ScaleOf(int height, StatStripSide side = StatStripSide.Bottom) =>
+        height / (float)HeightOf(side);
 
     private int[] _values = new int[6];
     private string _nature = "";
@@ -144,47 +162,57 @@ public sealed class StatBoxPanel : Panel
     }
 
     public static void Draw(
-        Graphics g, in StatBoxContent content, int width, int height, in StatBoxPalette palette)
+        Graphics g, in StatBoxContent content, int width, int height, in StatBoxPalette palette,
+        StatStripSide side = StatStripSide.Bottom)
     {
         g.SmoothingMode = SmoothingMode.AntiAlias;
         g.TextRenderingHint = TextRenderingHint.AntiAlias;
 
-        DrawFrame(g, width, height, palette);
+        bool beside = side != StatStripSide.Bottom;
+
+        DrawFrame(g, width, height, palette, beside ? null : StripTop, side);
 
         using var family = new FontFamily(FontFamilyName);
 
-        float scale = ScaleOf(height);
+        float scale = ScaleOf(height, side);
         int frame = FrameAt(scale);
-        int interior = width - 2 * frame;
+        float strip = beside ? SideStripWidth * scale : 0;
+        float left = frame + (side == StatStripSide.Left ? strip : 0);
+        float interior = width - 2 * frame - strip;
+        float captionBaseline = (beside ? SideTopBaseline : CaptionBaseline) * scale;
+        float valueBaseline = (beside ? SideBottomBaseline : ValueBaseline) * scale;
         int[] values = content.Values;
         float stroke = OutlineThickness * scale;
         for (int stat = 0; stat < 6; stat++)
         {
-            float centre = frame + interior * (2 * stat + 1) / 12f;
-            DrawText(g, StatCaptions[stat], family, FontSize * scale, centre, CaptionBaseline * scale,
+            float centre = left + interior * (2 * stat + 1) / 12f;
+            DrawText(g, StatCaptions[stat], family, FontSize * scale, centre, captionBaseline,
                 palette.Label, palette.Outline, stroke, StringAlignment.Center);
             DrawText(
                 g,
                 (stat < values.Length ? values[stat] : 0).ToString(CultureInfo.InvariantCulture),
-                family, FontSize * scale, centre, ValueBaseline * scale, palette.Value, palette.Outline,
+                family, FontSize * scale, centre, valueBaseline, palette.Value, palette.Outline,
                 stroke, StringAlignment.Center);
         }
 
-        DrawStrip(g, family, content, width, height, palette);
+        if (beside) DrawSideStrip(g, family, content, width, height, palette, side);
+        else DrawStrip(g, family, content, width, height, palette);
     }
 
-    public static Bitmap Render(in StatBoxContent content, int scale, in StatBoxPalette palette)
+    public static Bitmap Render(
+        in StatBoxContent content, int scale, in StatBoxPalette palette,
+        StatStripSide side = StatStripSide.Bottom)
     {
         scale = Math.Clamp(scale, MinRenderScale, MaxRenderScale);
-        int width = BoxWidth * scale;
-        int height = BoxHeight * scale;
+        int width = WidthOf(side) * scale;
+        int height = HeightOf(side) * scale;
 
         var bitmap = new Bitmap(width, height, System.Drawing.Imaging.PixelFormat.Format32bppArgb);
         try
         {
             using Graphics g = Graphics.FromImage(bitmap);
             g.Clear(Color.Transparent);
-            Draw(g, content, width, height, palette);
+            Draw(g, content, width, height, palette, side);
         }
         catch (Exception)
         {
@@ -200,7 +228,8 @@ public sealed class StatBoxPanel : Panel
     public const int MaxRenderScale = 8;
 
     internal static void DrawFrame(
-        Graphics g, int width, int height, in StatBoxPalette palette, int? divider = StripTop)
+        Graphics g, int width, int height, in StatBoxPalette palette, int? divider = StripTop,
+        StatStripSide side = StatStripSide.Bottom)
     {
         var pixels = g.SmoothingMode;
         var blending = g.CompositingMode;
@@ -208,7 +237,7 @@ public sealed class StatBoxPanel : Panel
 
         g.CompositingMode = CompositingMode.SourceCopy;
 
-        float scale = ScaleOf(height);
+        float scale = ScaleOf(height, side);
         using (var border = new SolidBrush(palette.Frame))
         {
             g.FillRectangle(border, 0, 0, width, height);
@@ -273,6 +302,43 @@ public sealed class StatBoxPanel : Panel
 
         DrawText(
             g, content.Nature, family, size, natureCaptionRight + gap, baseline, palette.Value,
+            palette.Outline, stroke, StringAlignment.Near);
+    }
+
+    private static void DrawSideStrip(
+        Graphics g, FontFamily family, in StatBoxContent content, int width, int height,
+        in StatBoxPalette palette, StatStripSide side)
+    {
+        float scale = ScaleOf(height, side);
+        float size = StripFontSize * scale;
+        float stroke = OutlineThickness * scale;
+        float gap = CellGap * scale;
+        int frame = FrameAt(scale);
+        float x = (side == StatStripSide.Left ? frame : width - frame - SideStripWidth * scale)
+                  + CellInset * scale;
+
+        float captions = Measure(g, family, "NATURE", size, stroke);
+        if (content.TrailingCaption is { Length: > 0 })
+        {
+            captions = Math.Max(captions, Measure(g, family, content.TrailingCaption, size, stroke));
+        }
+
+        float valueX = x + captions + gap;
+
+        DrawText(
+            g, "NATURE", family, size, x, SideTopBaseline * scale, palette.Label, palette.Outline,
+            stroke, StringAlignment.Near);
+        DrawText(
+            g, content.Nature, family, size, valueX, SideTopBaseline * scale, palette.Value,
+            palette.Outline, stroke, StringAlignment.Near);
+
+        if (content.TrailingCaption is not { Length: > 0 }) return;
+
+        DrawText(
+            g, content.TrailingCaption, family, size, x, SideBottomBaseline * scale, palette.Label,
+            palette.Outline, stroke, StringAlignment.Near);
+        DrawText(
+            g, content.TrailingValue, family, size, valueX, SideBottomBaseline * scale, palette.Value,
             palette.Outline, stroke, StringAlignment.Near);
     }
 

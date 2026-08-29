@@ -77,7 +77,7 @@ public static class RunTip
 
         if (facts.DefaultWindowSize)
         {
-            tips.Add("Window too big? Try adjusting the zoom or hiding constraints.");
+            tips.Add("Window too big? Try a smaller zoom.");
         }
 
         if (!facts.OddsCalculated)

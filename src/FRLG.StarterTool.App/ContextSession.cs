@@ -655,7 +655,7 @@ public sealed class ContextSession
 
             CuedLabPress = settings.NpcCuedLabPress,
             ContextWindowMs = settings.NpcContextWindowMs,
-            DefaultWindowSize = settings.ZoomPercent == 100 && !settings.HideConstraints,
+            DefaultWindowSize = settings.ZoomPercent == 100,
             DefaultStatBoxColors = settings.StatBoxColorsAreDefault,
             OffsetsShared = timer?.OffsetsShared ?? false,
             MissStreak = streak,

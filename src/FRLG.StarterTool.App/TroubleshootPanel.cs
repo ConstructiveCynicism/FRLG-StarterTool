@@ -55,7 +55,7 @@ public sealed class TroubleshootPanel : UserControl
     private int _npc;
 
     private readonly ThemedComboBox _runs = new();
-    private readonly ThemedTextBox _frameHit = new();
+    private readonly ThemedTextBox _frameHit = new() { Numeric = true };
     private readonly Label _runLabel = new();
     private readonly Label _hitLabel = new();
     private readonly ThemedButton _reload = new();
@@ -220,12 +220,13 @@ public sealed class TroubleshootPanel : UserControl
     private static Direction? Bound(Keys key)
     {
         AppSettings? settings = StarterTool.Settings;
-        if (settings == null) return null;
+        if (settings == null || key == Keys.None) return null;
 
-        if (settings.NpcUp.IsPressed(key)) return Direction.North;
-        if (settings.NpcDown.IsPressed(key)) return Direction.South;
-        if (settings.NpcLeft.IsPressed(key)) return Direction.West;
-        if (settings.NpcRight.IsPressed(key)) return Direction.East;
+        InputPress press = InputPress.Capture(InputCode.Key((int)key), settings);
+        if (settings.NpcUp.IsPressed(press)) return Direction.North;
+        if (settings.NpcDown.IsPressed(press)) return Direction.South;
+        if (settings.NpcLeft.IsPressed(press)) return Direction.West;
+        if (settings.NpcRight.IsPressed(press)) return Direction.East;
 
         return null;
     }

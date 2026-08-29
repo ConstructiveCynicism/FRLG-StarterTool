@@ -9,6 +9,7 @@ public class PokemonMethod1 : PokemonRng
     public PokemonMethod1(Seed seed, int frame)
     {
         Frame = frame;
+        Seed = seed.Value;
 
         var rng1 = new Gen3Rng(seed);
         var rng2 = new Gen3Rng(seed);

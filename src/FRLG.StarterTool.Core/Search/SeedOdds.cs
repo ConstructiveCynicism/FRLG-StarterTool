@@ -32,13 +32,48 @@ public static class SeedOdds
         return (double)matches / SeedCount;
     }
 
+    public static double CalculateAny(
+        IReadOnlyList<PredictorSearchCriteria> filters, CancellationToken cancellationToken = default)
+    {
+        if (filters.Count == 0) return 0.0;
+        if (filters.Count == 1) return Calculate(filters[0], cancellationToken);
+
+        var allowed = new bool[filters.Count][];
+        var thresholds = new int[filters.Count][];
+        var minFrames = new int[filters.Count];
+        var maxFrames = new int[filters.Count];
+        for (int i = 0; i < filters.Count; i++)
+        {
+            BuildTables(filters[i], out allowed[i], out thresholds[i]);
+            minFrames[i] = Math.Max(0, filters[i].MinFrame);
+            maxFrames[i] = filters[i].MaxFrame;
+        }
+
+        int matches = 0;
+        var options = new ParallelOptions { CancellationToken = cancellationToken };
+        Parallel.For(0, SeedCount, options, () => 0, (seed, _, local) =>
+        {
+            for (int i = 0; i < filters.Count; i++)
+            {
+                if (maxFrames[i] < minFrames[i]) continue;
+                if (!HasMatch(seed, minFrames[i], maxFrames[i], allowed[i], thresholds[i])) continue;
+
+                local++;
+                break;
+            }
+            return local;
+        }, local => Interlocked.Add(ref matches, local));
+
+        return (double)matches / SeedCount;
+    }
+
     public static bool HasMatch(int seed, PredictorSearchCriteria criteria)
     {
         BuildTables(criteria, out bool[] allowed, out int[] thresholds);
         return HasMatch(seed, Math.Max(0, criteria.MinFrame), criteria.MaxFrame, allowed, thresholds);
     }
 
-    private static void BuildTables(PredictorSearchCriteria criteria, out bool[] allowed, out int[] thresholds)
+    internal static void BuildTables(PredictorSearchCriteria criteria, out bool[] allowed, out int[] thresholds)
     {
         allowed = new bool[Nature.NatureCount];
         thresholds = new int[Nature.NatureCount * 6];

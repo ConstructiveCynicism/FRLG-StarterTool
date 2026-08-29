@@ -37,6 +37,23 @@ public sealed class BeepPlayer : IDisposable
     private string _sound = BeepSounds.Default;
     private short[]? _samples;
 
+    private double _writtenAtMs = double.NaN;
+
+    public double LastWriteLagMs { get; private set; } = double.NaN;
+
+    public double? StartLatencyMs()
+    {
+        lock (_lock)
+        {
+            if (!_prepared || _bufferLength <= 0 || double.IsNaN(_writtenAtMs)) return null;
+
+            int position = PositionBytes();
+            if (position <= 0 || position >= _bufferLength) return null;
+
+            return Win32.GetTime() - _writtenAtMs - BytesToMs(position);
+        }
+    }
+
     public BeepPlayer()
     {
         RenderBeep();
@@ -111,7 +128,8 @@ public sealed class BeepPlayer : IDisposable
         int length = (int)Math.Ceiling(maxOffset / 1000.0 * SampleRate) * BytesPerFrame + _beep.Length;
         var pcm = new byte[length];
 
-        _lastBeepStartMs = Win32.GetTime() + maxOffset;
+        double baseMs = Win32.GetTime();
+        _lastBeepStartMs = baseMs + maxOffset;
 
         var starts = new List<int>(offsetsMs.Count);
         var protectedStarts = new List<int>(protectedCount);
@@ -125,6 +143,8 @@ public sealed class BeepPlayer : IDisposable
         }
 
         Queue(pcm, starts, protectedStarts);
+
+        LastWriteLagMs = Win32.GetTime() - baseMs;
     }
 
     private void Queue(byte[] pcm, List<int> starts, List<int> protectedStarts)
@@ -166,7 +186,10 @@ public sealed class BeepPlayer : IDisposable
             if (waveOutWrite(_waveOut, _header, (uint)Marshal.SizeOf<WAVEHDR>()) != MMSYSERR_NOERROR)
             {
                 ReleaseBuffer();
+                return;
             }
+
+            _writtenAtMs = Win32.GetTime();
         }
     }
 

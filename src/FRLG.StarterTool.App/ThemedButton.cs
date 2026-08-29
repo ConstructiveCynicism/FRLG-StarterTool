@@ -10,6 +10,8 @@ public sealed class ThemedButton : Button
 
     public string? Glyph { get; set; }
 
+    public const string CrossGlyph = "×";
+
     public Color? GlyphColor { get; set; }
 
     protected override void OnMouseEnter(EventArgs e)
@@ -72,7 +74,32 @@ public sealed class ThemedButton : Button
 
         if (string.IsNullOrEmpty(Glyph)) return;
 
-        DrawGlyph(e.Graphics, Glyph);
+        if (Glyph == CrossGlyph) DrawCross(e.Graphics);
+        else DrawGlyph(e.Graphics, Glyph);
+    }
+
+    private void DrawCross(Graphics g)
+    {
+        Color colour = GlyphColor
+            ?? (Enabled ? ForeColor : Theme.Dark ? Theme.DimText : SystemColors.GrayText);
+
+        float arm = Math.Max(3f, Font.Height * 0.26f);
+        float thickness = Math.Max(1.4f, arm * 0.34f);
+        float cx = (ClientRectangle.Width - 1) / 2f;
+        float cy = (ClientRectangle.Height - 1) / 2f;
+
+        var previous = g.SmoothingMode;
+        g.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.AntiAlias;
+        using (var pen = new Pen(colour, thickness)
+        {
+            StartCap = System.Drawing.Drawing2D.LineCap.Round,
+            EndCap = System.Drawing.Drawing2D.LineCap.Round,
+        })
+        {
+            g.DrawLine(pen, cx - arm, cy - arm, cx + arm, cy + arm);
+            g.DrawLine(pen, cx + arm, cy - arm, cx - arm, cy + arm);
+        }
+        g.SmoothingMode = previous;
     }
 
     private void DrawGlyph(Graphics g, string glyph)

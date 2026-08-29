@@ -50,6 +50,9 @@ public static class Theme
 
     public static Color NpcTileBlocked => Dark ? Color.FromArgb(0x1A, 0x1D, 0x1F) : Color.FromArgb(0x8E, 0x99, 0x94);
 
+    public static Color NpcRowFocus =>
+        Dark ? Color.FromArgb(0x1A, 0x1D, 0x1F) : Color.FromArgb(0xCF, 0xD9, 0xD5);
+
     public static Color NpcStepArrow => Color.FromArgb(0xE8, 0xB1, 0x2E);
 
     public static Color LandingHitBack => Dark ? Color.FromArgb(0x2E, 0x7D, 0x32) : Color.FromArgb(0x76, 0xD1, 0x76);
@@ -63,6 +66,44 @@ public static class Theme
     public static Color LandingContextBack => Dark ? Color.FromArgb(0x35, 0x2F, 0x1B) : Color.FromArgb(0xFB, 0xF6, 0xE4);
 
     public static Color LandingTargetBack => Dark ? Color.FromArgb(0x1B, 0x3C, 0x6E) : Color.FromArgb(0xB4, 0xCC, 0xEC);
+
+    private static readonly Color[] RangeColors =
+    {
+        Color.FromArgb(0x6B, 0x3F, 0x8C),
+        Color.FromArgb(0x7A, 0x2F, 0x6B),
+        Color.FromArgb(0x2C, 0x7A, 0x8C),
+        Color.FromArgb(0x4A, 0x4A, 0x55),
+        Color.FromArgb(0x5F, 0x2F, 0x7A),
+        Color.FromArgb(0x9C, 0x4A, 0x78),
+        Color.FromArgb(0x1F, 0x6E, 0x6E),
+        Color.FromArgb(0x8C, 0x5F, 0xA8)
+    };
+
+    public static Color RangeColor(int index) =>
+        RangeColors[((index % RangeColors.Length) + RangeColors.Length) % RangeColors.Length];
+
+    public static int[] RangeColorValues()
+    {
+        var values = new int[RangeColors.Length];
+        for (int i = 0; i < RangeColors.Length; i++)
+        {
+            Color colour = RangeColors[i];
+            values[i] = colour.R | (colour.G << 8) | (colour.B << 16);
+        }
+        return values;
+    }
+
+    public static Color RangeRowText(Color background) =>
+        background.R * 0.299 + background.G * 0.587 + background.B * 0.114 > 150 ? Color.Black : Color.White;
+
+    public static Color Selected(Color background) => Dark
+        ? Blend(background, Color.White, 0.18)
+        : Blend(background, Color.Black, 0.10);
+
+    private static Color Blend(Color from, Color to, double amount) => Color.FromArgb(
+        from.R + (int)Math.Round((to.R - from.R) * amount),
+        from.G + (int)Math.Round((to.G - from.G) * amount),
+        from.B + (int)Math.Round((to.B - from.B) * amount));
 
     public static Color LandingRowText => Dark ? Color.White : Color.Black;
 
@@ -119,6 +160,12 @@ public static class Theme
         {
             StyleMenuItem(item, background);
         }
+    }
+
+    public static void ApplyTo(Control control)
+    {
+        if (Style(control)) ApplyToChildren(control);
+        control.Invalidate(true);
     }
 
     private static void ApplyToChildren(Control parent)
@@ -198,6 +245,13 @@ public static class Theme
                 (combo as ThemedComboBox)?.RefreshDrawMode();
                 return false;
 
+            case ListBox listBox:
+                listBox.BackColor = ListBack;
+                listBox.ForeColor = Text;
+                listBox.BorderStyle = BorderStyle.FixedSingle;
+                StyleScrollBars(listBox);
+                return false;
+
             case ListView list:
                 list.BackColor = ListBack;
                 list.ForeColor = Text;
@@ -220,9 +274,19 @@ public static class Theme
                 else if (label.Tag as string != KeepForeColor) label.ForeColor = Text;
                 return false;
 
+            case ThemedTabStrip:
+                control.BackColor = Window;
+                control.ForeColor = Text;
+                return false;
+
+            case ScrollBar:
+                StyleScrollBars(control);
+                return false;
+
             case TableLayoutPanel or Panel:
                 if (control.Tag as string != KeepBackColor) control.BackColor = Window;
                 control.ForeColor = Text;
+                if (control is ScrollableControl { AutoScroll: true }) StyleScrollBars(control);
                 return true;
 
             default:
@@ -314,6 +378,33 @@ public static class Theme
         {
             e.ArrowColor = e.Item is { Enabled: false } ? DimText : Text;
             base.OnRenderArrow(e);
+        }
+
+        protected override void OnRenderItemCheck(ToolStripItemImageRenderEventArgs e)
+        {
+            Rectangle rect = e.ImageRectangle;
+            if (rect.Width <= 0 || rect.Height <= 0)
+                return;
+
+            using (var plate = new SolidBrush(Accent))
+                e.Graphics.FillRectangle(plate, rect);
+
+            int inset = Math.Max(2, rect.Width / 4);
+            Rectangle mark = Rectangle.Inflate(rect, -inset, -inset);
+            var left = new PointF(mark.Left, mark.Top + mark.Height * 0.55f);
+            var bottom = new PointF(mark.Left + mark.Width * 0.38f, mark.Bottom);
+            var right = new PointF(mark.Right, mark.Top);
+
+            System.Drawing.Drawing2D.SmoothingMode saved = e.Graphics.SmoothingMode;
+            e.Graphics.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.AntiAlias;
+            using (var pen = new Pen(Text, Math.Max(1.6f, rect.Width / 8f))
+            {
+                StartCap = System.Drawing.Drawing2D.LineCap.Round,
+                EndCap = System.Drawing.Drawing2D.LineCap.Round,
+                LineJoin = System.Drawing.Drawing2D.LineJoin.Round,
+            })
+                e.Graphics.DrawLines(pen, new[] { left, bottom, right });
+            e.Graphics.SmoothingMode = saved;
         }
 
         private sealed class ThemeColorTable : ProfessionalColorTable

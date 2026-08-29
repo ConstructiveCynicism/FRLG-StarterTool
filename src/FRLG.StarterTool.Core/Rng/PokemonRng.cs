@@ -5,6 +5,11 @@ namespace FRLG.StarterTool.Core.Rng;
 public class PokemonRng
 {
     public int Frame;
+
+    public int Seed;
+
+    public int RangeIndex = -1;
+
     public long Pid;
     public Nature? Nature;
     public int Hp;

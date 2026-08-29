@@ -20,28 +20,54 @@ public sealed class SettingsForm : Form
 
     private const int VolumeBarWidth = 150;
 
+    private const int BindButtonWidth = 226;
+
+    private const int KeyButtonWidth = 110;
+
     private static readonly string[] Captions =
     {
         "Trigger on",
-        "Context window (ms)",
-        "Cued press (frames)",
-        "Cue window (ms)",
-        "Beep sound",
+        "Context Window (ms)",
+        "Cue Delay",
+        "Cue Context (ms)",
+        "Beep Sound",
         "Volume",
-        "Clipboard format",
-        "Time format",
+        "Clipboard Format",
+        "Time Format",
+        "Nature and Frame",
         "Port",
-        "Card seconds",
-        "Stat box labels",
-        "Stat box text",
-        "Stat box background",
-        "Stat box outline",
-        "Stat box frame"
+        "Card Seconds",
+        "Stat Box Labels",
+        "Stat Box Text",
+        "Stat Box Background",
+        "Stat Box Outline",
+        "Stat Box Frame"
     };
 
     private readonly AppSettings _settings;
 
-    private readonly Dictionary<HotkeyAction, (Button Primary, Button Secondary)> _keyButtons = new();
+    private readonly Dictionary<HotkeyAction, Button> _keyButtons = new();
+
+    private readonly ToolTip _bindTip = new();
+
+    private readonly List<Section> _sections = new();
+
+    private ThemedButton? _close;
+
+    private int _contentWidth;
+
+    private static readonly HashSet<string> ExpandedSections = new();
+
+    private readonly Dictionary<Control, bool> _rowVisible = new();
+
+    private void ShowRow(Control row, bool visible)
+    {
+        _rowVisible[row] = visible;
+
+        Section? section = _sections.FirstOrDefault(
+            candidate => candidate.Members.Any(member => member.Control == row));
+        row.Visible = visible && (section == null || section.Expanded);
+    }
 
     private readonly float _zoom;
 
@@ -50,6 +76,26 @@ public sealed class SettingsForm : Form
     private readonly ToolTip _copyUrlTip = new();
 
     private int Scaled(int length) => _zoom == 1F ? length : ZoomLayout.Round(length * _zoom);
+
+    private static string ClockDriftCaption()
+    {
+        string running = $"{DriftMonitor.ToPpm(Win32.Drift):+0.0;-0.0;0} ppm";
+        double span = DriftMonitor.MeasuredSpanSeconds;
+        if (span < 60) return $"Clock drift: running {running}, measuring";
+        string measured = $"{DriftMonitor.ToPpm(DriftMonitor.Measured):+0.0;-0.0;0} ppm over {span / 60:0} min";
+        string trust = DriftMonitor.Trusted ? "" : $" (trusted at {DriftMonitor.MinimumTrustedSpan.TotalMinutes:0})";
+        return $"Clock drift: running {running}, measured {measured}{trust}";
+    }
+
+    private static string AtomicClockCaption()
+    {
+        if (!AtomicClock.Synced) return "Atomic clock sync (not synced)";
+        double span = AtomicClock.MeasuredSpanSeconds;
+        if (span < 60) return "Atomic clock sync (synced)";
+        string measured = $"{DriftMonitor.ToPpm(AtomicClock.Measured):+0.0;-0.0;0} ppm over {span / 60:0} min";
+        string trust = AtomicClock.Trusted ? "" : $", trusted at {AtomicClock.MinimumTrustedSpan.TotalMinutes:0}";
+        return $"Atomic clock sync ({measured}{trust})";
+    }
 
     public bool ReopenForZoom { get; private set; }
 
@@ -82,37 +128,13 @@ public sealed class SettingsForm : Form
             HotkeyExtensions.ContextActions, contextHeader.Bottom + Scaled(6), out _);
         AlignColumns(table, contextTable);
 
-        int y = contextTable.Bottom + Scaled(SectionGap);
-        Label timingHeader = AddSectionHeader("Timing", y);
-        y = timingHeader.Bottom + Scaled(RowGap);
-
-        var methodLabel = new Label
-        {
-            Text = "Trigger on", Location = new Point(Scaled(LeftMargin), y + Scaled(4)), AutoSize = true
-        };
-
         int keyColumnX = firstKeyButton == null ? Scaled(90) : table.Left + firstKeyButton.Left;
         int widestCaption = Captions.Max(text => TextRenderer.MeasureText(text, Font).Width);
         int comboX = Math.Max(keyColumnX, Scaled(LeftMargin) + widestCaption + Scaled(12));
 
-        int comboWidth = Math.Max(firstKeyButton?.Width ?? Scaled(110), Scaled(VolumeBarWidth));
+        int comboWidth = Math.Max(Scaled(KeyButtonWidth), Scaled(VolumeBarWidth));
 
-        var methodBox = new ThemedComboBox
-        {
-            Location = new Point(comboX, y),
-            Size = new Size(comboWidth, Scaled(23)),
-            DropDownStyle = ComboBoxStyle.DropDownList
-        };
-        foreach (KeyMethod method in Enum.GetValues<KeyMethod>())
-        {
-            methodBox.Items.Add(method.ToFormattedString());
-        }
-        methodBox.SelectedIndex = (int)_settings.KeyMethod;
-        methodBox.SelectedIndexChanged += (_, _) => _settings.KeyMethod = (KeyMethod)methodBox.SelectedIndex;
-        Controls.Add(methodLabel);
-        Controls.Add(methodBox);
-
-        int contextY = methodBox.Bottom + Scaled(RowGap + 4);
+        int contextY = contextTable.Bottom + Scaled(RowGap + 4);
         Controls.Add(new Label
         {
             Text = "Context window (ms)",
@@ -121,6 +143,7 @@ public sealed class SettingsForm : Form
         });
         var contextBox = new ThemedTextBox
         {
+            Numeric = true,
             Location = new Point(comboX, contextY),
             Width = comboWidth,
             Text = _settings.NpcContextWindowMs.ToString("0.###", CultureInfo.InvariantCulture)
@@ -139,7 +162,7 @@ public sealed class SettingsForm : Form
 
         var cuedPress = new ThemedCheckBox
         {
-            Text = "Cue the lab press",
+            Text = "Cue Lab Anchor",
             Location = new Point(Scaled(LeftMargin), contextBox.Bottom + Scaled(RowGap + 2)),
             AutoSize = true,
             Checked = _settings.NpcCuedLabPress
@@ -155,6 +178,7 @@ public sealed class SettingsForm : Form
         });
         var cueFramesBox = new ThemedTextBox
         {
+            Numeric = true,
             Location = new Point(comboX, cueFramesY),
             Width = comboWidth,
             Text = _settings.NpcCuedLabPressOffsetFrames.ToString(CultureInfo.InvariantCulture)
@@ -181,6 +205,7 @@ public sealed class SettingsForm : Form
         });
         var cueWindowBox = new ThemedTextBox
         {
+            Numeric = true,
             Location = new Point(comboX, cueWindowY),
             Width = comboWidth,
             Text = _settings.NpcCuedPressWindowMs.ToString("0.###", CultureInfo.InvariantCulture)
@@ -206,7 +231,48 @@ public sealed class SettingsForm : Form
             cueWindowBox.Enabled = cuedPress.Checked;
         };
 
-        y = cueWindowBox.Bottom + Scaled(SectionGap);
+        int y = cueWindowBox.Bottom + Scaled(SectionGap);
+        Label timingHeader = AddSectionHeader("Timing", y);
+        y = timingHeader.Bottom + Scaled(RowGap);
+
+        var methodLabel = new Label
+        {
+            Text = "Trigger on", Location = new Point(Scaled(LeftMargin), y + Scaled(4)), AutoSize = true
+        };
+        var methodBox = new ThemedComboBox
+        {
+            Location = new Point(comboX, y),
+            Size = new Size(comboWidth, Scaled(23)),
+            DropDownStyle = ComboBoxStyle.DropDownList
+        };
+        foreach (KeyMethod method in Enum.GetValues<KeyMethod>())
+        {
+            methodBox.Items.Add(method.ToFormattedString());
+        }
+        methodBox.SelectedIndex = (int)_settings.KeyMethod;
+        methodBox.SelectedIndexChanged += (_, _) => _settings.KeyMethod = (KeyMethod)methodBox.SelectedIndex;
+        Controls.Add(methodLabel);
+        Controls.Add(methodBox);
+
+        var atomicClock = new ThemedCheckBox
+        {
+            Text = AtomicClockCaption(),
+            Location = new Point(Scaled(LeftMargin), methodBox.Bottom + Scaled(RowGap + 2)),
+            AutoSize = true,
+            Checked = _settings.AtomicClockSync
+        };
+        atomicClock.CheckedChanged += (_, _) => _settings.AtomicClockSync = atomicClock.Checked;
+        Controls.Add(atomicClock);
+
+        var clockDrift = new Label
+        {
+            Text = ClockDriftCaption(),
+            Location = new Point(Scaled(LeftMargin), atomicClock.Bottom + Scaled(RowGap)),
+            AutoSize = true
+        };
+        Controls.Add(clockDrift);
+
+        y = clockDrift.Bottom + Scaled(SectionGap);
         Label audioHeader = AddSectionHeader("Audio", y);
         y = audioHeader.Bottom + Scaled(RowGap);
 
@@ -318,24 +384,10 @@ public sealed class SettingsForm : Form
         };
         Controls.Add(darkMode);
 
-        var hideConstraints = new ThemedCheckBox
-        {
-            Text = "Hide constraints",
-            Location = new Point(Scaled(LeftMargin), darkMode.Bottom + Scaled(RowGap)),
-            AutoSize = true,
-            Checked = _settings.HideConstraints
-        };
-        hideConstraints.CheckedChanged += (_, _) =>
-        {
-            _settings.HideConstraints = hideConstraints.Checked;
-            StarterTool.MainForm.SetHideConstraints(hideConstraints.Checked);
-        };
-        Controls.Add(hideConstraints);
-
         var levelStats = new ThemedCheckBox
         {
             Text = "Auto Show LVL Stats",
-            Location = new Point(Scaled(LeftMargin), hideConstraints.Bottom + Scaled(RowGap)),
+            Location = new Point(Scaled(LeftMargin), darkMode.Bottom + Scaled(RowGap)),
             AutoSize = true,
             Checked = _settings.AutoShowLevelStats
         };
@@ -483,6 +535,7 @@ public sealed class SettingsForm : Form
         });
         var portBox = new ThemedTextBox
         {
+            Numeric = true,
             Location = new Point(comboX, portY),
             Width = comboWidth,
             Text = _settings.StatServerPort.ToString(CultureInfo.InvariantCulture)
@@ -516,10 +569,29 @@ public sealed class SettingsForm : Form
         };
         Controls.Add(transparent);
 
+        int stripSideY = transparent.Bottom + Scaled(RowGap + 4);
+        Controls.Add(new Label
+        {
+            Text = "Nature and frame",
+            Location = new Point(Scaled(LeftMargin), stripSideY + Scaled(4)),
+            AutoSize = true
+        });
+        var stripSideBox = new ThemedComboBox
+        {
+            Location = new Point(comboX, stripSideY),
+            Size = new Size(comboWidth, Scaled(23)),
+            DropDownStyle = ComboBoxStyle.DropDownList
+        };
+        stripSideBox.Items.Add("Below the stats");
+        stripSideBox.Items.Add("Left of the stats");
+        stripSideBox.Items.Add("Right of the stats");
+        stripSideBox.SelectedIndex = (int)_settings.StatServerStripSide;
+        Controls.Add(stripSideBox);
+
         var postRun = new ThemedCheckBox
         {
             Text = "Post-run card",
-            Location = new Point(Scaled(LeftMargin), transparent.Bottom + Scaled(RowGap)),
+            Location = new Point(Scaled(LeftMargin), stripSideBox.Bottom + Scaled(RowGap)),
             AutoSize = true,
             Checked = _settings.StatServerPostRun
         };
@@ -535,6 +607,7 @@ public sealed class SettingsForm : Form
 
         var postRunSeconds = new ThemedTextBox
         {
+            Numeric = true,
             Location = new Point(comboX, cardY),
             Width = comboWidth,
             Text = _settings.StatServerPostRunSeconds.ToString(CultureInfo.InvariantCulture)
@@ -575,7 +648,7 @@ public sealed class SettingsForm : Form
         {
             captureStatus.Text = CaptureStatusText();
 
-            copyUrl.Visible = !string.IsNullOrEmpty(StarterTool.StatServer?.Url);
+            ShowRow(copyUrl, !string.IsNullOrEmpty(StarterTool.StatServer?.Url));
             copyUrl.Location = new Point(
                 captureStatus.Right + Scaled(6),
                 captureStatus.Top + (captureStatus.Height - copyUrl.Height) / 2);
@@ -605,6 +678,11 @@ public sealed class SettingsForm : Form
         transparent.CheckedChanged += (_, _) =>
         {
             _settings.StatServerTransparent = transparent.Checked;
+            RestartStatServer();
+        };
+        stripSideBox.SelectedIndexChanged += (_, _) =>
+        {
+            _settings.StatServerStripSide = (StatStripSide)stripSideBox.SelectedIndex;
             RestartStatServer();
         };
 
@@ -653,11 +731,16 @@ public sealed class SettingsForm : Form
         close.Location = new Point(contentRight - close.Width, captureStatus.Bottom + Scaled(SectionGap));
         Controls.Add(close);
         AcceptButton = close;
+        _close = close;
 
         FormClosing += (_, _) => ActiveControl = null;
 
-        ClientSize = new Size(contentRight + Scaled(12), close.Bottom + Scaled(12));
-        FitToDesktop();
+        _contentWidth = contentRight + Scaled(12);
+        ClientSize = new Size(_contentWidth, close.Bottom + Scaled(12));
+
+        CollectSections();
+        foreach (Section section in _sections) section.Expanded = ExpandedSections.Contains(section.Title);
+        LayoutSections();
 
         Theme.Apply(this);
     }
@@ -671,23 +754,28 @@ public sealed class SettingsForm : Form
 
         int chrome = Height - ClientSize.Height;
         int roof = screen.WorkingArea.Height - chrome - DesktopMargin;
-        int target = main != null ? Math.Min(main.Height - chrome, roof) : roof;
-        if (target <= 0 || ClientSize.Height == target) return;
+        if (main != null) roof = Math.Min(roof, main.Height - chrome);
+        if (roof <= 0) return;
 
-        bool scrolls = ClientSize.Height > target;
-        if (scrolls) AutoScroll = true;
+        bool scrolls = ClientSize.Height > roof;
+        AutoScroll = true;
         ClientSize = new Size(
-            ClientSize.Width + (scrolls ? SystemInformation.VerticalScrollBarWidth : 0), target);
+            _contentWidth + (scrolls ? SystemInformation.VerticalScrollBarWidth : 0),
+            scrolls ? roof : ClientSize.Height);
+    }
+
+    private void ClampToDesktop()
+    {
+        Rectangle desktop = Screen.FromControl(this).WorkingArea;
+        Location = new Point(
+            Math.Clamp(Left, desktop.Left, Math.Max(desktop.Left, desktop.Right - Width)),
+            Math.Clamp(Top, desktop.Top, Math.Max(desktop.Top, desktop.Bottom - Height)));
     }
 
     protected override void OnShown(EventArgs e)
     {
         base.OnShown(e);
-
-        Rectangle desktop = Screen.FromControl(this).WorkingArea;
-        Location = new Point(
-            Math.Clamp(Left, desktop.Left, Math.Max(desktop.Left, desktop.Right - Width)),
-            Math.Clamp(Top, desktop.Top, Math.Max(desktop.Top, desktop.Bottom - Height)));
+        ClampToDesktop();
     }
 
     protected override void Dispose(bool disposing)
@@ -697,6 +785,7 @@ public sealed class SettingsForm : Form
 
         _zoomFont?.Dispose();
         _copyUrlTip.Dispose();
+        _bindTip.Dispose();
     }
 
     private static void DrawCopyIcon(Graphics g, Control button)
@@ -754,11 +843,11 @@ public sealed class SettingsForm : Form
         {
             Location = new Point(Scaled(12), y),
             AutoSize = true,
-            ColumnCount = 5,
+            ColumnCount = 4,
             RowCount = actions.Length + 1
         };
 
-        foreach (string header in new[] { "Action", "Key", "Alt. key", "", "Global" })
+        foreach (string header in new[] { "Action", "Bindings", "", "Global" })
         {
             table.Controls.Add(new Label
             {
@@ -782,12 +871,10 @@ public sealed class SettingsForm : Form
                 Margin = new Padding(Scaled(3), Scaled(8), Scaled(12), Scaled(3))
             });
 
-            Button primary = MakeKeyButton(action, secondary: false);
-            Button secondary = MakeKeyButton(action, secondary: true);
-            firstKeyButton ??= primary;
-            _keyButtons[action] = (primary, secondary);
-            table.Controls.Add(primary);
-            table.Controls.Add(secondary);
+            Button bind = MakeKeyButton(action);
+            firstKeyButton ??= bind;
+            _keyButtons[action] = bind;
+            table.Controls.Add(bind);
 
             var clear = new ThemedButton
             {
@@ -797,7 +884,7 @@ public sealed class SettingsForm : Form
             };
             clear.Click += (_, _) =>
             {
-                hotkey.ClearOne();
+                hotkey.Clear();
                 RefreshKeyButtons(action);
             };
             table.Controls.Add(clear);
@@ -847,8 +934,110 @@ public sealed class SettingsForm : Form
             Font = new Font(Font, FontStyle.Bold),
             Tag = Theme.SectionHeader
         };
+        header.Cursor = Cursors.Hand;
+        header.Click += (_, _) => ToggleSection(text);
+        _sections.Add(new Section(text, header));
         Controls.Add(header);
         return header;
+    }
+
+    private sealed class Section
+    {
+        public Section(string title, Label header)
+        {
+            Title = title;
+            Header = header;
+        }
+
+        public string Title { get; }
+
+        public Label Header { get; }
+
+        public List<(Control Control, int Top)> Members { get; } = new();
+
+        public int HeaderTop { get; set; }
+
+        public int ContentBottom { get; set; }
+
+        public bool Expanded { get; set; }
+    }
+
+    private void CollectSections()
+    {
+        foreach (Section section in _sections)
+        {
+            section.HeaderTop = section.Header.Top;
+            section.ContentBottom = section.Header.Bottom;
+        }
+
+        foreach (Control control in Controls)
+        {
+            if (control == _close || _sections.Any(section => section.Header == control)) continue;
+
+            Section? owner = null;
+            foreach (Section section in _sections)
+            {
+                if (section.HeaderTop <= control.Top) owner = section;
+            }
+            if (owner == null) continue;
+
+            owner.Members.Add((control, control.Top));
+            owner.ContentBottom = Math.Max(owner.ContentBottom, control.Bottom);
+        }
+    }
+
+    private void ToggleSection(string title)
+    {
+        Section? section = _sections.FirstOrDefault(candidate => candidate.Title == title);
+        if (section == null) return;
+
+        section.Expanded = !section.Expanded;
+        if (section.Expanded) ExpandedSections.Add(title);
+        else ExpandedSections.Remove(title);
+
+        LayoutSections();
+
+        if (section.Expanded && VerticalScroll.Visible)
+        {
+            AutoScrollPosition = new Point(0, Math.Max(0, section.Header.Top - Scaled(12)));
+        }
+    }
+
+    private void LayoutSections()
+    {
+        SuspendLayout();
+
+        AutoScrollPosition = new Point(0, 0);
+        AutoScroll = false;
+
+        int y = _sections.Count == 0 ? Scaled(12) : _sections[0].HeaderTop;
+        foreach (Section section in _sections)
+        {
+            int offset = y - section.HeaderTop;
+            section.Header.Text = (section.Expanded ? "\u25be  " : "\u25b8  ") + section.Title;
+            section.Header.Top = y;
+
+            foreach ((Control member, int top) in section.Members)
+            {
+                member.Visible = section.Expanded
+                    && (!_rowVisible.TryGetValue(member, out bool wanted) || wanted);
+                if (section.Expanded) member.Top = top + offset;
+            }
+
+            y = (section.Expanded ? section.ContentBottom + offset : section.Header.Bottom)
+                + Scaled(SectionGap);
+        }
+
+        if (_close != null) _close.Top = y;
+
+        ClientSize = new Size(_contentWidth, (_close?.Bottom ?? y) + Scaled(12));
+        FitToDesktop();
+
+        AutoScrollPosition = new Point(0, 0);
+
+        ResumeLayout(true);
+
+        if (Visible) ClampToDesktop();
     }
 
     private Panel AddColorRow(string caption, int y, int x, int width, Func<Color> read, Action<Color> write)
@@ -888,28 +1077,21 @@ public sealed class SettingsForm : Form
         return swatch;
     }
 
-    private Button MakeKeyButton(HotkeyAction action, bool secondary)
+    private Button MakeKeyButton(HotkeyAction action)
     {
         var button = new ThemedButton
         {
-            Size = new Size(Scaled(110), Scaled(25)),
+            Size = new Size(Scaled(BindButtonWidth), Scaled(25)),
             Margin = new Padding(Scaled(3)),
-            Tag = Theme.KeepForeColor
+            Tag = Theme.KeepForeColor,
+            AutoEllipsis = true
         };
         button.Click += (_, _) =>
         {
             using var selection = new HotkeySelection();
             if (selection.ShowDialog(this) != DialogResult.OK) return;
 
-            Hotkey hotkey = _settings.GetHotkey(action);
-            if (secondary)
-            {
-                hotkey.Secondary = (int)selection.Key;
-            }
-            else
-            {
-                hotkey.Primary = (int)selection.Key;
-            }
+            _settings.GetHotkey(action).Toggle(selection.Chord);
             RefreshKeyButtons(action);
         };
         return button;
@@ -918,14 +1100,12 @@ public sealed class SettingsForm : Form
     private void RefreshKeyButtons(HotkeyAction action)
     {
         Hotkey hotkey = _settings.GetHotkey(action);
-        (Button primary, Button secondary) = _keyButtons[action];
-        Apply(primary, (Keys)hotkey.Primary);
-        Apply(secondary, (Keys)hotkey.Secondary);
+        Button button = _keyButtons[action];
 
-        static void Apply(Button button, Keys key)
-        {
-            button.Text = key.ToFormattedString();
-            button.ForeColor = key == Keys.None ? Theme.DimText : Theme.Text;
-        }
+        button.Text = hotkey.Describe();
+        button.ForeColor = hotkey.IsBound ? Theme.Text : Theme.DimText;
+        _bindTip.SetToolTip(button, hotkey.IsBound
+            ? hotkey.Describe() + "\r\nClick to add another; capture a bound one again to remove it."
+            : "Click, then press a key, controller button, or several held together.");
     }
 }

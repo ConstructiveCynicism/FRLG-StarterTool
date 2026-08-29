@@ -20,6 +20,8 @@ public sealed class ThemedCheckBox : CheckBox
 
     public bool BoldWhenChecked { get; set; }
 
+    public bool DimWhenUnchecked { get; set; }
+
     public ThemedCheckBox()
     {
         FlatStyle = FlatStyle.Flat;
@@ -61,7 +63,7 @@ public sealed class ThemedCheckBox : CheckBox
     protected override void OnCheckedChanged(EventArgs e)
     {
         base.OnCheckedChanged(e);
-        if (BoldWhenChecked) Invalidate();
+        if (BoldWhenChecked || DimWhenUnchecked) Invalidate();
     }
 
     protected override void OnMouseEnter(EventArgs e)
@@ -132,6 +134,7 @@ public sealed class ThemedCheckBox : CheckBox
 
     private Color CaptionColor => !Enabled ? Theme.DimText
         : BoldWhenChecked && Checked ? Theme.CheckMark
+        : DimWhenUnchecked && !Checked ? Theme.DimText
         : ForeColor;
 
     private void DrawGlyph(Graphics g, Rectangle glyph)

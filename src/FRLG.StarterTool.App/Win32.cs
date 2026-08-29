@@ -34,12 +34,16 @@ public static class Win32
     public const int WM_KEYUP = 0x0101;
     public const int WM_SYSKEYDOWN = 0x0104;
     public const int WM_SYSKEYUP = 0x0105;
+    public const int WM_MOUSEWHEEL = 0x020A;
 
     public const int LLKHF_EXTENDED = 0x01;
 
     public const uint WM_QUIT = 0x0012;
 
     private static double _frequency = 1.0;
+    private static double _frequencyDrifted = 1.0;
+    private static long _originTicks;
+    private static double _originMs;
     private static bool _highResolutionTimer;
     private static double _tickGranularityMs = 16.0;
 
@@ -93,6 +97,7 @@ public static class Win32
     {
         QueryPerformanceFrequency(out long freq);
         _frequency = freq / 1000.0;
+        _frequencyDrifted = _frequency * Drift;
 
         _highResolutionTimer = timeBeginPeriod(1) == 0;
 
@@ -132,10 +137,37 @@ public static class Win32
     public static double GetTime()
     {
         QueryPerformanceCounter(out long timeStamp);
-        return timeStamp / _frequency;
+        return _originMs + (timeStamp - _originTicks) / _frequencyDrifted;
+    }
+
+    public static double Drift { get; private set; } = 1.0;
+
+    public static void SetDrift(double drift)
+    {
+        double next = Core.Timing.DriftMonitor.IsPlausible(drift) ? drift : 1.0;
+        QueryPerformanceCounter(out long now);
+        _originMs += (now - _originTicks) / _frequencyDrifted;
+        _originTicks = now;
+        Drift = next;
+        _frequencyDrifted = _frequency * next;
     }
 
     public static double EventTime(double now, uint eventTick) => now - EventLagMs(eventTick);
+
+    public static double CurrentTimerResolutionMs()
+    {
+        try
+        {
+            if (NtQueryTimerResolution(out _, out _, out uint current) != 0) return double.NaN;
+            return current / 10000.0;
+        }
+        catch (Exception)
+        {
+            return double.NaN;
+        }
+    }
+
+    public static bool IsMinimized(IntPtr hWnd) => hWnd != IntPtr.Zero && IsIconic(hWnd);
 
     public static double EventLagMs(uint eventTick)
     {
@@ -332,6 +364,13 @@ public static class Win32
 
     [DllImport("user32.dll")]
     public static extern IntPtr GetForegroundWindow();
+
+    [DllImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool IsIconic(IntPtr hWnd);
+
+    [DllImport("ntdll.dll")]
+    private static extern int NtQueryTimerResolution(out uint minimum, out uint maximum, out uint current);
 
     [DllImport("user32.dll")]
     private static extern int GetMessage(out MSG lpMsg, IntPtr hWnd, uint wMsgFilterMin, uint wMsgFilterMax);

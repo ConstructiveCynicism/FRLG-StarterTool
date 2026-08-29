@@ -20,36 +20,18 @@ public partial class MainForm
         TextBoxMinFrame.Text = filter.MinFrame;
         TextBoxMaxFrame.Text = filter.MaxFrame;
 
-        for (int i = 0; i < CheckBoxNatures.Length && i < filter.Natures.Length; i++)
-        {
-            CheckBoxNatures[i].Checked = filter.Natures[i];
-        }
-
-        ApplyStatPack(0, filter.IvMinus);
-        ApplyStatPack(1, filter.IvNeutral);
-        ApplyStatPack(2, filter.IvPlus);
+        ShowRanges(filter.Clone().Normalize().Ranges);
     }
 
-    private FilterPreset CaptureFilter(string name = "")
-    {
-        var natures = new bool[Nature.NatureCount];
-        for (int i = 0; i < CheckBoxNatures.Length && i < natures.Length; i++)
-        {
-            natures[i] = CheckBoxNatures[i].Checked;
-        }
-
-        return new FilterPreset
+    private FilterPreset CaptureFilter(string name = "") =>
+        new FilterPreset
         {
             Name = name,
             SpeciesId = SelectedSpecies.Id,
             MinFrame = TextBoxMinFrame.Text,
             MaxFrame = TextBoxMaxFrame.Text,
-            Natures = natures,
-            IvMinus = ReadStatPack(0).ToArray(),
-            IvNeutral = ReadStatPack(1).ToArray(),
-            IvPlus = ReadStatPack(2).ToArray()
-        };
-    }
+            Ranges = CaptureRanges()
+        }.Normalize();
 
     private void BuildFiltersMenu()
     {
@@ -113,6 +95,7 @@ public partial class MainForm
     {
         ApplyFilter(preset);
         Settings.ActivePreset = preset.Name;
+        FillFilterList();
 
         if (StarterTool.IsTimerRunning) return;
 

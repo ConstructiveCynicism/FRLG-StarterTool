@@ -38,20 +38,44 @@ partial class MainForm
 
     public ToolStripMenuItem MenuItemGlobalHotkeys;
 
-    public ToolStripMenuItem MenuItemTraining;
+    public ToolStripMenuItem MenuItemViewManip;
 
-    public ToolStripMenuItem MenuItemContextTracking;
+    public ToolStripMenuItem MenuItemViewConstraints;
+    public ToolStripMenuItem MenuItemViewTraining;
+    public ToolStripMenuItem MenuItemViewEncounter;
+    public ToolStripMenuItem MenuItemViewSavestate;
+    public ToolStripMenuItem MenuItemViewTroubleshooter;
 
-    public ToolStripMenuItem MenuItemTroubleshooter;
+    public ThemedTabStrip TabStrip;
 
-    public ToolStripMenuItem MenuItemSavestateEditor;
+    public Panel PageManip;
+
+    public Panel PageConstraints;
+    public Panel PageTraining;
+    public Panel PageEncounter;
+    public Panel PageSavestate;
+    public Panel PageTroubleshoot;
 
     public ToolStripMenuItem MenuFilters;
 
-    public ThemedGroupBox GroupBoxIvConstraint;
-    public Button ButtonClearIvs;
-
     public ThemedGroupBox GroupBoxStarter;
+
+    public ThemedGroupBox GroupBoxStarterConstraints;
+
+    public ThemedGroupBox GroupBoxFilters;
+
+    public ListBox ListBoxFilters;
+    public Button ButtonFilterLoad;
+    public Button ButtonFilterSaveAs;
+    public Button ButtonFilterUpdate;
+    public Button ButtonFilterRename;
+    public Button ButtonFilterDelete;
+
+    public ThemedGroupBox GroupBoxRanges;
+
+    public Panel PanelRanges;
+    public Button ButtonAddRange;
+
     public PictureBox PictureBoxSprite;
     public ThemedComboBox ComboBoxPokemon;
     public TextBox TextBoxMinFrame;
@@ -68,16 +92,26 @@ partial class MainForm
 
     public Button ButtonSearch;
 
-    public ThemedGroupBox GroupBoxNatures;
-    public Button ButtonNaturesAll;
-    public Button ButtonNaturesNone;
-
     public ThemedGroupBox GroupBoxResults;
     public ThemedListView ListViewResults;
 
+    public ThemedGroupBox GroupBoxTraining;
+
     public TrainingPanel TrainingPanel;
 
+    public Label LabelTrainingLanding;
+
+    public ThemedGroupBox GroupBoxSavestate;
+
     public SavestatePanel SavestatePanel;
+
+    public ThemedGroupBox GroupBoxEncounter;
+
+    public EncounterPanel EncounterPanel;
+
+    public ThemedGroupBox GroupBoxRomPatch;
+
+    public RomPatchPanel RomPatchPanel;
 
     public Label LabelLanding;
 
@@ -89,6 +123,8 @@ partial class MainForm
     public ThemedGroupBox GroupBoxContext;
 
     public NpcGridPanel ContextPanel;
+
+    public ThemedGroupBox GroupBoxTroubleshoot;
 
     public TroubleshootPanel TroubleshootPanel;
 
@@ -104,10 +140,6 @@ partial class MainForm
 
     public ThemedButton ButtonContextMiss;
 
-    private int _compactClientHeight;
-
-    private int _trackingClientHeight;
-
     public CheckBox ButtonLevelToggle;
 
     public TextBox TextBoxSearchFrame;
@@ -121,10 +153,6 @@ partial class MainForm
 
     public TextBox[] TextBoxStats = new TextBox[6];
 
-    public TextBox[,] TextBoxIvThresholds = new TextBox[3, 6];
-
-    public CheckBox[] CheckBoxNatures = new CheckBox[Nature.NatureCount];
-
     public ThemedGroupBox GroupBoxTimer;
     public TimerClock LabelTimer;
     public Button ButtonStart;
@@ -135,6 +163,8 @@ partial class MainForm
 
     public TextBox TextBoxVisualOffset;
 
+    public TextBox TextBoxDelayOffset;
+
     public TextBox TextBoxInterval;
     public TextBox TextBoxBeeps;
     public Button ButtonMinus;
@@ -144,6 +174,10 @@ partial class MainForm
 
     public ThemedCheckBox CheckBoxFlashEnabled;
 
+    public ThemedComboBox ComboBoxEncounterRoute;
+
+    private const int ClockFitHeight = 76;
+
     public Button ButtonTraining;
 
     private static readonly string[] StatRowNames = { "HP", "Attack", "Defense", "Sp. Atk", "Sp. Def", "Speed" };
@@ -151,6 +185,12 @@ partial class MainForm
     private static readonly string[] StatColumnNames = { "HP", "Atk", "Def", "SpA", "SpD", "Spe" };
 
     private const int TimeColumnIndex = 1;
+
+    private const int LeadColumnIndex = 0;
+
+    private const int FrameColumnWidth = 42;
+
+    private const int TidColumnWidth = 46;
 
     private const int SecondsTimeColumnWidth = 48;
 
@@ -183,24 +223,27 @@ partial class MainForm
 
         MenuFilters = new ToolStripMenuItem("Filters");
 
-        MenuItemTraining = new ToolStripMenuItem("Training Mode") { CheckOnClick = true };
-
-        MenuItemContextTracking = new ToolStripMenuItem("Context Tracking") { CheckOnClick = true };
-
-        MenuItemTroubleshooter = new ToolStripMenuItem("NPC Troubleshooter") { CheckOnClick = true };
-
-        MenuItemSavestateEditor = new ToolStripMenuItem("Savestate Editor") { CheckOnClick = true };
-
         var menuExit = new ToolStripMenuItem("Exit");
         menuExit.Click += (_, _) => Close();
         var menuFile = new ToolStripMenuItem("File");
         menuFile.DropDownItems.Add(MenuFilters);
-        menuFile.DropDownItems.Add(MenuItemContextTracking);
-        menuFile.DropDownItems.Add(MenuItemTroubleshooter);
-        menuFile.DropDownItems.Add(MenuItemSavestateEditor);
         menuFile.DropDownItems.Add(MenuItemHotkeys);
         menuFile.DropDownItems.Add(new ToolStripSeparator());
         menuFile.DropDownItems.Add(menuExit);
+
+        MenuItemViewManip = new ToolStripMenuItem("Manip") { CheckOnClick = true, Checked = true };
+        MenuItemViewConstraints = new ToolStripMenuItem("Constraints") { CheckOnClick = true, Checked = true };
+        MenuItemViewTraining = new ToolStripMenuItem("Offset Trainer") { CheckOnClick = true, Checked = true };
+        MenuItemViewEncounter = new ToolStripMenuItem("Encounter Route") { CheckOnClick = true, Checked = true };
+        MenuItemViewSavestate = new ToolStripMenuItem("Savestate Editor") { CheckOnClick = true, Checked = false };
+        MenuItemViewTroubleshooter = new ToolStripMenuItem("NPC Troubleshooter") { CheckOnClick = true, Checked = false };
+        var menuView = new ToolStripMenuItem("View");
+        menuView.DropDownItems.Add(MenuItemViewManip);
+        menuView.DropDownItems.Add(MenuItemViewConstraints);
+        menuView.DropDownItems.Add(MenuItemViewTraining);
+        menuView.DropDownItems.Add(MenuItemViewEncounter);
+        menuView.DropDownItems.Add(MenuItemViewSavestate);
+        menuView.DropDownItems.Add(MenuItemViewTroubleshooter);
 
         var menuAbout = new ToolStripMenuItem("About");
         menuAbout.Click += (_, _) => StarterTool.Modal(() => MessageBox.Show(this,
@@ -218,7 +261,21 @@ partial class MainForm
             + "The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.\r\n\r\n"
             + "THE SOFTWARE IS PROVIDED “AS IS”, WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.",
             "About", MessageBoxButtons.OK, MessageBoxIcon.Information));
+        var menuClearSettings = new ToolStripMenuItem("Clear settings…");
+        menuClearSettings.Click += (_, _) =>
+        {
+            DialogResult answer = StarterTool.Modal(() => MessageBox.Show(this,
+                "Reset every setting to its default and restart the tool?\r\n\r\n"
+                + "This deletes the settings file - hotkeys, offsets, colors, saved filters and saved routes. "
+                + "Run logs are kept.\r\n\r\n"
+                + SettingsStore.DefaultPath,
+                "Clear settings", MessageBoxButtons.YesNo, MessageBoxIcon.Warning,
+                MessageBoxDefaultButton.Button2));
+            if (answer == DialogResult.Yes) StarterTool.ClearSettings();
+        };
         var menuHelp = new ToolStripMenuItem("Help");
+        menuHelp.DropDownItems.Add(menuClearSettings);
+        menuHelp.DropDownItems.Add(new ToolStripSeparator());
         menuHelp.DropDownItems.Add(menuAbout);
 
         MenuItemAlwaysOnTop = new ToolStripMenuItem
@@ -239,77 +296,14 @@ partial class MainForm
 
         MenuStripMain = new MenuStrip();
         MenuStripMain.Items.Add(menuFile);
+        MenuStripMain.Items.Add(menuView);
         MenuStripMain.Items.Add(menuHelp);
         MenuStripMain.Items.Add(MenuItemAlwaysOnTop);
         MenuStripMain.Items.Add(MenuItemGlobalHotkeys);
 
-        int ivBoxHeight = _fieldHeight;
-        int ivRowPitch = ivBoxHeight - 1;
+        int starterTop = SectionTop;
 
-        const int IvRowsTop = 28;
-        int ivClearY = IvRowsTop + 6 * ivRowPitch + 4;
-        int ivHeight = ivClearY + 30;
-
-        GroupBoxIvConstraint = new ThemedGroupBox
-        {
-            Text = "IV Constraints",
-            Location = new Point(6, SectionTop),
-            Size = new Size(LeftColumnWidth, ivHeight)
-        };
-
-        const int PackWidth = 44;
-        const int PackFirstX = 66;
-        int[] packX = { PackFirstX, PackFirstX + PackWidth - 1, PackFirstX + 2 * (PackWidth - 1) };
-        string[] packHeaders = { "-", "Neutral", "+" };
-        for (int pack = 0; pack < 3; pack++)
-        {
-            const int HeaderWidth = 48;
-            GroupBoxIvConstraint.Controls.Add(new Label
-            {
-                Text = packHeaders[pack],
-                Location = new Point(packX[pack] - (HeaderWidth - PackWidth) / 2, IvRowsTop - 14),
-                Size = new Size(HeaderWidth, 14),
-                TextAlign = ContentAlignment.MiddleCenter
-            });
-        }
-
-        for (int stat = 0; stat < 6; stat++)
-        {
-            int y = IvRowsTop + stat * ivRowPitch;
-            GroupBoxIvConstraint.Controls.Add(MakeLabel(StatRowNames[stat], 8, y, 56));
-
-            if (stat == 0)
-            {
-                var hp = MakeTextBox(PackFirstX, y, LeftInnerRight - PackFirstX, "0");
-                hp.TextAlign = HorizontalAlignment.Center;
-                for (int pack = 0; pack < 3; pack++)
-                {
-                    TextBoxIvThresholds[pack, 0] = hp;
-                }
-                GroupBoxIvConstraint.Controls.Add(hp);
-                continue;
-            }
-
-            for (int pack = 0; pack < 3; pack++)
-            {
-                TextBox box = MakeTextBox(packX[pack], y, PackWidth, "0");
-                box.TextAlign = HorizontalAlignment.Center;
-                TextBoxIvThresholds[pack, stat] = box;
-                GroupBoxIvConstraint.Controls.Add(box);
-            }
-        }
-
-        ButtonClearIvs = new ThemedButton
-        {
-            Text = "Clear",
-            Location = new Point(LeftInner, ivClearY),
-            Size = new Size(LeftInnerSpan, 22)
-        };
-        GroupBoxIvConstraint.Controls.Add(ButtonClearIvs);
-
-        int starterTop = SectionTop + ivHeight + 4;
-
-        GroupBoxStarter = new ThemedGroupBox
+        GroupBoxStarterConstraints = new ThemedGroupBox
         {
             Text = "Starter",
             Location = new Point(6, starterTop),
@@ -324,7 +318,7 @@ partial class MainForm
             BorderStyle = BorderStyle.None,
             SizeMode = PictureBoxSizeMode.Zoom
         };
-        GroupBoxStarter.Controls.Add(PictureBoxSprite);
+        GroupBoxStarterConstraints.Controls.Add(PictureBoxSprite);
 
         int starterRow = 84;
 
@@ -333,23 +327,32 @@ partial class MainForm
         const int StarterFieldWidth = LeftInnerRight - StarterFieldX;
 
         LabelStarterPokemon = MakeLabel("Pokemon", LeftInner, starterRow, StarterCaptionWidth);
-        GroupBoxStarter.Controls.Add(LabelStarterPokemon);
+        GroupBoxStarterConstraints.Controls.Add(LabelStarterPokemon);
         ComboBoxPokemon = MakeCombo(StarterFieldX, starterRow, StarterFieldWidth);
-        GroupBoxStarter.Controls.Add(ComboBoxPokemon);
+        GroupBoxStarterConstraints.Controls.Add(ComboBoxPokemon);
 
         starterRow += RowPitch;
         LabelStarterMinFrame = MakeLabel("Min Frame", LeftInner, starterRow, StarterCaptionWidth);
-        GroupBoxStarter.Controls.Add(LabelStarterMinFrame);
+        GroupBoxStarterConstraints.Controls.Add(LabelStarterMinFrame);
         TextBoxMinFrame = MakeTextBox(StarterFieldX, starterRow, StarterFieldWidth, "0");
-        GroupBoxStarter.Controls.Add(TextBoxMinFrame);
+        GroupBoxStarterConstraints.Controls.Add(TextBoxMinFrame);
 
         starterRow += RowPitch;
         LabelStarterMaxFrame = MakeLabel("Max Frame", LeftInner, starterRow, StarterCaptionWidth);
-        GroupBoxStarter.Controls.Add(LabelStarterMaxFrame);
+        GroupBoxStarterConstraints.Controls.Add(LabelStarterMaxFrame);
         TextBoxMaxFrame = MakeTextBox(StarterFieldX, starterRow, StarterFieldWidth, "10000");
-        GroupBoxStarter.Controls.Add(TextBoxMaxFrame);
+        GroupBoxStarterConstraints.Controls.Add(TextBoxMaxFrame);
 
-        starterRow += RowPitch;
+        GroupBoxStarterConstraints.Height = TextBoxMaxFrame.Bottom + BoxBottomPad;
+
+        GroupBoxStarter = new ThemedGroupBox
+        {
+            Text = "Seed",
+            Location = new Point(6, SectionTop),
+            Size = new Size(LeftColumnWidth, 244)
+        };
+
+        starterRow = CompactStarterRow;
         LabelStarterTrainerId = MakeLabel("Trainer ID", LeftInner, starterRow, StarterCaptionWidth);
         GroupBoxStarter.Controls.Add(LabelStarterTrainerId);
         TextBoxTrainerId = MakeTextBox(StarterFieldX, starterRow, StarterFieldWidth, "0");
@@ -385,13 +388,13 @@ partial class MainForm
         };
 
         const int ClockWidth = LeftInnerSpan;
-        const int ClockHeight = 76;
+        int clockHeight = ClockFitHeight - RowPitch;
         LabelTimer = new TimerClock
         {
             Text = "0.000",
             Location = new Point(LeftInner, 18),
-            Size = new Size(ClockWidth, ClockHeight),
-            Font = FitFont(Font.FontFamily, TimeText.Widest(TimeFormat.Seconds), ClockWidth - 4, ClockHeight, 44F)
+            Size = new Size(ClockWidth, clockHeight),
+            Font = FitFont(Font.FontFamily, TimeText.Widest(TimeFormat.Seconds), ClockWidth - 4, ClockFitHeight, 44F)
         };
         GroupBoxTimer.Controls.Add(LabelTimer);
 
@@ -440,6 +443,11 @@ partial class MainForm
         GroupBoxTimer.Controls.Add(TextBoxVisualOffset);
 
         timerRow += RowPitch;
+        GroupBoxTimer.Controls.Add(MakeLabel("Delay", RowCaptionX, timerRow, RowCaptionWidth));
+        TextBoxDelayOffset = MakeTextBox(RowFieldX, timerRow, RowFieldWidth, "0");
+        GroupBoxTimer.Controls.Add(TextBoxDelayOffset);
+
+        timerRow += RowPitch;
         GroupBoxTimer.Controls.Add(MakeLabel("Interval", RowCaptionX, timerRow, RowCaptionWidth));
         TextBoxInterval = MakeTextBox(RowFieldX, timerRow, RowFieldWidth, "1000");
         GroupBoxTimer.Controls.Add(TextBoxInterval);
@@ -449,6 +457,13 @@ partial class MainForm
         TextBoxBeeps = MakeTextBox(RowFieldX, timerRow, RowFieldWidth, "4");
         GroupBoxTimer.Controls.Add(TextBoxBeeps);
 
+        timerRow += RowPitch;
+        GroupBoxTimer.Controls.Add(MakeLabel("Route", RowCaptionX, timerRow, RowCaptionWidth));
+        ComboBoxEncounterRoute = MakeCombo(RowFieldX, timerRow, RowFieldWidth);
+        ComboBoxEncounterRoute.Items.Add("None");
+        ComboBoxEncounterRoute.SelectedIndex = 0;
+        GroupBoxTimer.Controls.Add(ComboBoxEncounterRoute);
+
         ButtonTraining = new ThemedButton
         {
             Text = "Start Offset Training",
@@ -457,37 +472,69 @@ partial class MainForm
         };
         GroupBoxTimer.Controls.Add(ButtonTraining);
 
-        GroupBoxNatures = new ThemedGroupBox
+        GroupBoxFilters = new ThemedGroupBox
         {
-            Text = "Natures",
+            Text = "Filters",
             Location = new Point(RightColumnLeft, SectionTop),
-            Size = new Size(RightColumnWidth, 158)
+            Size = new Size(RightColumnWidth, GroupBoxStarterConstraints.Height)
         };
 
-        List<Nature> natures = Nature.GetList();
-        for (int i = 0; i < Nature.NatureCount; i++)
+        ListBoxFilters = new ListBox
         {
-            var box = new ThemedCheckBox
-            {
-                Text = natures[i].Name,
-                Location = new Point(6 + (i % 5) * 78, 18 + (i / 5) * 22),
-                Size = new Size(76, 20),
-                Checked = true,
-                BoldWhenChecked = true
-            };
-            CheckBoxNatures[i] = box;
-            GroupBoxNatures.Controls.Add(box);
-        }
+            Location = new Point(6, 18),
+            Size = new Size(RightColumnInner, GroupBoxFilters.Height - 18 - 22 - RowGap - BoxBottomPad),
+            IntegralHeight = false,
+            SelectionMode = SelectionMode.One
+        };
+        GroupBoxFilters.Controls.Add(ListBoxFilters);
 
-        ButtonNaturesAll = new ThemedButton { Text = "Check All", Location = new Point(6, 130), Size = new Size(193, 22) };
-        ButtonNaturesNone = new ThemedButton { Text = "Uncheck All", Location = new Point(203, 130), Size = new Size(193, 22) };
-        GroupBoxNatures.Controls.Add(ButtonNaturesAll);
-        GroupBoxNatures.Controls.Add(ButtonNaturesNone);
+        int filterButtonY = ListBoxFilters.Bottom + RowGap;
+        int filterButtonWidth = (RightColumnInner - 4 * SectionGap) / 5;
+        Button MakeFilterButton(string text, int slot) => new ThemedButton
+        {
+            Text = text,
+            Location = new Point(6 + slot * (filterButtonWidth + SectionGap), filterButtonY),
+            Size = new Size(filterButtonWidth, 22)
+        };
+
+        ButtonFilterLoad = MakeFilterButton("Load", 0);
+        ButtonFilterSaveAs = MakeFilterButton("Save As", 1);
+        ButtonFilterUpdate = MakeFilterButton("Update", 2);
+        ButtonFilterRename = MakeFilterButton("Rename", 3);
+        ButtonFilterDelete = MakeFilterButton("Delete", 4);
+        GroupBoxFilters.Controls.Add(ButtonFilterLoad);
+        GroupBoxFilters.Controls.Add(ButtonFilterSaveAs);
+        GroupBoxFilters.Controls.Add(ButtonFilterUpdate);
+        GroupBoxFilters.Controls.Add(ButtonFilterRename);
+        GroupBoxFilters.Controls.Add(ButtonFilterDelete);
+
+        GroupBoxRanges = new ThemedGroupBox
+        {
+            Text = "Constraint Ranges",
+            Location = new Point(6, GroupBoxStarterConstraints.Bottom + SectionGap),
+            Size = new Size(ClientWidth - 12, 200)
+        };
+
+        PanelRanges = new Panel
+        {
+            Location = new Point(6, 18),
+            Size = new Size(GroupBoxRanges.Width - 12, 160),
+            AutoScroll = true
+        };
+        GroupBoxRanges.Controls.Add(PanelRanges);
+
+        ButtonAddRange = new ThemedButton
+        {
+            Text = "+ Add Range",
+            Location = new Point(6, PanelRanges.Bottom + RowGap),
+            Size = new Size(GroupBoxRanges.Width - 12, 22)
+        };
+        GroupBoxRanges.Controls.Add(ButtonAddRange);
 
         GroupBoxResults = new ThemedGroupBox
         {
             Text = "Found List",
-            Location = new Point(RightColumnLeft, SectionTop + 162),
+            Location = new Point(RightColumnLeft, SectionTop),
             Size = new Size(RightColumnWidth, 372)
         };
 
@@ -503,7 +550,7 @@ partial class MainForm
             OwnerDraw = true,
             Font = new Font("Segoe UI", 8F)
         };
-        ListViewResults.Columns.Add("Frame", 42, HorizontalAlignment.Center);
+        ListViewResults.Columns.Add("Frame", FrameColumnWidth, HorizontalAlignment.Center);
         ListViewResults.Columns.Add("Time", SecondsTimeColumnWidth, HorizontalAlignment.Center);
         ListViewResults.Columns.Add("Nature", 55, HorizontalAlignment.Center);
         foreach (string stat in StatColumnNames)
@@ -512,22 +559,6 @@ partial class MainForm
         }
         ListViewResults.Columns.Add("M/F", 31, HorizontalAlignment.Center);
         GroupBoxResults.Controls.Add(ListViewResults);
-
-        TrainingPanel = new TrainingPanel
-        {
-            Location = ListViewResults.Location,
-            Size = ListViewResults.Size,
-            Visible = false
-        };
-        GroupBoxResults.Controls.Add(TrainingPanel);
-
-        SavestatePanel = new SavestatePanel
-        {
-            Location = ListViewResults.Location,
-            Size = ListViewResults.Size,
-            Visible = false
-        };
-        GroupBoxResults.Controls.Add(SavestatePanel);
 
         LabelLanding = new Label
         {
@@ -637,7 +668,6 @@ partial class MainForm
 
         GroupBoxResults.Height += shortfall;
         ListViewResults.Height += shortfall;
-        TrainingPanel.Height += shortfall;
         LabelLanding.Top += shortfall;
         GroupBoxStatSearch.Top += shortfall;
         GroupBoxCapture.Top += shortfall;
@@ -649,8 +679,7 @@ partial class MainForm
         {
             Text = "Context Tracking",
             Location = new Point(6, contextTop),
-            Size = new Size(ClientWidth - 12, 18 + NpcGridPanel.GridPixels + BoxBottomPad),
-            Visible = false
+            Size = new Size(ClientWidth - 12, 18 + NpcGridPanel.GridPixels + BoxBottomPad)
         };
 
         ContextPanel = new NpcGridPanel
@@ -659,14 +688,6 @@ partial class MainForm
             Size = new Size(ClientWidth - 12 - 2 * LeftInner, NpcGridPanel.GridPixels)
         };
         GroupBoxContext.Controls.Add(ContextPanel);
-
-        TroubleshootPanel = new TroubleshootPanel
-        {
-            Location = ContextPanel.Location,
-            Size = ContextPanel.Size,
-            Visible = false
-        };
-        GroupBoxContext.Controls.Add(TroubleshootPanel);
 
         int contextButtonY = ContextPanel.Bottom - 24;
         int contextButtonX = ContextPanel.Left + NpcGridPanel.GridPixels + 12;
@@ -718,25 +739,145 @@ partial class MainForm
         GroupBoxContext.Controls.Add(ButtonContextAnchor);
 
         ContextPanel.SendToBack();
-        Controls.Add(GroupBoxContext);
+
+        TabStrip = new ThemedTabStrip
+        {
+            Location = new Point(6, TabStripTop),
+            Size = new Size(ClientWidth - 12, TabStripHeight)
+        };
+
+        Panel MakePage() => new()
+        {
+            Location = new Point(0, PageTop),
+            Size = new Size(ClientWidth, 0),
+            Visible = false
+        };
+
+        PageManip = MakePage();
+        PageManip.Controls.Add(GroupBoxStarter);
+        PageManip.Controls.Add(GroupBoxTimer);
+        PageManip.Controls.Add(GroupBoxResults);
+        PageManip.Controls.Add(GroupBoxStatSearch);
+        PageManip.Controls.Add(GroupBoxCapture);
+        PageManip.Controls.Add(GroupBoxContext);
+        PageManip.Height = GroupBoxContext.Bottom + 6;
+
+        const int MinRangesHeight = 240;
+        int rangesHeight = Math.Max(MinRangesHeight, PageManip.Height - 6 - GroupBoxRanges.Top);
+        GroupBoxRanges.Height = rangesHeight;
+        PanelRanges.Height = rangesHeight - PanelRanges.Top - ButtonAddRange.Height - RowGap - BoxBottomPad;
+        ButtonAddRange.Top = PanelRanges.Bottom + RowGap;
+
+        PageConstraints = MakePage();
+        PageConstraints.Controls.Add(GroupBoxStarterConstraints);
+        PageConstraints.Controls.Add(GroupBoxFilters);
+        PageConstraints.Controls.Add(GroupBoxRanges);
+        PageConstraints.Height = GroupBoxRanges.Bottom + 6;
+
+        const int PageBoxWidth = ClientWidth - 12;
+
+        TrainingPanel = new TrainingPanel
+        {
+            Location = new Point((RightColumnWidth - TrainingPanel.PanelWidth) / 2, 18),
+            Size = new Size(TrainingPanel.PanelWidth, TrainingPanel.PanelHeight)
+        };
+        LabelTrainingLanding = new Label
+        {
+            Location = new Point(6, TrainingPanel.Bottom + RowGap),
+            Size = new Size(RightColumnWidth - 12, 36),
+            TextAlign = ContentAlignment.MiddleCenter,
+            Font = new Font(Font.FontFamily, 9F, FontStyle.Bold),
+            Tag = Theme.KeepForeColor
+        };
+        GroupBoxTraining = new ThemedGroupBox
+        {
+            Text = "Offset Training",
+            Location = new Point(RightColumnLeft, SectionTop),
+            Size = new Size(
+                RightColumnWidth, Math.Max(LabelTrainingLanding.Bottom + BoxBottomPad, GroupBoxTimer.Height))
+        };
+        GroupBoxTraining.Controls.Add(TrainingPanel);
+        GroupBoxTraining.Controls.Add(LabelTrainingLanding);
+        PageTraining = MakePage();
+        PageTraining.Controls.Add(GroupBoxTraining);
+        PageTraining.Height = GroupBoxTraining.Bottom + 6;
+
+        EncounterPanel = new EncounterPanel();
+        EncounterPanel.Location = new Point((PageBoxWidth - EncounterPanel.Width) / 2, 18);
+        GroupBoxEncounter = new ThemedGroupBox
+        {
+            Text = "Encounter Route Planner",
+            Location = new Point(6, SectionTop),
+            Size = new Size(PageBoxWidth, EncounterPanel.Bottom + BoxBottomPad)
+        };
+        GroupBoxEncounter.Controls.Add(EncounterPanel);
+        RomPatchPanel = new RomPatchPanel
+        {
+            Location = new Point((PageBoxWidth - RomPatchPanel.PanelWidth) / 2, 18),
+            Size = new Size(RomPatchPanel.PanelWidth, RomPatchPanel.PanelHeight)
+        };
+        GroupBoxRomPatch = new ThemedGroupBox
+        {
+            Text = "Rom Patch",
+            Location = new Point(6, GroupBoxEncounter.Bottom + SectionGap),
+            Size = new Size(PageBoxWidth, RomPatchPanel.Bottom + BoxBottomPad)
+        };
+        GroupBoxRomPatch.Controls.Add(RomPatchPanel);
+
+        PageEncounter = MakePage();
+        PageEncounter.Controls.Add(GroupBoxEncounter);
+        PageEncounter.Controls.Add(GroupBoxRomPatch);
+        PageEncounter.Height = GroupBoxRomPatch.Bottom + 6;
+
+        SavestatePanel = new SavestatePanel
+        {
+            Location = new Point((PageBoxWidth - SavestatePanel.PanelWidth) / 2, 18),
+            Size = new Size(SavestatePanel.PanelWidth, SavestatePanel.PanelHeight)
+        };
+        GroupBoxSavestate = new ThemedGroupBox
+        {
+            Text = "Savestate Editor",
+            Location = new Point(6, SectionTop),
+            Size = new Size(PageBoxWidth, SavestatePanel.Bottom + BoxBottomPad)
+        };
+        GroupBoxSavestate.Controls.Add(SavestatePanel);
+        PageSavestate = MakePage();
+        PageSavestate.Controls.Add(GroupBoxSavestate);
+        PageSavestate.Height = GroupBoxSavestate.Bottom + 6;
+
+        TroubleshootPanel = new TroubleshootPanel
+        {
+            Location = new Point(LeftInner, 18),
+            Size = new Size(PageBoxWidth - 2 * LeftInner, NpcGridPanel.GridPixels)
+        };
+        GroupBoxTroubleshoot = new ThemedGroupBox
+        {
+            Text = "NPC Troubleshooter",
+            Location = new Point(6, SectionTop),
+            Size = new Size(PageBoxWidth, TroubleshootPanel.Bottom + BoxBottomPad)
+        };
+        GroupBoxTroubleshoot.Controls.Add(TroubleshootPanel);
+        PageTroubleshoot = MakePage();
+        PageTroubleshoot.Controls.Add(GroupBoxTroubleshoot);
+        PageTroubleshoot.Height = GroupBoxTroubleshoot.Bottom + 6;
 
         AutoScaleMode = AutoScaleMode.Font;
-        _compactClientHeight = GroupBoxCapture.Bottom + 6;
-        _trackingClientHeight = GroupBoxContext.Bottom + 6;
-        ClientSize = new Size(ClientWidth, _compactClientHeight);
         FormBorderStyle = FormBorderStyle.FixedSingle;
         MaximizeBox = false;
-        Controls.Add(GroupBoxIvConstraint);
-        Controls.Add(GroupBoxStarter);
-        Controls.Add(GroupBoxTimer);
-        Controls.Add(GroupBoxNatures);
-        Controls.Add(GroupBoxResults);
+        Controls.Add(TabStrip);
+        Controls.Add(PageManip);
+        Controls.Add(PageConstraints);
+        Controls.Add(PageTraining);
+        Controls.Add(PageEncounter);
+        Controls.Add(PageSavestate);
+        Controls.Add(PageTroubleshoot);
         Controls.Add(MenuStripMain);
         MainMenuStrip = MenuStripMain;
         Icon = Assets.AppIcon;
         Text = "FRLG Starter Tool";
 
-        CaptureFullLayout();
+        ClientSize = new Size(ClientWidth, 0);
+        ApplyClientHeight();
 
         ResumeLayout(false);
         PerformLayout();
@@ -765,6 +906,14 @@ partial class MainForm
     private const int RowGap = 4;
 
     private const int SectionTop = 26;
+
+    private const int TabStripTop = SectionTop;
+
+    private const int TabStripHeight = 24;
+
+    private const int PageTop = TabStripTop + TabStripHeight + SectionGap - SectionTop;
+
+    private const int CompactStarterRow = 18;
 
     private const int SectionGap = 4;
 
@@ -820,6 +969,7 @@ partial class MainForm
     private TextBox MakeTextBox(int x, int y, int width, string text)
         => new ThemedTextBox
         {
+            Numeric = true,
             AutoSize = false,
             Location = new Point(x, y),
             Size = new Size(width, _fieldHeight),

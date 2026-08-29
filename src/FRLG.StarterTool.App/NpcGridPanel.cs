@@ -773,7 +773,7 @@ public sealed class NpcGridPanel : Control
 
         if (focused)
         {
-            using var fill = new SolidBrush(Theme.NpcTileBlocked);
+            using var fill = new SolidBrush(Theme.NpcRowFocus);
             g.FillRectangle(fill, row);
 
             using var edge = new Pen(Theme.Accent);

@@ -50,9 +50,18 @@ public enum ClipboardFormat
     Row
 }
 
+public enum StatStripSide
+{
+    Bottom,
+
+    Left,
+
+    Right
+}
+
 public sealed class AppSettings
 {
-    public int Version { get; set; } = 1;
+    public int Version { get; set; } = SettingsMigrations.CurrentVersion;
 
     public Hotkey Start { get; set; } = new();
     public Hotkey Stop { get; set; } = new();
@@ -98,11 +107,53 @@ public sealed class AppSettings
 
     public double NpcCuedPressWindowMs { get; set; } = DefaultCuedPressWindowMs;
 
-    public bool NpcGridVisible { get; set; }
-
     public string SavestateLoadPath { get; set; } = "";
 
     public string SavestateSavePath { get; set; } = "";
+
+    public string RomPatchRomPath { get; set; } = "";
+
+    public string RomPatchOutputPath { get; set; } = "";
+
+    public string RomPatchPatchPath { get; set; } = "";
+
+    public string EncounterRoute { get; set; } = "";
+
+    public int EncounterCycles { get; set; } = 53;
+
+    public string EncounterProtocol { get; set; } = "rta";
+
+    public string EncounterButtons { get; set; } = "help";
+
+    public string EncounterGame { get; set; } = "fr";
+
+    public string EncounterCombo { get; set; } = "any";
+
+    public string EncounterSound { get; set; } = "mono";
+
+    public string EncounterIntro { get; set; } = "none";
+
+    public string EncounterTitle { get; set; } = "either";
+
+    public int EncounterDelayMs { get; set; }
+
+    public int EncounterIntroFrame { get; set; }
+
+    public int EncounterIntroWindow { get; set; } = 1;
+
+    public int EncounterTitleFrame { get; set; }
+
+    public int EncounterTitleWindow { get; set; } = 1;
+
+    public List<EncounterRoutePreset> EncounterRoutes { get; set; } = new();
+
+    public string EncounterActiveRoute { get; set; } = "";
+    public List<string> EncounterExamplesSeeded { get; set; } = new();
+
+    public string TimerEncounterRoute { get; set; } = "";
+
+    public EncounterRoutePreset? FindEncounterRoute(string name) =>
+        EncounterRoutes.FirstOrDefault(route => EncounterRoutePreset.NameEquals(route.Name, name));
 
     public const int DefaultCuedLabPressOffsetFrames = 110;
 
@@ -120,11 +171,27 @@ public sealed class AppSettings
 
     public bool DarkMode { get; set; } = true;
 
-    public bool HideConstraints { get; set; }
+    public bool ViewManip { get; set; } = true;
+
+    public bool ViewConstraints { get; set; } = true;
+
+    public bool ViewTraining { get; set; } = true;
+
+    public bool ViewEncounter { get; set; } = true;
+
+    public bool ViewSavestate { get; set; } = false;
+
+    public bool ViewTroubleshooter { get; set; } = false;
+
+    public string SelectedTab { get; set; } = "manip";
 
     public bool ShowLabDelayDashes { get; set; }
 
     public bool AutoShowLevelStats { get; set; } = true;
+
+    public double ClockDrift { get; set; } = 1.0;
+
+    public bool AtomicClockSync { get; set; } = true;
 
     public int ZoomPercent { get; set; } = 100;
 
@@ -171,6 +238,8 @@ public sealed class AppSettings
 
     public bool StatServerTransparent { get; set; }
 
+    public StatStripSide StatServerStripSide { get; set; } = StatStripSide.Bottom;
+
     public bool StatServerPostRun { get; set; } = true;
 
     public int StatServerPostRunSeconds { get; set; } = DefaultStatServerPostRunSeconds;
@@ -185,6 +254,8 @@ public sealed class AppSettings
     public string Offset { get; set; } = "0";
 
     public string VisualOffset { get; set; } = "0";
+
+    public string DelayOffset { get; set; } = "0";
 
     public string Interval { get; set; } = "1000";
     public string NumBeeps { get; set; } = "4";
@@ -222,12 +293,17 @@ public sealed class AppSettings
     public int[] IvNeutral { get; set; } = new int[6];
     public int[] IvPlus { get; set; } = new int[6];
 
+    public List<ConstraintRange> Ranges { get; set; } = new();
+
     public List<FilterPreset> Presets { get; set; } = new();
 
     public string ActivePreset { get; set; } = "";
 
     public FilterPreset? FindPreset(string name) =>
         Presets.FirstOrDefault(preset => FilterPreset.NameEquals(preset.Name, name));
+
+    public ConstraintRange PrimaryRange =>
+        Ranges.FirstOrDefault(range => !range.Backup) ?? Ranges.FirstOrDefault() ?? new ConstraintRange();
 
     public FilterPreset GetCurrentFilter(string name = "") => new FilterPreset
     {
@@ -238,7 +314,8 @@ public sealed class AppSettings
         Natures = Natures,
         IvMinus = IvMinus,
         IvNeutral = IvNeutral,
-        IvPlus = IvPlus
+        IvPlus = IvPlus,
+        Ranges = Ranges
     }.Clone(name);
 
     public void SetCurrentFilter(FilterPreset filter)
@@ -251,6 +328,7 @@ public sealed class AppSettings
         IvMinus = copy.IvMinus;
         IvNeutral = copy.IvNeutral;
         IvPlus = copy.IvPlus;
+        Ranges = copy.Ranges;
     }
 
     public Hotkey GetHotkey(HotkeyAction action) => action switch
@@ -278,38 +356,70 @@ public sealed class AppSettings
         _ => throw new ArgumentOutOfRangeException(nameof(action), action, "Unknown hotkey action")
     };
 
+    public IEnumerable<Hotkey> AllHotkeys()
+    {
+        foreach (HotkeyAction action in Enum.GetValues<HotkeyAction>())
+        {
+            yield return GetHotkey(action);
+        }
+    }
+
+    private static string StripWhitespace(string? text, string fallback)
+    {
+        if (text == null) return fallback;
+        string stripped = string.Concat(text.Where(c => !char.IsWhiteSpace(c)));
+        return stripped.Length == 0 ? fallback : stripped;
+    }
+
     public AppSettings Normalize()
     {
-        Start ??= new Hotkey();
-        Stop ??= new Hotkey();
-        AddFrame ??= new Hotkey();
-        SubFrame ??= new Hotkey();
-        ToggleLevel ??= new Hotkey();
-        Multiply2 ??= new Hotkey();
-        Multiply3 ??= new Hotkey();
-        ListUp ??= new Hotkey();
-        ListDown ??= new Hotkey();
-        ExportStats ??= new Hotkey();
-        ToggleGlobalHotkeys ??= new Hotkey();
-        NpcUp ??= new Hotkey();
-        NpcDown ??= new Hotkey();
-        NpcLeft ??= new Hotkey();
-        NpcRight ??= new Hotkey();
-        NpcFocusPrev ??= new Hotkey();
-        NpcFocusNext ??= new Hotkey();
-        NpcUndo ??= new Hotkey();
-        NpcComplete ??= new Hotkey();
-        NpcMiss ??= new Hotkey();
+        (Start ??= new Hotkey()).Normalize();
+        (Stop ??= new Hotkey()).Normalize();
+        (AddFrame ??= new Hotkey()).Normalize();
+        (SubFrame ??= new Hotkey()).Normalize();
+        (ToggleLevel ??= new Hotkey()).Normalize();
+        (Multiply2 ??= new Hotkey()).Normalize();
+        (Multiply3 ??= new Hotkey()).Normalize();
+        (ListUp ??= new Hotkey()).Normalize();
+        (ListDown ??= new Hotkey()).Normalize();
+        (ExportStats ??= new Hotkey()).Normalize();
+        (ToggleGlobalHotkeys ??= new Hotkey()).Normalize();
+        (NpcUp ??= new Hotkey()).Normalize();
+        (NpcDown ??= new Hotkey()).Normalize();
+        (NpcLeft ??= new Hotkey()).Normalize();
+        (NpcRight ??= new Hotkey()).Normalize();
+        (NpcFocusPrev ??= new Hotkey()).Normalize();
+        (NpcFocusNext ??= new Hotkey()).Normalize();
+        (NpcUndo ??= new Hotkey()).Normalize();
+        (NpcComplete ??= new Hotkey()).Normalize();
+        (NpcMiss ??= new Hotkey()).Normalize();
 
         if (!Enum.IsDefined(KeyMethod)) KeyMethod = KeyMethod.OnPress;
         if (!Enum.IsDefined(ClipboardFormat)) ClipboardFormat = ClipboardFormat.Column;
+        if (!Enum.IsDefined(StatServerStripSide)) StatServerStripSide = StatStripSide.Bottom;
         if (!Enum.IsDefined(TimeFormat)) TimeFormat = TimeFormat.Seconds;
 
+        EncounterCycles = Math.Clamp(EncounterCycles, 0, 65535);
+        EncounterProtocol = EncounterProtocol == "sweep" ? "sweep" : "rta";
+        EncounterButtons = EncounterButtons is "la" ? EncounterButtons : "help";
+        EncounterGame = EncounterGame is "lg" ? EncounterGame : "fr";
+        EncounterCombo = Encounters.TitleCombo.Parse(EncounterCombo)?.Key ?? "any";
+        EncounterSound = EncounterSound is "stereo" or "any" ? EncounterSound : "mono";
+        EncounterIntro = EncounterIntro is "skip477" or "skip990" or "any" ? EncounterIntro : "none";
+        EncounterTitle = EncounterTitle is "played" or "spedup" ? EncounterTitle : "either";
+        EncounterDelayMs = Math.Clamp(EncounterDelayMs, -10000, 10000);
+        EncounterIntroFrame = Math.Clamp(EncounterIntroFrame, 0, 100000);
+        EncounterTitleFrame = Math.Clamp(EncounterTitleFrame, 0, 100000);
+        EncounterIntroWindow = Math.Clamp(EncounterIntroWindow, 1, 60);
+        EncounterTitleWindow = Math.Clamp(EncounterTitleWindow, 1, 60);
+        NormalizeEncounterRoutes();
+
         Fps ??= "59.7275";
-        Offset ??= "0";
-        VisualOffset ??= "0";
-        Interval ??= "1000";
-        NumBeeps ??= "4";
+        Offset = StripWhitespace(Offset, "0");
+        VisualOffset = StripWhitespace(VisualOffset, "0");
+        DelayOffset = StripWhitespace(DelayOffset, "0");
+        Interval = StripWhitespace(Interval, "1000");
+        NumBeeps = StripWhitespace(NumBeeps, "4");
         Volume = Math.Clamp(Volume, 0, 100);
         if (string.IsNullOrWhiteSpace(BeepSound)) BeepSound = "ping1";
         if (string.IsNullOrWhiteSpace(StatBoxLabelColor)) StatBoxLabelColor = DefaultStatBoxLabelColor;
@@ -335,6 +445,8 @@ public sealed class AppSettings
         StatServerPostRunSeconds = Math.Clamp(
             StatServerPostRunSeconds, MinStatServerPostRunSeconds, MaxStatServerPostRunSeconds);
 
+        if (!Timing.DriftMonitor.IsPlausible(ClockDrift)) ClockDrift = 1.0;
+
         NormalizeTips();
 
         MinFrame ??= "0";
@@ -346,6 +458,9 @@ public sealed class AppSettings
         IvMinus = SettingsArrays.Resize(IvMinus, 6);
         IvNeutral = SettingsArrays.Resize(IvNeutral, 6);
         IvPlus = SettingsArrays.Resize(IvPlus, 6);
+
+        Ranges = SettingsArrays.Repair(Ranges, Natures, IvMinus, IvNeutral, IvPlus);
+        (Natures, IvMinus, IvNeutral, IvPlus) = SettingsArrays.MirrorPrimary(PrimaryRange);
 
         NormalizePresets();
 
@@ -378,5 +493,46 @@ public sealed class AppSettings
 
         ActivePreset = (ActivePreset ?? "").Trim();
         if (FindPreset(ActivePreset) == null) ActivePreset = "";
+    }
+
+    private void NormalizeEncounterRoutes()
+    {
+        EncounterRoutes ??= new List<EncounterRoutePreset>();
+
+        var kept = new List<EncounterRoutePreset>(EncounterRoutes.Count);
+        foreach (EncounterRoutePreset? route in EncounterRoutes)
+        {
+            if (route == null) continue;
+
+            route.Normalize();
+            if (route.Name.Length == 0) continue;
+            if (kept.Any(other => EncounterRoutePreset.NameEquals(other.Name, route.Name))) continue;
+
+            kept.Add(route);
+        }
+        SeedExampleRoutes(kept);
+        EncounterRoutes = kept;
+
+        EncounterActiveRoute = (EncounterActiveRoute ?? "").Trim();
+        if (FindEncounterRoute(EncounterActiveRoute) == null) EncounterActiveRoute = "";
+        TimerEncounterRoute = (TimerEncounterRoute ?? "").Trim();
+        if (FindEncounterRoute(TimerEncounterRoute) == null) TimerEncounterRoute = "";
+    }
+
+    private void SeedExampleRoutes(List<EncounterRoutePreset> routes)
+    {
+        EncounterExamplesSeeded ??= new List<string>();
+
+        foreach (EncounterRoutePreset example in EncounterRoutePreset.Examples)
+        {
+            bool seeded = EncounterExamplesSeeded.Any(
+                name => EncounterRoutePreset.NameEquals(name, example.Name));
+            if (seeded) continue;
+
+            EncounterExamplesSeeded.Add(example.Name);
+            if (routes.Any(route => EncounterRoutePreset.NameEquals(route.Name, example.Name))) continue;
+
+            routes.Add(example.Clone().Normalize());
+        }
     }
 }

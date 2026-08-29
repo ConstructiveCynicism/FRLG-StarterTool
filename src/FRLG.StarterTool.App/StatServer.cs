@@ -34,6 +34,8 @@ public sealed class StatServer : IDisposable
 
     private volatile bool _transparent;
 
+    private volatile int _stripSide;
+
     private volatile bool _postRunEnabled = true;
 
     private volatile int _postRunMs =
@@ -64,6 +66,7 @@ public sealed class StatServer : IDisposable
 
         _prefix = settings.StatServerRequireToken ? "/" + settings.StatServerToken + "/" : "/";
         _transparent = settings.StatServerTransparent;
+        _stripSide = (int)settings.StatServerStripSide;
         _postRunEnabled = settings.StatServerPostRun;
         _postRunMs = Math.Clamp(
             settings.StatServerPostRunSeconds,
@@ -282,11 +285,13 @@ public sealed class StatServer : IDisposable
         }
         else if (path == _prefix + "ivs.png")
         {
-            Write(stream, 200, "image/png", Png(state.Ivs, ScaleOf(query), Served(state.Palette)));
+            Write(stream, 200, "image/png",
+                Png(state.Ivs, ScaleOf(query), Served(state.Palette), (StatStripSide)_stripSide));
         }
         else if (path == _prefix + "stats.png")
         {
-            Write(stream, 200, "image/png", Png(state.Stats, ScaleOf(query), Served(state.Palette)));
+            Write(stream, 200, "image/png",
+                Png(state.Stats, ScaleOf(query), Served(state.Palette), (StatStripSide)_stripSide));
         }
         else if (path == _prefix + "post.png")
         {
@@ -295,7 +300,8 @@ public sealed class StatServer : IDisposable
                     state.Card ?? default,
                     ScaleOf(query),
                     BoxOf(query) == StatServerPage.BoxBoth,
-                    Served(state.Palette)));
+                    Served(state.Palette),
+                    (StatStripSide)_stripSide));
         }
         else if (path == _prefix + "events")
         {
@@ -355,18 +361,19 @@ public sealed class StatServer : IDisposable
     private StatBoxPalette Served(in StatBoxPalette palette) =>
         _transparent ? palette with { Fill = Color.Transparent } : palette;
 
-    private static byte[] Png(in StatBoxContent content, int scale, in StatBoxPalette palette)
+    private static byte[] Png(
+        in StatBoxContent content, int scale, in StatBoxPalette palette, StatStripSide side)
     {
-        using Bitmap bitmap = StatBoxPanel.Render(content, scale, palette);
+        using Bitmap bitmap = StatBoxPanel.Render(content, scale, palette, side);
         using var buffer = new MemoryStream();
         bitmap.Save(buffer, ImageFormat.Png);
         return buffer.ToArray();
     }
 
     private static byte[] PostRunPng(
-        in PostRunCard card, int scale, bool pair, in StatBoxPalette palette)
+        in PostRunCard card, int scale, bool pair, in StatBoxPalette palette, StatStripSide side)
     {
-        using Bitmap bitmap = PostRunCard.Render(card, scale, pair, palette);
+        using Bitmap bitmap = PostRunCard.Render(card, scale, pair, palette, side);
         using var buffer = new MemoryStream();
         bitmap.Save(buffer, ImageFormat.Png);
         return buffer.ToArray();

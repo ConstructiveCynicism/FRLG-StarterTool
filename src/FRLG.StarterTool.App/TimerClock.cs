@@ -101,6 +101,8 @@ public sealed class TimerClock : Control
         Invalidate();
     }
 
+    private const float DigitCapHeight = 0.70F;
+
     protected override void OnPaint(PaintEventArgs e)
     {
         Graphics g = e.Graphics;
@@ -128,9 +130,27 @@ public sealed class TimerClock : Control
             }
         }
 
+        FontFamily family = Font.FontFamily;
+        float em = Font.Unit switch
+        {
+            GraphicsUnit.Pixel => Font.Size,
+            GraphicsUnit.Point => Font.Size * DeviceDpi / 72F,
+            GraphicsUnit.Inch => Font.Size * DeviceDpi,
+            GraphicsUnit.Millimeter => Font.Size * DeviceDpi / 25.4F,
+            GraphicsUnit.Document => Font.Size * DeviceDpi / 300F,
+            _ => Font.Size * DeviceDpi / 72F,
+        };
+        int emUnits = family.GetEmHeight(Font.Style);
+        float lineHeight = em * family.GetLineSpacing(Font.Style) / emUnits;
+        float ascent = em * family.GetCellAscent(Font.Style) / emUnits;
+        float capHeight = em * DigitCapHeight;
+        int textTop = (int)Math.Round(ClientRectangle.Height / 2.0 + capHeight / 2.0 - ascent);
+        var line = new Rectangle(0, textTop, ClientRectangle.Width, (int)Math.Ceiling(lineHeight));
+
         TextRenderer.DrawText(
-            g, Text, Font, ClientRectangle, ForeColor,
-            TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter | TextFormatFlags.NoPadding);
+            g, Text, Font, line, ForeColor,
+            TextFormatFlags.HorizontalCenter | TextFormatFlags.Top | TextFormatFlags.NoPadding
+            | TextFormatFlags.NoClipping);
     }
 
     private static GraphicsPath RoundedRectangle(Rectangle bounds, int radius)

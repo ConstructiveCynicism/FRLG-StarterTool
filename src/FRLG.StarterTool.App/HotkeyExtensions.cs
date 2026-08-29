@@ -37,16 +37,28 @@ public static class HotkeyExtensions
 
     public static bool IsHeld(this Hotkey hotkey)
         => hotkey.IsBound
-           && (Win32.IsKeyDown((Keys)hotkey.Primary) || Win32.IsKeyDown((Keys)hotkey.Secondary))
+           && hotkey.IsDown(InputState.IsDown)
            && (hotkey.Global || Win32.IsForeground(StarterTool.MainFormHandle));
 
-    public static bool IsPressed(this Hotkey hotkey, Keys key)
-        => hotkey.Matches((int)key) && (hotkey.Global || Win32.IsForeground(StarterTool.MainFormHandle));
+    public static bool IsPressed(this Hotkey hotkey, InputPress press)
+    {
+        if (!hotkey.Global && !press.Foreground) return false;
+
+        int length = hotkey.MatchLength(press.Input, press.Held);
+        return length > 0 && length >= press.BestMatch;
+    }
 
     public static bool IsActivatedByEvent(this KeyMethod method, int wParam) => method switch
     {
         KeyMethod.OnPress => wParam is Win32.WM_KEYDOWN or Win32.WM_SYSKEYDOWN,
         KeyMethod.OnRelease => wParam is Win32.WM_KEYUP or Win32.WM_SYSKEYUP,
+        _ => false
+    };
+
+    public static bool IsActivatedByEdge(this KeyMethod method, bool pressed) => method switch
+    {
+        KeyMethod.OnPress => pressed,
+        KeyMethod.OnRelease => !pressed,
         _ => false
     };
 
@@ -63,8 +75,29 @@ public static class HotkeyExtensions
         Keys.Scroll => "Scroll Lock",
         Keys.Apps => "Menu",
 
+        Keys.LShiftKey => "L Shift",
+        Keys.RShiftKey => "R Shift",
+        Keys.LControlKey => "L Ctrl",
+        Keys.RControlKey => "R Ctrl",
+        Keys.LMenu => "L Alt",
+        Keys.RMenu => "R Alt",
+        Keys.LWin => "L Win",
+        Keys.RWin => "R Win",
+
         _ => key.ToString()
     };
+
+    public static string Describe(this InputCode code) => code.IsNone
+        ? "Unset"
+        : code.IsKeyboard
+            ? ((Keys)code.Code).ToFormattedString()
+            : GamepadInput.PadName(code.Pad) + " " + GamepadInput.Name(code.Code);
+
+    public static string Describe(this InputChord chord)
+        => chord.IsEmpty ? "Unset" : string.Join("+", chord.Inputs.Select(Describe));
+
+    public static string Describe(this Hotkey hotkey)
+        => hotkey.IsBound ? string.Join(", ", hotkey.Chords.Select(Describe)) : "Unset";
 
     public static string ToFormattedString(this KeyMethod method) => method switch
     {

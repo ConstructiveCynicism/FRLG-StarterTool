@@ -61,7 +61,8 @@ public sealed class TrainingSession
         double finalBeepMs = firstBeepMs + (info.NumBeeps - 1) * (double)info.Interval;
 
         double frame = Math.Ceiling(
-            (finalBeepMs - (Visual ? info.VisualOffset : info.Offset)) / 1000.0 * info.Fps);
+            (finalBeepMs - (Visual ? info.VisualOffset : info.Offset) - info.DelayOffset)
+            / 1000.0 * info.Fps);
 
         return frame < 0.0 ? 0u : (uint)frame;
     }

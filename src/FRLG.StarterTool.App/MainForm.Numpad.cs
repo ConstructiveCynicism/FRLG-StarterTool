@@ -40,7 +40,7 @@ public partial class MainForm
 
     private void ReleaseNumberField(TextBox box)
     {
-        TakeCaret(ListViewResults);
+        HandCaretToResults();
         if (box.Focused) ActiveControl = null;
     }
 
@@ -63,7 +63,7 @@ public partial class MainForm
 
     public void ScrollResults(HotkeyAction action)
     {
-        if (!ListViewResults.Visible) return;
+        if (_selectedTab != TabKey.Manip) return;
 
         MoveResultSelection(action switch
         {
@@ -78,12 +78,12 @@ public partial class MainForm
         if (!StarterTool.Settings.GlobalNumpadInput) return;
         if (ReferenceEquals(ActiveForm, this)) return;
 
-        if (TrainingPanel.Visible) return;
+        if (_selectedTab == TabKey.Training) return;
 
         Keys key = TranslateNumpad(rawKey, extended);
         if (key == Keys.None) return;
 
-        bool navigating = ReferenceEquals(ActiveControl, ListViewResults) && ListViewResults.Visible;
+        bool navigating = ReferenceEquals(ActiveControl, ListViewResults) && _selectedTab == TabKey.Manip;
         if (navigating && HandleResultsNumpad(key)) return;
 
         if (!StarterTool.IsTimerRunning) return;
@@ -155,12 +155,16 @@ public partial class MainForm
     {
         if (!TextBoxTrainerId.Enabled) return;
 
+        if (_trainerIdLocked) return;
+
         FocusTrainerIdIfNeeded();
         TextBoxTrainerId.SelectedText = digit.ToString();
     }
 
     private void ResetTrainerId()
     {
+        if (_trainerIdLocked) return;
+
         FocusTrainerIdIfNeeded();
         TextBoxTrainerId.Clear();
     }

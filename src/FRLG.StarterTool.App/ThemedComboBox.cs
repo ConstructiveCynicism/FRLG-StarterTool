@@ -115,6 +115,16 @@ public sealed class ThemedComboBox : ComboBox
 
     protected override void WndProc(ref Message m)
     {
+        if (m.Msg == Win32.WM_MOUSEWHEEL && !DroppedDown)
+        {
+            if (Parent is { } parent && parent.IsHandleCreated)
+            {
+                Win32.SendMessage(parent.Handle, Win32.WM_MOUSEWHEEL, m.WParam, m.LParam);
+            }
+
+            return;
+        }
+
         base.WndProc(ref m);
 
         if (m.Msg == Win32.WM_PAINT)

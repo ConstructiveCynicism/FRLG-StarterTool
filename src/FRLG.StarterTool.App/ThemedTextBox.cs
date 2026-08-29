@@ -8,6 +8,28 @@ public sealed class ThemedTextBox : TextBox
 
     private bool Adjusted => BorderStyle == BorderStyle.FixedSingle && !Multiline;
 
+    public bool Numeric { get; set; }
+
+    protected override void OnTextChanged(EventArgs e)
+    {
+        if (Numeric && Text.Any(char.IsWhiteSpace))
+        {
+            string text = Text;
+            int caret = SelectionStart;
+            int before = 0;
+            for (int i = 0; i < caret && i < text.Length; i++)
+            {
+                if (char.IsWhiteSpace(text[i])) before++;
+            }
+
+            Text = string.Concat(text.Where(c => !char.IsWhiteSpace(c)));
+            SelectionStart = Math.Max(0, caret - before);
+            return;
+        }
+
+        base.OnTextChanged(e);
+    }
+
     protected override void OnHandleCreated(EventArgs e)
     {
         base.OnHandleCreated(e);

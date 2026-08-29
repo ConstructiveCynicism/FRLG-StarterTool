@@ -1,12 +1,17 @@
+using System.Text.Encodings.Web;
 using System.Text.Json;
+using System.Text.Json.Nodes;
+using System.Text.Json.Serialization.Metadata;
 
 namespace FRLG.StarterTool.Core.Settings;
 
 public static class SettingsStore
 {
-    private static readonly JsonSerializerOptions Options = new()
+    public static readonly JsonSerializerOptions Options = new()
     {
-        WriteIndented = true
+        WriteIndented = true,
+        Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping,
+        TypeInfoResolver = new DefaultJsonTypeInfoResolver()
     };
 
     public static string DefaultDirectory => Path.Combine(
@@ -25,19 +30,46 @@ public static class SettingsStore
 
         try
         {
-            AppSettings? settings = JsonSerializer.Deserialize<AppSettings>(File.ReadAllText(path), Options);
+            string json = File.ReadAllText(path);
+
+            JsonObject? root = SettingsMigrations.Parse(json);
+            if (root != null)
+            {
+                int upgradedFrom = SettingsMigrations.Upgrade(root);
+                if (upgradedFrom > 0)
+                {
+                    json = root.ToJsonString(Options);
+                    WriteBack(path, upgradedFrom, json);
+                }
+            }
+
+            AppSettings? settings = JsonSerializer.Deserialize<AppSettings>(json, Options);
             if (settings != null)
             {
                 return settings.Normalize();
             }
             error = "The settings file was empty.";
         }
-        catch (Exception e) when (e is JsonException or IOException or UnauthorizedAccessException)
+        catch (Exception e) when (e is JsonException or IOException or UnauthorizedAccessException
+                                      or InvalidOperationException or NotSupportedException)
         {
             error = e.Message;
         }
 
         return new AppSettings().Normalize();
+    }
+
+    private static void WriteBack(string path, int fromVersion, string upgradedJson)
+    {
+        try
+        {
+            string backup = SettingsMigrations.BackupPath(path, fromVersion);
+            if (!File.Exists(backup)) File.Copy(path, backup);
+            File.WriteAllText(path, upgradedJson);
+        }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException)
+        {
+        }
     }
 
     public static bool Save(string path, AppSettings settings, out string? error)
@@ -51,6 +83,7 @@ public static class SettingsStore
                 Directory.CreateDirectory(directory);
             }
 
+            settings.Version = SettingsMigrations.CurrentVersion;
             File.WriteAllText(path, JsonSerializer.Serialize(settings, Options));
             return true;
         }

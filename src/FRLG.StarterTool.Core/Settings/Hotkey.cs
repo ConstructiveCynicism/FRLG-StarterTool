@@ -4,27 +4,55 @@ namespace FRLG.StarterTool.Core.Settings;
 
 public sealed class Hotkey
 {
-    public int Primary { get; set; }
-
-    public int Secondary { get; set; }
+    public List<InputChord> Chords { get; set; } = new();
 
     public bool Global { get; set; } = true;
 
     [JsonIgnore]
-    public bool IsBound => Primary != 0 || Secondary != 0;
+    public bool IsBound => Chords.Count > 0;
 
-    public bool Matches(int keyCode) => keyCode != 0 && (Primary == keyCode || Secondary == keyCode);
-
-    public void ClearOne()
+    public int MatchLength(InputCode trigger, Func<InputCode, bool> isDown)
     {
-        if (Secondary != 0)
+        int best = 0;
+        foreach (InputChord chord in Chords)
         {
-            Secondary = 0;
+            if (chord.Count > best && chord.Matches(trigger, isDown)) best = chord.Count;
         }
-        else
+        return best;
+    }
+
+    public bool IsDown(Func<InputCode, bool> isDown)
+    {
+        foreach (InputChord chord in Chords)
         {
-            Primary = 0;
+            if (chord.AllDown(isDown)) return true;
         }
+        return false;
+    }
+
+    public bool Contains(InputChord chord) => Chords.Contains(chord);
+
+    public bool Toggle(InputChord chord)
+    {
+        if (chord.IsEmpty) return false;
+
+        if (Chords.Remove(chord)) return false;
+
+        Chords.Add(chord);
+        return true;
+    }
+
+    public void Clear() => Chords.Clear();
+
+    public void Normalize()
+    {
+        Chords ??= new List<InputChord>();
+        var kept = new List<InputChord>(Chords.Count);
+        foreach (InputChord chord in Chords)
+        {
+            if (chord is { IsEmpty: false } && !kept.Contains(chord)) kept.Add(chord);
+        }
+        Chords = kept;
     }
 }
 

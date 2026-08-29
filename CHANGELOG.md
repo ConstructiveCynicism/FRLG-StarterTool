@@ -1,3 +1,15 @@
+# Features
+
+### v2.0.0
+- Encounter Manip + Planner
+- ROM Patching for Encounter Manip testing
+- Settings now organized by header
+- Multiple constraint filters and colors for easier starter selection
+- Atomic + System clock syncing for higher accuracy
+- Controller support
+- Unlimited keybinds + combo support
+- Better support for unusual offsets
+
 ### v1.4.0
 - window scaling hotfix (untested)
 - fixed more hotkey overlap bugs
