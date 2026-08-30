@@ -16,7 +16,7 @@ public sealed class VariableOffsetTimer : BaseTimer
         "59.8261",
         "60",
         "59.94",
-        "56.6555",
+        "59.6555",
         "50"
     };
 
