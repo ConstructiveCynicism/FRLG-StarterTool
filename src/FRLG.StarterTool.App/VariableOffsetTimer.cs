@@ -492,7 +492,7 @@ public sealed class VariableOffsetTimer : BaseTimer
         _encounterDone = false;
 
         _encounter = new EncounterRun(route, info);
-        _encounterLastTargetTime = StarterTool.TimerStart + _encounter.LastTargetMs;
+        _encounterLastTargetTime = StarterTool.TimerStart + _encounter.LastPressMs;
 
         double elapsedMs = Win32.GetTime() - StarterTool.TimerStart;
         double[] beeps = _form.CheckBoxBeepEnabled.Checked
@@ -574,6 +574,16 @@ public sealed class VariableOffsetTimer : BaseTimer
             "Reset seed manip stopped - Start runs it again", null);
     }
 
+    public void ResetEncounterRun()
+    {
+        if (_encounter != null || !_encounterDone) return;
+
+        _encounterDone = false;
+        ContextSession.Log("encounter manip reset by Stop - Start runs it again");
+        _form.ShowEncounterLanding(Array.Empty<EncounterLandingRow>(),
+            "Reset seed manip reset - Start runs it again", null);
+    }
+
     private void FinishEncounterRun()
     {
         if (_encounter == null) return;
@@ -651,7 +661,7 @@ public sealed class VariableOffsetTimer : BaseTimer
             return;
         }
 
-        _encounterLastTargetTime = StarterTool.TimerStart + _encounter.LastTargetMs;
+        _encounterLastTargetTime = StarterTool.TimerStart + _encounter.LastPressMs;
         double sinceStartMs = Win32.GetTime() - StarterTool.TimerStart;
         StarterTool.Beeps.QueueBeeps(_form.CheckBoxBeepEnabled.Checked
             ? _encounter.BeepSchedule(sinceStartMs)

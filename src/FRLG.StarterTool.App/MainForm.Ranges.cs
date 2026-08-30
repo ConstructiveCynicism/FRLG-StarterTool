@@ -18,19 +18,20 @@ public partial class MainForm
     {
         ButtonAddRange.Click += (_, _) => AddRange();
 
-        ButtonFilterLoad.Click += (_, _) => LoadSelectedFilter();
-        ButtonFilterSaveAs.Click += (_, _) => { SaveFilterAs(); FillFilterList(); };
         ButtonFilterUpdate.Click += (_, _) => { UpdateActiveFilter(); FillFilterList(); };
-        ButtonFilterRename.Click += (_, _) => { RenameActiveFilter(); FillFilterList(); };
+        ButtonFilterSave.Click += (_, _) => { SaveFilterAs(); FillFilterList(); };
+        ButtonFilterImport.Click += (_, _) => ImportFilter();
+        ButtonFilterExport.Click += (_, _) => ExportActiveFilter();
         ButtonFilterDelete.Click += (_, _) => { DeleteActiveFilter(); FillFilterList(); };
 
-        ListBoxFilters.DoubleClick += (_, _) => LoadSelectedFilter();
+        ListBoxFilters.DoubleClick += (_, _) => { RenameActiveFilter(); FillFilterList(); };
         ListBoxFilters.SelectedIndexChanged += (_, _) =>
         {
             if (_fillingFilters) return;
             if (StarterTool.Settings is not { } settings) return;
 
             settings.ActivePreset = ListBoxFilters.SelectedItem as string ?? "";
+            LoadSelectedFilter();
         };
     }
 
@@ -288,9 +289,8 @@ public partial class MainForm
         }
 
         bool any = ListBoxFilters.SelectedIndex >= 0;
-        ButtonFilterLoad.Enabled = any;
         ButtonFilterUpdate.Enabled = any;
-        ButtonFilterRename.Enabled = any;
+        ButtonFilterExport.Enabled = any;
         ButtonFilterDelete.Enabled = any;
     }
 
@@ -302,6 +302,6 @@ public partial class MainForm
         FilterPreset? preset = settings.FindPreset(name);
         if (preset == null) return;
 
-        LoadFilter(preset);
+        LoadFilter(preset, focusTrainerId: false);
     }
 }

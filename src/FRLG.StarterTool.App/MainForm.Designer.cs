@@ -65,10 +65,10 @@ partial class MainForm
     public ThemedGroupBox GroupBoxFilters;
 
     public ListBox ListBoxFilters;
-    public Button ButtonFilterLoad;
-    public Button ButtonFilterSaveAs;
     public Button ButtonFilterUpdate;
-    public Button ButtonFilterRename;
+    public Button ButtonFilterSave;
+    public Button ButtonFilterImport;
+    public Button ButtonFilterExport;
     public Button ButtonFilterDelete;
 
     public ThemedGroupBox GroupBoxRanges;
@@ -497,15 +497,15 @@ partial class MainForm
             Size = new Size(filterButtonWidth, 22)
         };
 
-        ButtonFilterLoad = MakeFilterButton("Load", 0);
-        ButtonFilterSaveAs = MakeFilterButton("Save As", 1);
-        ButtonFilterUpdate = MakeFilterButton("Update", 2);
-        ButtonFilterRename = MakeFilterButton("Rename", 3);
+        ButtonFilterUpdate = MakeFilterButton("Update", 0);
+        ButtonFilterSave = MakeFilterButton("Save", 1);
+        ButtonFilterImport = MakeFilterButton("Import", 2);
+        ButtonFilterExport = MakeFilterButton("Export", 3);
         ButtonFilterDelete = MakeFilterButton("Delete", 4);
-        GroupBoxFilters.Controls.Add(ButtonFilterLoad);
-        GroupBoxFilters.Controls.Add(ButtonFilterSaveAs);
         GroupBoxFilters.Controls.Add(ButtonFilterUpdate);
-        GroupBoxFilters.Controls.Add(ButtonFilterRename);
+        GroupBoxFilters.Controls.Add(ButtonFilterSave);
+        GroupBoxFilters.Controls.Add(ButtonFilterImport);
+        GroupBoxFilters.Controls.Add(ButtonFilterExport);
         GroupBoxFilters.Controls.Add(ButtonFilterDelete);
 
         GroupBoxRanges = new ThemedGroupBox

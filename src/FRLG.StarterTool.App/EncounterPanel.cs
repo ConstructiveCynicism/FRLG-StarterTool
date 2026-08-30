@@ -81,10 +81,10 @@ public sealed class EncounterPanel : Panel
 
     private readonly ListBox _routeList;
 
-    private readonly ThemedButton _buttonRouteLoad;
-    private readonly ThemedButton _buttonRouteSaveAs;
     private readonly ThemedButton _buttonRouteUpdate;
-    private readonly ThemedButton _buttonRouteRename;
+    private readonly ThemedButton _buttonRouteSave;
+    private readonly ThemedButton _buttonRouteImport;
+    private readonly ThemedButton _buttonRouteExport;
     private readonly ThemedButton _buttonRouteDelete;
 
     private readonly ThemedGroupBox _boxOffset;
@@ -182,7 +182,7 @@ public sealed class EncounterPanel : Panel
             IntegralHeight = false,
             SelectionMode = SelectionMode.One,
         };
-        _routeList.DoubleClick += (_, _) => LoadSelectedRoute();
+        _routeList.DoubleClick += (_, _) => RenameSelectedRoute();
         _routeList.SelectedIndexChanged += (_, _) => RouteSelected();
         _boxFile.Controls.Add(_routeList);
 
@@ -201,10 +201,10 @@ public sealed class EncounterPanel : Panel
             return button;
         }
 
-        _buttonRouteLoad = RouteButton("Load", 0, LoadSelectedRoute);
-        _buttonRouteSaveAs = RouteButton("Save As", 1, SaveRouteAs);
-        _buttonRouteUpdate = RouteButton("Update", 2, UpdateSelectedRoute);
-        _buttonRouteRename = RouteButton("Rename", 3, RenameSelectedRoute);
+        _buttonRouteUpdate = RouteButton("Update", 0, UpdateSelectedRoute);
+        _buttonRouteSave = RouteButton("Save", 1, SaveRouteAs);
+        _buttonRouteImport = RouteButton("Import", 2, ImportRoute);
+        _buttonRouteExport = RouteButton("Export", 3, ExportSelectedRoute);
         _buttonRouteDelete = RouteButton("Delete", 4, DeleteRoute);
         FillRoutes("");
 
@@ -774,9 +774,8 @@ public sealed class EncounterPanel : Panel
     private void EnableRouteButtons()
     {
         bool any = _routeIndex >= 0 && _routeIndex < _routes.Count;
-        _buttonRouteLoad.Enabled = any;
         _buttonRouteUpdate.Enabled = any;
-        _buttonRouteRename.Enabled = any;
+        _buttonRouteExport.Enabled = any;
         _buttonRouteDelete.Enabled = any;
     }
 
@@ -786,6 +785,7 @@ public sealed class EncounterPanel : Panel
 
         _routeIndex = _routeList.SelectedIndex;
         EnableRouteButtons();
+        LoadSelectedRoute();
     }
 
     private void LoadSelectedRoute()
@@ -862,6 +862,80 @@ public sealed class EncounterPanel : Panel
         FillRoutes("");
         _status.Text = $"Route \"{name}\" deleted.";
         RoutesChanged?.Invoke(this, EventArgs.Empty);
+    }
+
+    private void ImportRoute()
+    {
+        Form owner = FindForm() ?? throw new InvalidOperationException("The planner has no window.");
+        using var dialog = new OpenFileDialog
+        {
+            Title = "Import route",
+            Filter = "Route (*.json)|*.json|All files (*.*)|*.*",
+            CheckFileExists = true,
+        };
+        if (StarterTool.Modal(() => dialog.ShowDialog(owner)) != DialogResult.OK) return;
+
+        string path = dialog.FileName;
+        EncounterRoutePreset? preset;
+        try
+        {
+            preset = PresetFile.Read<EncounterRoutePreset>(path);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or System.Text.Json.JsonException)
+        {
+            _status.Text = $"Could not read \"{Path.GetFileName(path)}\": {ex.Message}";
+            return;
+        }
+        if (preset == null)
+        {
+            _status.Text = $"\"{Path.GetFileName(path)}\" holds no route.";
+            return;
+        }
+
+        preset.Normalize();
+        if (preset.Name.Length == 0) preset.Name = Path.GetFileNameWithoutExtension(path);
+
+        int existing = _routes.FindIndex(route => EncounterRoutePreset.NameEquals(route.Name, preset.Name));
+        if (existing >= 0)
+        {
+            if (!Confirm($"A route named \"{_routes[existing].Name}\" already exists. Overwrite it?", "Import route")) return;
+
+            _routes[existing] = preset;
+        }
+        else
+        {
+            _routes.Add(preset);
+        }
+
+        FillRoutes(preset.Name);
+        LoadPreset(preset);
+        RoutesChanged?.Invoke(this, EventArgs.Empty);
+    }
+
+    private void ExportSelectedRoute()
+    {
+        if (_routeIndex < 0 || _routeIndex >= _routes.Count) return;
+
+        EncounterRoutePreset route = _routes[_routeIndex];
+        Form owner = FindForm() ?? throw new InvalidOperationException("The planner has no window.");
+        using var dialog = new SaveFileDialog
+        {
+            Title = "Export route",
+            Filter = "Route (*.json)|*.json|All files (*.*)|*.*",
+            FileName = MainForm.PresetFileName(route.Name),
+            OverwritePrompt = true,
+        };
+        if (StarterTool.Modal(() => dialog.ShowDialog(owner)) != DialogResult.OK) return;
+
+        try
+        {
+            PresetFile.Write(dialog.FileName, route);
+            _status.Text = $"Route \"{route.Name}\" exported to {Path.GetFileName(dialog.FileName)}.";
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            _status.Text = $"Could not write \"{Path.GetFileName(dialog.FileName)}\": {ex.Message}";
+        }
     }
 
     private string? PromptForName(string title, string prompt, string initialValue)

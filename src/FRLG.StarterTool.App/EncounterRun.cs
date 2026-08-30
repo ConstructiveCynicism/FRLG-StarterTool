@@ -47,8 +47,6 @@ internal sealed class EncounterRun
         internal void Miss() => Missed = true;
     }
 
-    internal const int CueLeadFrames = 3;
-
     private readonly VariableInfo _info;
 
     public EncounterRun(EncounterRoutePreset route, in VariableInfo info)
@@ -73,9 +71,11 @@ internal sealed class EncounterRun
 
     private double CuedPressMs(double targetMs) => targetMs + _info.DelayOffset;
 
+    public double LastPressMs => CuedPressMs(LastTargetMs);
+
     private double CueMs(double targetMs, double offsetMs)
         => CuedPressMs(targetMs)
-           + (VariableOffsetCalculator.TidLagFrames + CueLeadFrames) / _info.Fps * 1000.0
+           + VariableOffsetCalculator.TidLagFrames / _info.Fps * 1000.0
            + offsetMs;
 
     public double[] BeepSchedule(double elapsedMs)
@@ -106,7 +106,7 @@ internal sealed class EncounterRun
 
     public double Interval => _info.Interval;
 
-    public double CloseMs => LastTargetMs + VariableOffsetCalculator.LandingWindowMs(_info);
+    public double CloseMs => CuedPressMs(LastTargetMs) + VariableOffsetCalculator.LandingWindowMs(_info);
 
     public bool AllScored => Targets.All(target => target.Scored);
 
@@ -118,7 +118,7 @@ internal sealed class EncounterRun
         {
             if (!target.Owed) continue;
 
-            double deltaMs = elapsedMs - target.TargetMs;
+            double deltaMs = elapsedMs - CuedPressMs(target.TargetMs);
             double window = deltaMs >= 0.0
                 ? VariableOffsetCalculator.LandingWindowMs(_info)
                 : VariableOffsetCalculator.EarlyLandingWindowMs(_info);
@@ -129,11 +129,11 @@ internal sealed class EncounterRun
 
     public void Score(Target target, double elapsedMs)
     {
-        double deltaMs = elapsedMs - target.TargetMs;
+        double deltaMs = elapsedMs - CuedPressMs(target.TargetMs);
         target.Score(
             deltaMs,
             EncounterManip.WindowChance(deltaMs, target.Press.Window, _info.Fps),
-            EncounterManip.FrameAt(elapsedMs, Route.DelayMs, _info.Fps));
+            EncounterManip.FrameAt(elapsedMs, Route.DelayMs + _info.DelayOffset, _info.Fps));
 
         foreach (Target earlier in Targets)
         {
@@ -215,10 +215,13 @@ internal sealed class EncounterRun
         {
             parts.Add(string.Format(CultureInfo.InvariantCulture,
                 "{0} frame {1} due {2:F1} ms (final beep {3:F1} ms)",
-                target.Press.Name, target.Press.Frames, target.TargetMs, CueMs(target.TargetMs, _info.Offset)));
+                target.Press.Name, target.Press.Frames, CuedPressMs(target.TargetMs),
+                CueMs(target.TargetMs, _info.Offset)));
         }
         return string.Format(CultureInfo.InvariantCulture,
-            "encounter manip armed: route \"{0}\", delay {1:+#;-#;+0} ms, {2}, offset {3} ms, fps {4}",
-            Route.Name, Route.DelayMs, string.Join("; ", parts), _info.Offset, _info.Fps);
+            "encounter manip armed: route \"{0}\", reset delay {1:+#;-#;+0} ms, {2}, offset {3} ms, "
+            + "countdown delay {4} ms, fps {5}",
+            Route.Name, Route.DelayMs, string.Join("; ", parts), _info.Offset, _info.DelayOffset,
+            _info.Fps);
     }
 }

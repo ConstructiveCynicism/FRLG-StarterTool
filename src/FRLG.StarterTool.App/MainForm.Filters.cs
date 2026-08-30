@@ -86,18 +86,31 @@ public partial class MainForm
         delete.Click += (_, _) => DeleteActiveFilter();
         MenuFilters.DropDownItems.Add(delete);
 
+        MenuFilters.DropDownItems.Add(new ToolStripSeparator());
+
+        var import = new ToolStripMenuItem("Import Filter…");
+        import.Click += (_, _) => ImportFilter();
+        MenuFilters.DropDownItems.Add(import);
+
+        var export = new ToolStripMenuItem(active == null ? "Export Filter…" : $"Export \"{Escape(active.Name)}\"…")
+        {
+            Enabled = active != null
+        };
+        export.Click += (_, _) => ExportActiveFilter();
+        MenuFilters.DropDownItems.Add(export);
+
         Theme.ApplyMenu(MenuFilters.DropDownItems);
     }
 
     private static string Escape(string name) => name.Replace("&", "&&");
 
-    private void LoadFilter(FilterPreset preset)
+    private void LoadFilter(FilterPreset preset, bool focusTrainerId = true)
     {
         ApplyFilter(preset);
         Settings.ActivePreset = preset.Name;
         FillFilterList();
 
-        if (StarterTool.IsTimerRunning) return;
+        if (!focusTrainerId || StarterTool.IsTimerRunning) return;
 
         ReopenTrainerIdCaret();
         FocusTrainerId();
@@ -175,6 +188,100 @@ public partial class MainForm
         settings.ActivePreset = "";
         StarterTool.SaveSettings();
     }
+
+    private void ImportFilter()
+    {
+        AppSettings settings = Settings;
+        string? path = BrowseOpen("Import filter", "Filter (*.json)|*.json|All files (*.*)|*.*");
+        if (path == null) return;
+
+        FilterPreset? preset;
+        try
+        {
+            preset = PresetFile.Read<FilterPreset>(path);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or System.Text.Json.JsonException)
+        {
+            Fail($"Could not read \"{Path.GetFileName(path)}\": {ex.Message}", "Import filter");
+            return;
+        }
+        if (preset == null)
+        {
+            Fail($"\"{Path.GetFileName(path)}\" holds no filter.", "Import filter");
+            return;
+        }
+
+        preset.Normalize();
+        if (preset.Name.Length == 0) preset.Name = Path.GetFileNameWithoutExtension(path);
+
+        FilterPreset? existing = settings.FindPreset(preset.Name);
+        if (existing != null && !Confirm($"A filter named \"{existing.Name}\" already exists. Overwrite it?", "Import filter"))
+        {
+            return;
+        }
+
+        if (existing == null)
+        {
+            settings.Presets.Add(preset);
+        }
+        else
+        {
+            settings.Presets[settings.Presets.IndexOf(existing)] = preset;
+        }
+
+        StarterTool.SaveSettings();
+        LoadFilter(preset, focusTrainerId: false);
+    }
+
+    private void ExportActiveFilter()
+    {
+        AppSettings settings = Settings;
+        FilterPreset? active = settings.FindPreset(settings.ActivePreset);
+        if (active == null) return;
+
+        string? path = BrowseSave("Export filter", "Filter (*.json)|*.json|All files (*.*)|*.*", active.Name);
+        if (path == null) return;
+
+        try
+        {
+            PresetFile.Write(path, active);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            Fail($"Could not write \"{Path.GetFileName(path)}\": {ex.Message}", "Export filter");
+        }
+    }
+
+    private string? BrowseOpen(string title, string filter)
+        => StarterTool.Modal(() =>
+        {
+            using var dialog = new OpenFileDialog { Title = title, Filter = filter, CheckFileExists = true };
+            return dialog.ShowDialog(this) == DialogResult.OK ? dialog.FileName : null;
+        });
+
+    private string? BrowseSave(string title, string filter, string name)
+        => StarterTool.Modal(() =>
+        {
+            using var dialog = new SaveFileDialog
+            {
+                Title = title,
+                Filter = filter,
+                FileName = PresetFileName(name),
+                OverwritePrompt = true
+            };
+            return dialog.ShowDialog(this) == DialogResult.OK ? dialog.FileName : null;
+        });
+
+    public static string PresetFileName(string name)
+    {
+        char[] illegal = Path.GetInvalidFileNameChars();
+        string stem = new string(name.Trim().Select(c => illegal.Contains(c) ? '_' : c).ToArray()).Trim();
+        return (stem.Length == 0 ? "preset" : stem) + ".json";
+    }
+
+    private void Fail(string message, string title)
+        => StarterTool.Modal(() => MessageBox.Show(
+            this, message, title, MessageBoxButtons.OK, MessageBoxIcon.Warning));
 
     private string? PromptForName(string title, string prompt, string initialValue)
         => StarterTool.Modal(() =>

@@ -1,5 +1,11 @@
 # Features
 
+### v2.1.0
+- Encounter Manip no longer targets the edge of the window
+- Fixed a bug with negative delays
+- Encounter Manip hit prediction corrected
+- Constraints/Routes can be imported/exported
+
 ### v2.0.0
 - Encounter Manip + Planner
 - ROM Patching for Encounter Manip testing

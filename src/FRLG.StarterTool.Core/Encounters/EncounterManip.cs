@@ -17,7 +17,7 @@ public static class EncounterManip
     public static double FrameMs(double fps) => 1000.0 / fps;
 
     public static double TargetMs(in ManipPress press, int delayMs, double fps)
-        => (press.Frame - 0.5 + (press.Span - 1) / 2.0) * FrameMs(fps) + delayMs;
+        => (press.Frame + (press.Span - 1) / 2.0) * FrameMs(fps) + delayMs;
 
     public static double WindowChance(double deltaMs, int window, double fps)
     {
@@ -27,5 +27,5 @@ public static class EncounterManip
     }
 
     public static int FrameAt(double elapsedMs, int delayMs, double fps)
-        => (int)Math.Floor((elapsedMs - delayMs) / FrameMs(fps)) + 1;
+        => (int)Math.Floor((elapsedMs - delayMs) / FrameMs(fps) + 0.5);
 }

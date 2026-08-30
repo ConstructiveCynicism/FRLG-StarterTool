@@ -570,7 +570,11 @@ public static class StarterTool
 
     public static void StopTimer(bool timerExpired, double lagMs = 0.0, bool letCuesFinish = false)
     {
-        if (!IsTimerRunning) return;
+        if (!IsTimerRunning)
+        {
+            if (!timerExpired) VariableOffset.ResetEncounterRun();
+            return;
+        }
 
         if (!timerExpired)
         {
