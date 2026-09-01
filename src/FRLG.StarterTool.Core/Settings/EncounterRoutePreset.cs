@@ -19,6 +19,8 @@ public sealed class EncounterRoutePreset
 
     public int DelayMs { get; set; }
 
+    public int? OffsetMs { get; set; }
+
     public int IntroFrame { get; set; }
 
     public int IntroWindow { get; set; } = 1;
@@ -59,6 +61,7 @@ public sealed class EncounterRoutePreset
         Title = Title is "played" or "spedup" ? Title : "either";
         Combo = TitleCombo.Parse(Combo)?.Key ?? "any";
         DelayMs = Math.Clamp(DelayMs, -10000, 10000);
+        if (OffsetMs is int offsetMs) OffsetMs = Math.Clamp(offsetMs, -10000, 10000);
         IntroFrame = Math.Clamp(IntroFrame, 0, 100000);
         TitleFrame = Math.Clamp(TitleFrame, 0, 100000);
         IntroWindow = Math.Clamp(IntroWindow, 1, 60);
@@ -80,6 +83,7 @@ public sealed class EncounterRoutePreset
         Title = Title,
         Combo = Combo,
         DelayMs = DelayMs,
+        OffsetMs = OffsetMs,
         IntroFrame = IntroFrame,
         IntroWindow = IntroWindow,
         TitleFrame = TitleFrame,

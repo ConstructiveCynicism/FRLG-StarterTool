@@ -220,6 +220,7 @@ public partial class MainForm : Form
         EncounterPanel.SoundAny = settings.EncounterSound == "any";
         EncounterPanel.IntroAny = settings.EncounterIntro == "any";
         EncounterPanel.DelayMs = settings.EncounterDelayMs;
+        EncounterPanel.OffsetMs = settings.EncounterOffsetMs;
         EncounterPanel.IntroFrame = settings.EncounterIntroFrame;
         EncounterPanel.IntroWindow = settings.EncounterIntroWindow;
         EncounterPanel.TitleFrame = settings.EncounterTitleFrame;
@@ -287,6 +288,7 @@ public partial class MainForm : Form
         settings.EncounterTitle = EncounterPanel.Variant.AnimationKey;
         settings.EncounterCombo = EncounterPanel.Variant.ComboKey;
         settings.EncounterDelayMs = EncounterPanel.DelayMs;
+        settings.EncounterOffsetMs = EncounterPanel.OffsetMs;
         settings.EncounterIntroFrame = EncounterPanel.IntroFrame;
         settings.EncounterIntroWindow = EncounterPanel.IntroWindow;
         settings.EncounterTitleFrame = EncounterPanel.TitleFrame;

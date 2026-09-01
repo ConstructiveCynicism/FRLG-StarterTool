@@ -1,5 +1,9 @@
 # Features
 
+### v2.1.3
+- Fixed DS FPS
+- Routes can now have their own Offset and Delay, these **OVERRIDE** the settings, not add
+
 ### v2.1.0
 - Encounter Manip no longer targets the edge of the window
 - Fixed a bug with negative delays

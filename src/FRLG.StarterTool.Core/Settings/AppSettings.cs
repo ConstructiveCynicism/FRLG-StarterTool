@@ -137,6 +137,8 @@ public sealed class AppSettings
 
     public int EncounterDelayMs { get; set; }
 
+    public int? EncounterOffsetMs { get; set; }
+
     public int EncounterIntroFrame { get; set; }
 
     public int EncounterIntroWindow { get; set; } = 1;
@@ -408,6 +410,10 @@ public sealed class AppSettings
         EncounterIntro = EncounterIntro is "skip477" or "skip990" or "any" ? EncounterIntro : "none";
         EncounterTitle = EncounterTitle is "played" or "spedup" ? EncounterTitle : "either";
         EncounterDelayMs = Math.Clamp(EncounterDelayMs, -10000, 10000);
+        if (EncounterOffsetMs is int encounterOffsetMs)
+        {
+            EncounterOffsetMs = Math.Clamp(encounterOffsetMs, -10000, 10000);
+        }
         EncounterIntroFrame = Math.Clamp(EncounterIntroFrame, 0, 100000);
         EncounterTitleFrame = Math.Clamp(EncounterTitleFrame, 0, 100000);
         EncounterIntroWindow = Math.Clamp(EncounterIntroWindow, 1, 60);

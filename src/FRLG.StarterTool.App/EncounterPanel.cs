@@ -18,7 +18,7 @@ public sealed class EncounterPanel : Panel
 
     private const int SectionGap = 6;
 
-    private const int TopBandHeight = 100;
+    private const int TopBandHeight = 126;
 
     private const int OffsetWidth = 186;
 
@@ -74,6 +74,8 @@ public sealed class EncounterPanel : Panel
     private readonly Label _labelDelay;
 
     private readonly TextBox _delay;
+    private readonly Label _labelOffsetMs;
+    private readonly TextBox _offsetMs;
     private readonly Label _labelIntroFrame;
     private readonly TextBox _introFrame;
     private readonly Label _labelTitleFrame;
@@ -154,13 +156,17 @@ public sealed class EncounterPanel : Panel
 
         _boxOffset = AddSection("Offset", 0, 0, OffsetWidth, TopBandHeight);
 
-        const int offsetFieldX = BoxInset + 66 + 4;
-        const int offsetFieldWidth = 92;
+        const int offsetFieldX = BoxInset + 66 + 6;
+        const int offsetFieldWidth = OffsetWidth - BoxInset - offsetFieldX;
 
         _labelDelay = AddCaption(_boxOffset, "Delay (ms)", BoxInset, BoxTop + 2, 66);
         _delay = AddNumberBox(_boxOffset, offsetFieldX, BoxTop, offsetFieldWidth);
 
-        int pressRow = BoxTop + 26;
+        int offsetRow = BoxTop + 26;
+        _labelOffsetMs = AddCaption(_boxOffset, "Offset (ms)", BoxInset, offsetRow + 2, 66);
+        _offsetMs = AddNumberBox(_boxOffset, offsetFieldX, offsetRow, offsetFieldWidth);
+
+        int pressRow = BoxTop + 52;
         _labelIntroFrame = AddCaption(_boxOffset, "Intro", BoxInset, pressRow + 2, 66);
         _introFrame = AddNumberBox(_boxOffset, offsetFieldX, pressRow, offsetFieldWidth);
 
@@ -643,6 +649,12 @@ public sealed class EncounterPanel : Panel
         set => WritePress(_delay, value == 0 ? "" : value.ToString(CultureInfo.InvariantCulture));
     }
 
+    public int? OffsetMs
+    {
+        get => SignedNumber(_offsetMs.Text);
+        set => WritePress(_offsetMs, value is int offset ? offset.ToString(CultureInfo.InvariantCulture) : "");
+    }
+
     public int IntroFrame
     {
         get => ParsePress(_introFrame.Text).Frame;
@@ -965,6 +977,7 @@ public sealed class EncounterPanel : Panel
         Title = Variant.AnimationKey,
         Combo = Variant.ComboKey,
         DelayMs = DelayMs,
+        OffsetMs = OffsetMs,
         IntroFrame = IntroFrame,
         IntroWindow = IntroWindow,
         TitleFrame = TitleFrame,
@@ -981,6 +994,7 @@ public sealed class EncounterPanel : Panel
         SoundAny = preset.Sound == "any";
         IntroAny = preset.Intro == "any";
         DelayMs = preset.DelayMs;
+        OffsetMs = preset.OffsetMs;
         IntroFrame = preset.IntroFrame;
         IntroWindow = preset.IntroWindow;
         TitleFrame = preset.TitleFrame;
@@ -1006,7 +1020,8 @@ public sealed class EncounterPanel : Panel
         string list = string.Join(", ", presses.Select(press => $"{press.Name} on frame {press.Frames}"));
         string seed = preset.Seed >= 0 ? $" for Trainer ID {preset.Seed:X4}" : "";
         string delay = preset.DelayMs == 0 ? "" : $", delay {preset.DelayMs:+#;-#} ms";
-        return $"Route \"{preset.Name}\" loaded: {list}{seed}{delay}.";
+        string offset = preset.OffsetMs is int offsetMs ? $", offset {offsetMs:+#;-#;+0} ms" : "";
+        return $"Route \"{preset.Name}\" loaded: {list}{seed}{delay}{offset}.";
     }
 
     public void LoadRoute(string saved)

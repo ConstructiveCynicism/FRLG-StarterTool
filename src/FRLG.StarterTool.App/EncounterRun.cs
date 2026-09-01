@@ -53,6 +53,14 @@ internal sealed class EncounterRun
     {
         Route = route;
         _info = info;
+
+        if (route.OffsetMs is int offsetMs)
+        {
+            _info.VisualOffset += offsetMs - _info.Offset;
+            _info.Offset = offsetMs;
+        }
+        if (route.DelayMs != 0) _info.DelayOffset = 0;
+
         var targets = new List<Target>();
         foreach (ManipPress press in route.Presses())
         {
@@ -173,25 +181,26 @@ internal sealed class EncounterRun
     {
         if (Targets.Count == 0) return $"Route \"{Route.Name}\" has no presses set.";
 
-        var parts = new List<string>();
+        var parts = new List<string> { $"Route = \"{Route.Name}\"" };
+        if (Route.DelayMs != 0) parts.Add($"Delay = {Route.DelayMs}ms");
+        if (Route.OffsetMs is int offsetMs) parts.Add($"Offset = {offsetMs}ms");
         foreach (Target target in Targets)
         {
             if (target.Scored)
             {
-                parts.Add($"{target.Press.Name} {MainForm.FormatChance(target.Chance!.Value)} ({target.DeltaMs!.Value:+0;-0;0} ms)");
+                parts.Add($"{target.Press.Name} = {MainForm.FormatChance(target.Chance!.Value)} ({target.DeltaMs!.Value:+0;-0;0} ms)");
             }
             else if (target.Missed)
             {
-                parts.Add($"{target.Press.Name} missed");
+                parts.Add($"{target.Press.Name} = missed");
             }
             else
             {
-                parts.Add($"{target.Press.Name} on {target.Press.Frames}");
+                parts.Add($"{target.Press.Name} = [{target.Press.Frames}]");
             }
         }
 
-        string tail = AnyOwed ? "" : "";
-        return $"Reset seed manip \"{Route.Name}\": {string.Join(", ", parts)}{tail}";
+        return string.Join(", ", parts);
     }
 
     public double WorstChance
