@@ -31,13 +31,18 @@ public readonly record struct TitleCombo(TitleButton First, TitleButton? Second 
         }
     }
 
-    public bool Fits(bool skip, bool speed)
+    public bool Fits(bool skip, bool speed) => Fits(skip ? 1 : 0, speed);
+
+    public bool Fits(int skips, bool speed)
     {
-        if (Count != (skip ? 1 : 0) + (speed ? 1 : 0) + 1) return false;
+        if (Count != skips + (speed ? 1 : 0) + 1) return false;
 
         IReadOnlyList<TitleButton> order = Order;
         int at = 0;
-        if (skip && !TitleCombos.CanSkip(order[at++])) return false;
+        for (int skip = 0; skip < skips; skip++)
+        {
+            if (!TitleCombos.CanSkip(order[at++])) return false;
+        }
         if (speed && !TitleCombos.CanSpeedUp(order[at++])) return false;
         return TitleCombos.CanEnter(order[at]);
     }
@@ -121,6 +126,15 @@ public static class TitleCombos
             combos.Add(new TitleCombo(skip, speed, enter));
         }
 
+        foreach (TitleButton first in skips)
+        foreach (TitleButton second in skips)
+        foreach (TitleButton enter in entersPlayed)
+        {
+            if (first == second || first == enter || second == enter) continue;
+            var combo = new TitleCombo(first, second, enter);
+            if (!combos.Contains(combo)) combos.Add(combo);
+        }
+
         foreach (TitleButton skip in skips)
         foreach (TitleButton enter in entersPlayed)
         {
@@ -142,8 +156,27 @@ public static class TitleCombos
         return TitleCombo.Of(order.ToArray());
     }
 
+    public static TitleCombo Swept(TitleVariant variant, bool speed)
+    {
+        if (!variant.OnLoop) return Swept(variant.IntroSkipped, speed);
+
+        var order = new List<TitleButton>(3);
+        if (variant.IntroSkipped) order.Add(TitleButton.Select);
+        if (variant.LoopSkipped) order.Add(variant.IntroSkipped ? TitleButton.Start : TitleButton.Select);
+        if (order.Count == 2)
+        {
+            order.Add(TitleButton.A);
+        }
+        else
+        {
+            if (speed) order.Add(TitleButton.Start);
+            order.Add(speed ? TitleButton.A : TitleButton.Start);
+        }
+        return TitleCombo.Of(order.ToArray());
+    }
+
     public static TitleCombo Swept(PressFrame press) =>
-        Swept(press.Variant.IntroSkipped, press.Offset < TitleSeedTable.AnimationEndsOf(press.Variant.Game));
+        Swept(press.Variant, press.Offset < TitleSeedTable.AnimationEndsOf(press.Variant.Game));
 
     public static TitleCombo Of(PressFrame press) => press.Variant.Combo ?? Swept(press);
 
@@ -156,10 +189,10 @@ public static class TitleCombos
 
         IReadOnlyList<TitleButton> order = combo.Order;
         int at = 0;
-        if (press.Variant.IntroSkipped)
+        for (int skip = 0; skip < press.Variant.Skips; skip++)
         {
-            TitleButton skip = order[at++];
-            if (skip != TitleButton.Select && skip != TitleButton.Start) return false;
+            TitleButton button = order[at++];
+            if (button != TitleButton.Select && button != TitleButton.Start) return false;
         }
 
         if (press.Offset >= TitleSeedTable.AnimationEndsOf(press.Variant.Game)) return order[at] == TitleButton.Start;
@@ -214,6 +247,21 @@ public static class TitleCombos
             int last = first + press.IntroWindow - 1;
             lines.Add($"{TitleCombo.Name(order[at++])} on frame {first}-{last} after power-on, and keep it held"
                 + $" - skips the intro, anchor then at {TitleSeedTable.IntroAnchorOf(press.Variant.Intro)}");
+        }
+
+        if (press.Variant.OnLoop)
+        {
+            if (press.Variant.LoopSkipped)
+            {
+                int first = TitleSeedTable.LoopFrameOf(press.Variant);
+                int last = first + TitleSeedTable.LoopWindowOf(press.Variant) - 1;
+                lines.Add($"{TitleCombo.Name(order[at++])} on frame {first}-{last} after power-on, and keep it held"
+                    + $" - skips the loop's intro, the second anchor then at {TitleSeedTable.LoopAnchorOf(press.Variant)}");
+            }
+            else
+            {
+                lines.Add($"let the title screen time out and the intro play again - the second anchor at {TitleSeedTable.LoopAnchorOf(press.Variant)}");
+            }
         }
 
         if (press.Offset < TitleSeedTable.AnimationEndsOf(press.Variant.Game))

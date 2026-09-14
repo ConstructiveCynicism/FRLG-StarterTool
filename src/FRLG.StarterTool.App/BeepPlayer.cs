@@ -1,4 +1,4 @@
-using System.Runtime.InteropServices;
+using FRLG.StarterTool.Core.Settings;
 
 namespace FRLG.StarterTool.App;
 
@@ -10,10 +10,13 @@ public sealed class BeepPlayer : IDisposable
 
     private const int BytesPerFrame = NumChannels * BytesPerSample;
 
-    private IntPtr _waveOut;
-    private IntPtr _buffer;
-    private IntPtr _header;
-    private bool _prepared;
+    private IBeepOutput? _output;
+    private AudioOutput _preferred = AudioOutput.Wasapi;
+    private double _periodMs;
+    private bool _reopenPending;
+
+    private double _periodOverrideMs;
+    private readonly Action<string> _log;
     private readonly object _lock = new();
 
     private byte[] _beep = Array.Empty<byte>();
@@ -41,38 +44,45 @@ public sealed class BeepPlayer : IDisposable
 
     public double LastWriteLagMs { get; private set; } = double.NaN;
 
+    public string OutputDescription
+    {
+        get
+        {
+            lock (_lock)
+            {
+                return _output is { IsOpen: true } ? _output.Description : "none";
+            }
+        }
+    }
+
     public double? StartLatencyMs()
     {
         lock (_lock)
         {
-            if (!_prepared || _bufferLength <= 0 || double.IsNaN(_writtenAtMs)) return null;
+            if (_output == null || _bufferLength <= 0 || double.IsNaN(_writtenAtMs)) return null;
 
-            int position = PositionBytes();
+            int position = _output.PlayedBytes();
             if (position <= 0 || position >= _bufferLength) return null;
 
             return Win32.GetTime() - _writtenAtMs - BytesToMs(position);
         }
     }
 
-    public BeepPlayer()
+    public BeepPlayer(Action<string> log)
     {
+        _log = log;
         RenderBeep();
+    }
 
-        var format = new WAVEFORMATEX
+    public void Configure(AudioOutput output, double periodMs)
+    {
+        lock (_lock)
         {
-            wFormatTag = WAVE_FORMAT_PCM,
-            nChannels = NumChannels,
-            nSamplesPerSec = SampleRate,
-            nAvgBytesPerSec = SampleRate * BytesPerFrame,
-            nBlockAlign = BytesPerFrame,
-            wBitsPerSample = BytesPerSample * 8,
-            cbSize = 0
-        };
-
-        int result = waveOutOpen(out _waveOut, WAVE_MAPPER, ref format, IntPtr.Zero, IntPtr.Zero, CALLBACK_NULL);
-        if (result != MMSYSERR_NOERROR)
-        {
-            _waveOut = IntPtr.Zero;
+            bool changed = output != _preferred || periodMs != _periodMs;
+            _preferred = output;
+            _periodMs = periodMs;
+            if (changed) _periodOverrideMs = 0;
+            if (_output == null || changed) ScheduleReopen();
         }
     }
 
@@ -97,7 +107,16 @@ public sealed class BeepPlayer : IDisposable
         }
     }
 
-    public bool IsAvailable => _waveOut != IntPtr.Zero;
+    public bool IsAvailable
+    {
+        get
+        {
+            lock (_lock)
+            {
+                return _output is { IsOpen: true };
+            }
+        }
+    }
 
     public void QueueBeeps(IReadOnlyList<double> offsetsMs, int protectedCount = 0)
     {
@@ -124,6 +143,8 @@ public sealed class BeepPlayer : IDisposable
 
     private void WriteSchedule(IReadOnlyList<double> offsetsMs, int protectedCount)
     {
+        EnsureOpen();
+
         double maxOffset = offsetsMs.Max();
         int length = (int)Math.Ceiling(maxOffset / 1000.0 * SampleRate) * BytesPerFrame + _beep.Length;
         var pcm = new byte[length];
@@ -159,33 +180,9 @@ public sealed class BeepPlayer : IDisposable
             _beepBytes = _beep.Length;
             _bufferLength = pcm.Length;
 
-            if (_waveOut == IntPtr.Zero) return;
-
-            waveOutReset(_waveOut);
-            ReleaseBuffer();
-
-            _buffer = Marshal.AllocHGlobal(pcm.Length);
-            Marshal.Copy(pcm, 0, _buffer, pcm.Length);
-
-            var hdr = new WAVEHDR
+            if (_output == null || !_output.Write(pcm))
             {
-                lpData = _buffer,
-                dwBufferLength = (uint)pcm.Length
-            };
-
-            _header = Marshal.AllocHGlobal(Marshal.SizeOf<WAVEHDR>());
-            Marshal.StructureToPtr(hdr, _header, false);
-
-            if (waveOutPrepareHeader(_waveOut, _header, (uint)Marshal.SizeOf<WAVEHDR>()) != MMSYSERR_NOERROR)
-            {
-                ReleaseBuffer();
-                return;
-            }
-
-            _prepared = true;
-            if (waveOutWrite(_waveOut, _header, (uint)Marshal.SizeOf<WAVEHDR>()) != MMSYSERR_NOERROR)
-            {
-                ReleaseBuffer();
+                _writtenAtMs = double.NaN;
                 return;
             }
 
@@ -202,9 +199,7 @@ public sealed class BeepPlayer : IDisposable
             _beepStarts.Clear();
             _protectedStarts.Clear();
             _bufferLength = 0;
-            if (_waveOut == IntPtr.Zero) return;
-            waveOutReset(_waveOut);
-            ReleaseBuffer();
+            _output?.Stop();
         }
     }
 
@@ -224,22 +219,19 @@ public sealed class BeepPlayer : IDisposable
 
     private bool MutePending()
     {
-        if (_buffer == IntPtr.Zero || !_prepared || _bufferLength <= 0) return false;
+        if (_output == null || _bufferLength <= 0) return false;
 
-        int position = PositionBytes();
-        if (position < 0) return false;
+        int committed = _output.CommittedBytes();
+        if (committed < 0) return false;
 
-        int from = position + GuardBytes;
+        int from = committed;
         foreach (int start in _beepStarts)
         {
             if (start > from) break;
             from = Math.Max(from, start + _beepBytes);
         }
 
-        for (int at = Math.Min(from, _bufferLength); at < _bufferLength; at += Silence.Length)
-        {
-            Marshal.Copy(Silence, 0, _buffer + at, Math.Min(Silence.Length, _bufferLength - at));
-        }
+        _output.Silence(Math.Min(from, _bufferLength));
 
         _beepStarts.RemoveAll(start => start >= from);
         _protectedStarts.RemoveAll(start => start >= from);
@@ -247,19 +239,15 @@ public sealed class BeepPlayer : IDisposable
         return true;
     }
 
-    private const int GuardBytes = SampleRate / 20 * BytesPerFrame;
-
-    private static readonly byte[] Silence = new byte[64 * 1024];
-
     private const double WriteMarginMs = 10.0;
 
     private static double BytesToMs(int bytes) => bytes / (double)BytesPerFrame / SampleRate * 1000.0;
 
     private int ProtectedRemainderBytes()
     {
-        if (_protectedStarts.Count == 0 || !_prepared) return -1;
+        if (_protectedStarts.Count == 0 || _output == null) return -1;
 
-        int position = PositionBytes();
+        int position = _output.PlayedBytes();
         if (position < 0) return -1;
 
         foreach (int start in _protectedStarts)
@@ -315,39 +303,74 @@ public sealed class BeepPlayer : IDisposable
         _writeTimer?.Change(Timeout.Infinite, Timeout.Infinite);
     }
 
-    private int PositionBytes()
-    {
-        if (_waveOut == IntPtr.Zero) return -1;
-
-        var time = new MMTIME { wType = TIME_BYTES };
-        if (waveOutGetPosition(_waveOut, ref time, (uint)Marshal.SizeOf<MMTIME>()) != MMSYSERR_NOERROR) return -1;
-        if (time.wType != TIME_BYTES) return -1;
-
-        int position = (int)time.u;
-        return position - position % BytesPerFrame;
-    }
-
     public void Preview() => QueueBeeps(new[] { 0.0 });
 
-    private void ReleaseBuffer()
+    private void EnsureOpen()
     {
-        if (_prepared)
+        if (_output is { IsOpen: true, NeedsReopen: false } && !_reopenPending) return;
+        Reopen();
+    }
+
+    private void Reopen()
+    {
+        _reopenPending = false;
+
+        IBeepOutput? old = _output;
+        _output = null;
+        if (old != null)
         {
-            waveOutUnprepareHeader(_waveOut, _header, (uint)Marshal.SizeOf<WAVEHDR>());
-            _prepared = false;
+            old.DeviceChanged -= OnDeviceChanged;
+            if (old is WasapiOutput { SuggestedPeriodMs: not 0 } judged) _periodOverrideMs = judged.SuggestedPeriodMs;
+            else _periodOverrideMs = 0;
+            old.Dispose();
         }
 
-        if (_header != IntPtr.Zero)
+        _beepStarts.Clear();
+        _protectedStarts.Clear();
+        _bufferLength = 0;
+        _lastBeepStartMs = double.MinValue;
+
+        IBeepOutput? output = null;
+        bool wasapi = _preferred == AudioOutput.Wasapi && _periodOverrideMs >= 0;
+        if (wasapi) output = WasapiOutput.Open(_periodOverrideMs > 0 ? _periodOverrideMs : _periodMs, _log);
+        if (output == null)
         {
-            Marshal.FreeHGlobal(_header);
-            _header = IntPtr.Zero;
+            if (wasapi) _log("audio: falling back to waveOut");
+            output = WaveOutOutput.Open(_log);
         }
 
-        if (_buffer != IntPtr.Zero)
+        if (output == null)
         {
-            Marshal.FreeHGlobal(_buffer);
-            _buffer = IntPtr.Zero;
+            _log("audio: no output could be opened; the countdown will be silent until the next write");
+            return;
         }
+
+        output.DeviceChanged += OnDeviceChanged;
+        _output = output;
+    }
+
+    private void OnDeviceChanged()
+    {
+        ThreadPool.QueueUserWorkItem(_ =>
+        {
+            lock (_lock)
+            {
+                _reopenPending = true;
+                if (_output == null) return;
+
+                bool idle = _pendingOffsetsMs == null
+                    && (_bufferLength <= 0 || Win32.GetTime() >= _lastBeepStartMs + BytesToMs(_beepBytes));
+                if (idle) Reopen();
+            }
+        });
+    }
+
+    private void ScheduleReopen()
+    {
+        _reopenPending = true;
+        bool idle = _pendingOffsetsMs == null
+            && (_bufferLength <= 0 || Win32.GetTime() >= _lastBeepStartMs + BytesToMs(_beepBytes));
+        if (idle) Reopen();
     }
 
     private void RenderBeep()
@@ -402,75 +425,10 @@ public sealed class BeepPlayer : IDisposable
             _writeTimer?.Dispose();
             _writeTimer = null;
 
-            if (_waveOut == IntPtr.Zero) return;
-            waveOutReset(_waveOut);
-            ReleaseBuffer();
-            waveOutClose(_waveOut);
-            _waveOut = IntPtr.Zero;
+            if (_output == null) return;
+            _output.DeviceChanged -= OnDeviceChanged;
+            _output.Dispose();
+            _output = null;
         }
     }
-
-    #region winmm interop
-
-    private const int MMSYSERR_NOERROR = 0;
-    private const int WAVE_MAPPER = -1;
-    private const ushort WAVE_FORMAT_PCM = 1;
-    private const uint CALLBACK_NULL = 0;
-    private const uint TIME_BYTES = 4;
-
-    [StructLayout(LayoutKind.Sequential, Pack = 1)]
-    private struct WAVEFORMATEX
-    {
-        public ushort wFormatTag;
-        public ushort nChannels;
-        public uint nSamplesPerSec;
-        public uint nAvgBytesPerSec;
-        public ushort nBlockAlign;
-        public ushort wBitsPerSample;
-        public ushort cbSize;
-    }
-
-    [StructLayout(LayoutKind.Sequential)]
-    private struct WAVEHDR
-    {
-        public IntPtr lpData;
-        public uint dwBufferLength;
-        public uint dwBytesRecorded;
-        public IntPtr dwUser;
-        public uint dwFlags;
-        public uint dwLoops;
-        public IntPtr lpNext;
-        public IntPtr reserved;
-    }
-
-    [DllImport("winmm.dll")]
-    private static extern int waveOutOpen(out IntPtr hWaveOut, int uDeviceID, ref WAVEFORMATEX lpFormat, IntPtr dwCallback, IntPtr dwInstance, uint dwFlags);
-
-    [DllImport("winmm.dll")]
-    private static extern int waveOutPrepareHeader(IntPtr hWaveOut, IntPtr lpWaveOutHdr, uint uSize);
-
-    [DllImport("winmm.dll")]
-    private static extern int waveOutUnprepareHeader(IntPtr hWaveOut, IntPtr lpWaveOutHdr, uint uSize);
-
-    [DllImport("winmm.dll")]
-    private static extern int waveOutWrite(IntPtr hWaveOut, IntPtr lpWaveOutHdr, uint uSize);
-
-    [StructLayout(LayoutKind.Sequential)]
-    private struct MMTIME
-    {
-        public uint wType;
-        public uint u;
-        public uint uHigh;
-    }
-
-    [DllImport("winmm.dll")]
-    private static extern int waveOutReset(IntPtr hWaveOut);
-
-    [DllImport("winmm.dll")]
-    private static extern int waveOutGetPosition(IntPtr hWaveOut, ref MMTIME lpInfo, uint uSize);
-
-    [DllImport("winmm.dll")]
-    private static extern int waveOutClose(IntPtr hWaveOut);
-
-    #endregion
 }

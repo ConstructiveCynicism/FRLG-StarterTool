@@ -860,12 +860,13 @@ public sealed class VariableOffsetTimer : BaseTimer
 
         IntPtr handle = StarterTool.MainFormHandle;
         ContextSession.Log(string.Format(CultureInfo.InvariantCulture,
-            "audio: written {0:F1} ms after arm (buffer {1:F1} ms of it), timer resolution {2:F2} ms, window {3}{4}",
+            "audio: written {0:F1} ms after arm (buffer {1:F1} ms of it), timer resolution {2:F2} ms, window {3}{4}, output {5}",
             audioLagMs,
             StarterTool.Beeps.LastWriteLagMs,
             Win32.CurrentTimerResolutionMs(),
             Win32.IsForeground(handle) ? "foreground" : "background",
-            Win32.IsMinimized(handle) ? ", minimised" : ""));
+            Win32.IsMinimized(handle) ? ", minimised" : "",
+            StarterTool.Beeps.OutputDescription));
     }
 
     private void LogAudioStart()

@@ -59,6 +59,13 @@ public enum StatStripSide
     Right
 }
 
+public enum AudioOutput
+{
+    Wasapi,
+
+    WaveOut
+}
+
 public sealed class AppSettings
 {
     public int Version { get; set; } = SettingsMigrations.CurrentVersion;
@@ -142,6 +149,10 @@ public sealed class AppSettings
     public int EncounterIntroFrame { get; set; }
 
     public int EncounterIntroWindow { get; set; } = 1;
+
+    public int EncounterLoopFrame { get; set; }
+
+    public int EncounterLoopWindow { get; set; } = 1;
 
     public int EncounterTitleFrame { get; set; }
 
@@ -268,6 +279,10 @@ public sealed class AppSettings
     public bool FlashEnabled { get; set; } = true;
 
     public string BeepSound { get; set; } = "ping1";
+
+    public AudioOutput AudioOutput { get; set; } = AudioOutput.Wasapi;
+
+    public double AudioPeriodMs { get; set; }
 
     public int TrainingRounds { get; set; } = 10;
 
@@ -399,6 +414,9 @@ public sealed class AppSettings
         if (!Enum.IsDefined(KeyMethod)) KeyMethod = KeyMethod.OnPress;
         if (!Enum.IsDefined(ClipboardFormat)) ClipboardFormat = ClipboardFormat.Column;
         if (!Enum.IsDefined(StatServerStripSide)) StatServerStripSide = StatStripSide.Bottom;
+        if (!Enum.IsDefined(AudioOutput)) AudioOutput = AudioOutput.Wasapi;
+        if (double.IsNaN(AudioPeriodMs) || AudioPeriodMs < 0) AudioPeriodMs = 0;
+        if (AudioPeriodMs > 100) AudioPeriodMs = 100;
         if (!Enum.IsDefined(TimeFormat)) TimeFormat = TimeFormat.Seconds;
 
         EncounterCycles = Math.Clamp(EncounterCycles, 0, 65535);
@@ -407,7 +425,7 @@ public sealed class AppSettings
         EncounterGame = EncounterGame is "lg" ? EncounterGame : "fr";
         EncounterCombo = Encounters.TitleCombo.Parse(EncounterCombo)?.Key ?? "any";
         EncounterSound = EncounterSound is "stereo" or "any" ? EncounterSound : "mono";
-        EncounterIntro = EncounterIntro is "skip477" or "skip990" or "any" ? EncounterIntro : "none";
+        EncounterIntro = EncounterIntro is "any" ? EncounterIntro : Encounters.TitleVariant.Parse(null, null, EncounterIntro).ChoiceKey;
         EncounterTitle = EncounterTitle is "played" or "spedup" ? EncounterTitle : "either";
         EncounterDelayMs = Math.Clamp(EncounterDelayMs, -10000, 10000);
         if (EncounterOffsetMs is int encounterOffsetMs)

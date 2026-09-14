@@ -246,6 +246,8 @@ public sealed class EncounterPanel : Panel
         _labelIntro = AddCaption(_boxSettings, "Intro", BoxInset, optionRow + 4, OptionLabelWidth);
         _intro = AddOptionBox(BoxInset + OptionLabelWidth + 6, optionRow, OptionBoxWidth);
         _intro.Items.AddRange(new object[] { "Played", "Skip 477", "Skip 990", "Any" });
+        foreach ((TitleIntro _, TitleLoop _, string label) in LoopChoices) _intro.Items.Add(label);
+        _intro.DropDownWidth = 150;
         _intro.SelectedIndex = 0;
         _intro.SelectedIndexChanged += (_, _) => OptionsChanged();
 
@@ -357,13 +359,14 @@ public sealed class EncounterPanel : Panel
         _results.Columns.Add("Frame", 46, HorizontalAlignment.Center);
         _results.Columns.Add("Loops", 44, HorizontalAlignment.Center);
         _results.Columns.Add("Time", 46, HorizontalAlignment.Center);
-        _results.Columns.Add("Win", 34, HorizontalAlignment.Center);
+        _results.Columns.Add("Win", 52, HorizontalAlignment.Center);
         _results.Columns.Add("Seed", 44, HorizontalAlignment.Center);
         _results.Columns.Add("Enc", 34, HorizontalAlignment.Center);
         _results.Columns.Add("Rate", 44, HorizontalAlignment.Center);
         _results.Columns.Add("Where", 78, HorizontalAlignment.Left);
         _results.HandleCreated += (_, _) => FitLastColumn();
         _results.SelectedIndexChanged += (_, _) => ShowSelected();
+        _results.DoubleClick += (_, _) => SearchAroundSelected();
         _results.KeyDown += (_, e) =>
         {
             if (e.KeyCode != Keys.Escape || _around is null) return;
@@ -545,6 +548,7 @@ public sealed class EncounterPanel : Panel
             {
                 1 => TitleIntro.Skip477,
                 2 => TitleIntro.Skip990,
+                >= 4 when _intro.SelectedIndex - 4 < LoopChoices.Length => LoopChoices[_intro.SelectedIndex - 4].Intro,
                 _ => TitleIntro.Played,
             },
             _title.SelectedIndex switch
@@ -554,7 +558,8 @@ public sealed class EncounterPanel : Panel
                 _ => TitleAnimation.Either,
             },
             _combo.SelectedIndex >= 1 && _combo.SelectedIndex - 1 < _combos.Count ? _combos[_combo.SelectedIndex - 1] : null,
-            _game.SelectedIndex == 1 ? TitleGame.LeafGreen : TitleGame.FireRed);
+            _game.SelectedIndex == 1 ? TitleGame.LeafGreen : TitleGame.FireRed,
+            _intro.SelectedIndex >= 4 && _intro.SelectedIndex - 4 < LoopChoices.Length ? LoopChoices[_intro.SelectedIndex - 4].Loop : TitleLoop.None);
         set
         {
             bool was = _settingOptions;
@@ -565,12 +570,7 @@ public sealed class EncounterPanel : Panel
                 _buttons.SelectedIndex = value.Buttons == TitleButtonMode.LEqualsA ? 1 : 0;
                 FillCombos(value.Combo);
                 _sound.SelectedIndex = value.Sound == TitleSoundMode.Stereo ? 1 : 0;
-                _intro.SelectedIndex = value.Intro switch
-                {
-                    TitleIntro.Skip477 => 1,
-                    TitleIntro.Skip990 => 2,
-                    _ => 0,
-                };
+                _intro.SelectedIndex = IntroIndexOf(value.Intro, value.Loop);
                 _title.SelectedIndex = value.Animation switch
                 {
                     TitleAnimation.PlayedOut => 1,
@@ -627,6 +627,25 @@ public sealed class EncounterPanel : Panel
         }
     }
 
+    private static readonly (TitleIntro Intro, TitleLoop Loop, string Label)[] LoopChoices =
+    {
+        (TitleIntro.Played, TitleLoop.Skip477, "Loop: none → 477"),
+        (TitleIntro.Played, TitleLoop.Skip990, "Loop: none → 990"),
+        (TitleIntro.Skip477, TitleLoop.Skip477, "Loop: 477 → 477"),
+        (TitleIntro.Skip477, TitleLoop.Skip990, "Loop: 477 → 990"),
+        (TitleIntro.Skip990, TitleLoop.Skip477, "Loop: 990 → 477"),
+        (TitleIntro.Skip990, TitleLoop.Skip990, "Loop: 990 → 990"),
+    };
+
+    private static int IntroIndexOf(TitleIntro intro, TitleLoop loop)
+    {
+        for (int i = 0; i < LoopChoices.Length; i++)
+        {
+            if (LoopChoices[i].Intro == intro && LoopChoices[i].Loop == loop) return 4 + i;
+        }
+        return intro switch { TitleIntro.Skip477 => 1, TitleIntro.Skip990 => 2, _ => 0 };
+    }
+
     public bool IntroAny
     {
         get => _intro.SelectedIndex == 3;
@@ -641,7 +660,7 @@ public sealed class EncounterPanel : Panel
 
     private string SoundKey => SoundAny ? "any" : Variant.SoundKey;
 
-    private string IntroKey => IntroAny ? "any" : Variant.IntroKey;
+    private string IntroKey => IntroAny ? "any" : Variant.ChoiceKey;
 
     public int DelayMs
     {
@@ -657,14 +676,47 @@ public sealed class EncounterPanel : Panel
 
     public int IntroFrame
     {
-        get => ParsePress(_introFrame.Text).Frame;
-        set => WritePress(_introFrame, value, IntroWindow);
+        get => ParsePress(IntroPart(_introFrame.Text)).Frame;
+        set => WriteIntroBox(value, IntroWindow, LoopFrame, LoopWindow);
     }
 
     public int IntroWindow
     {
-        get => ParsePress(_introFrame.Text).Window;
-        set => WritePress(_introFrame, IntroFrame, value);
+        get => ParsePress(IntroPart(_introFrame.Text)).Window;
+        set => WriteIntroBox(IntroFrame, value, LoopFrame, LoopWindow);
+    }
+
+    public int LoopFrame
+    {
+        get => ParsePress(LoopPart(_introFrame.Text)).Frame;
+        set => WriteIntroBox(IntroFrame, IntroWindow, value, LoopWindow);
+    }
+
+    public int LoopWindow
+    {
+        get => ParsePress(LoopPart(_introFrame.Text)).Window;
+        set => WriteIntroBox(IntroFrame, IntroWindow, LoopFrame, value);
+    }
+
+    private static string IntroPart(string text)
+    {
+        string value = (text ?? "").Trim();
+        int comma = value.IndexOf(',');
+        return comma < 0 ? value : value[..comma];
+    }
+
+    private static string LoopPart(string text)
+    {
+        string value = (text ?? "").Trim();
+        int comma = value.IndexOf(',');
+        return comma < 0 ? "" : value[(comma + 1)..];
+    }
+
+    private void WriteIntroBox(int introFrame, int introWindow, int loopFrame, int loopWindow)
+    {
+        string intro = introFrame <= 0 ? "" : new ManipPress("", introFrame, Math.Clamp(introWindow, 1, MaxWindow)).Frames;
+        string loop = loopFrame <= 0 ? "" : new ManipPress("", loopFrame, Math.Clamp(loopWindow, 1, MaxWindow)).Frames;
+        WritePress(_introFrame, loop.Length == 0 ? intro : intro + "," + loop);
     }
 
     public int TitleFrame
@@ -717,14 +769,9 @@ public sealed class EncounterPanel : Panel
         _writingPresses = true;
         try
         {
-            if (press.Variant.IntroSkipped)
-            {
-                WritePress(_introFrame, TitleSeedTable.IntroFrameOf(press.Variant), press.IntroWindow);
-            }
-            else
-            {
-                _introFrame.Text = "";
-            }
+            WriteIntroBox(
+                press.Variant.IntroSkipped ? TitleSeedTable.IntroFrameOf(press.Variant) : 0, press.IntroWindow,
+                press.Variant.LoopSkipped ? TitleSeedTable.LoopFrameOf(press.Variant) : 0, TitleSeedTable.LoopWindowOf(press.Variant));
 
             WritePress(_titleFrame, ResetFrame(press), press.Window);
             _pickedSeed = press.Seed;
@@ -980,6 +1027,8 @@ public sealed class EncounterPanel : Panel
         OffsetMs = OffsetMs,
         IntroFrame = IntroFrame,
         IntroWindow = IntroWindow,
+        LoopFrame = LoopFrame,
+        LoopWindow = LoopWindow,
         TitleFrame = TitleFrame,
         TitleWindow = TitleWindow,
         Seed = _pickedSeed,
@@ -997,6 +1046,8 @@ public sealed class EncounterPanel : Panel
         OffsetMs = preset.OffsetMs;
         IntroFrame = preset.IntroFrame;
         IntroWindow = preset.IntroWindow;
+        LoopFrame = preset.LoopFrame;
+        LoopWindow = preset.LoopWindow;
         TitleFrame = preset.TitleFrame;
         TitleWindow = preset.TitleWindow;
         _pickedSeed = preset.Seed;
@@ -1131,6 +1182,9 @@ public sealed class EncounterPanel : Panel
             TitleVariant variant = missing[0];
             _status.Text = variant.Intro switch
             {
+                _ when variant.OnLoop =>
+                    $"No table for {variant} yet - the second title screen is a ladder sweep of its own per first-intro x loop-intro pair "
+                    + "(make_loop_chain.py), and this one has not been run for this pair.",
                 TitleIntro.Skip990 => $"No RTA table for {variant} yet - the 990 skip is a table of its own per pair of options.",
                 TitleIntro.Skip477 when variant.OwnsTable =>
                     $"No table for {variant} yet - that combo reads a seed of its own off the 477 skip on every frame (2026-08-25), "
@@ -1194,16 +1248,25 @@ public sealed class EncounterPanel : Panel
         TitleSoundMode[] sounds = SoundAny
             ? new[] { TitleSoundMode.Mono, TitleSoundMode.Stereo }
             : new[] { chosen.Sound };
-        TitleIntro[] intros = IntroAny
-            ? new[] { TitleIntro.Played, TitleIntro.Skip477, TitleIntro.Skip990 }
-            : new[] { chosen.Intro };
+        var intros = new List<(TitleIntro Intro, TitleLoop Loop)>();
+        if (IntroAny)
+        {
+            intros.Add((TitleIntro.Played, TitleLoop.None));
+            intros.Add((TitleIntro.Skip477, TitleLoop.None));
+            intros.Add((TitleIntro.Skip990, TitleLoop.None));
+            foreach ((TitleIntro intro, TitleLoop loop, _) in LoopChoices) intros.Add((intro, loop));
+        }
+        else
+        {
+            intros.Add((chosen.Intro, chosen.Loop));
+        }
 
         var variants = new List<TitleVariant>();
         foreach (TitleSoundMode sound in sounds)
         {
-            foreach (TitleIntro intro in intros)
+            foreach ((TitleIntro intro, TitleLoop loop) in intros)
             {
-                variants.Add(chosen with { Sound = sound, Intro = intro });
+                variants.Add(chosen with { Sound = sound, Intro = intro, Loop = loop });
             }
         }
         return variants;
@@ -1282,7 +1345,7 @@ public sealed class EncounterPanel : Panel
     private static readonly (string Text, int Width, HorizontalAlignment Align)[] SearchColumns =
     {
         ("Frame", 46, HorizontalAlignment.Center), ("Loops", 44, HorizontalAlignment.Center),
-        ("Time", 46, HorizontalAlignment.Center), ("Win", 34, HorizontalAlignment.Center),
+        ("Time", 46, HorizontalAlignment.Center), ("Win", 52, HorizontalAlignment.Center),
         ("Seed", 44, HorizontalAlignment.Center), ("Enc", 34, HorizontalAlignment.Center),
         ("Rate", 44, HorizontalAlignment.Center), ("Where", 78, HorizontalAlignment.Left),
     };
@@ -1314,12 +1377,15 @@ public sealed class EncounterPanel : Panel
         FitLastColumn();
     }
 
-    private static int ResetFrame(PressFrame press) =>
-        TitleSeedTable.IntroAnchorOf(press.Variant.Intro) + press.WaitFrames;
+    private static int ResetFrame(PressFrame press) => press.ResetFrame;
 
     private static string Windows(PressFrame press)
     {
         string window = press.Window.ToString(CultureInfo.InvariantCulture);
+        if (press.Variant.LoopSkipped)
+        {
+            window = TitleSeedTable.LoopWindowOf(press.Variant).ToString(CultureInfo.InvariantCulture) + "→" + window;
+        }
         return press.IntroWindow > 0
             ? press.IntroWindow.ToString(CultureInfo.InvariantCulture) + "→" + window
             : window;
@@ -1362,7 +1428,7 @@ public sealed class EncounterPanel : Panel
 
         if (match.Press.Protocol == TitleProtocol.Rta)
         {
-            ShowSelectedRta(match);
+            DescribeRta(match);
             return;
         }
 
@@ -1378,10 +1444,17 @@ public sealed class EncounterPanel : Panel
             + $" - on {match.Rate * 100:0}% of sampled main streams.";
     }
 
-    private void ShowSelectedRta(EncounterMatch match)
+    private void SearchAroundSelected()
     {
+        if (_around is not null) return;
+        if (_results.SelectedIndices.Count == 0 || _results.SelectedIndices[0] >= _matches.Count) return;
+
+        EncounterMatch match = _matches[_results.SelectedIndices[0]];
+        if (match.Press.Protocol != TitleProtocol.Rta) return;
+
+        FillPresses(match.Press);
+        ShowAround(match);
         DescribeRta(match);
-        BeginInvoke(new Action(() => ShowAround(match)));
     }
 
     private void DescribeRta(EncounterMatch match)
@@ -1393,8 +1466,13 @@ public sealed class EncounterPanel : Panel
 
         string loops = press.Pass == 0
             ? ""
-            : $", {press.Pass} loop{(press.Pass == 1 ? "" : "s")} ({Wait(press)} from the reset; arithmetic, up to {press.Band} cycles off)";
-        string settings = $"{variant.PairTable}, intro {(variant.IntroSkipped ? "skipped at " + TitleSeedTable.IntroFrameOf(variant.Intro) : "played")}"
+            : press.Measured
+                ? $", on the second title screen ({Wait(press)} from the reset; measured)"
+                : $", {press.Pass} loop{(press.Pass == 1 ? "" : "s")} ({Wait(press)} from the reset; arithmetic, up to {press.Band} cycles off)";
+        string loopIntro = variant.OnLoop
+            ? (variant.LoopSkipped ? $", loop intro skipped at {TitleSeedTable.LoopFrameOf(variant)}" : ", loop intro played")
+            : "";
+        string settings = $"{variant.PairTable}, intro {(variant.IntroSkipped ? "skipped at " + TitleSeedTable.IntroFrameOf(variant.Intro) : "played")}{loopIntro}"
             + $", title {(press.SeedPressFrame is null ? "played out" : "sped up")}, {TitleCombos.Of(press).Short}{loops}."
             + $" Trainer ID {press.Seed:X4}.";
 
@@ -1405,6 +1483,13 @@ public sealed class EncounterPanel : Panel
             int last = first + press.IntroWindow - 1;
             string frames = press.IntroWindow > 1 ? $"{first}-{last}" : first.ToString(CultureInfo.InvariantCulture);
             intro = $"\nSkip: {TitleCombo.Name(order[at++])} on {frames} from reset.";
+        }
+        if (variant.LoopSkipped)
+        {
+            int first = TitleSeedTable.LoopFrameOf(variant);
+            int last = first + TitleSeedTable.LoopWindowOf(variant) - 1;
+            string frames = last > first ? $"{first}-{last}" : first.ToString(CultureInfo.InvariantCulture);
+            intro += $"\nLoop skip: {TitleCombo.Name(order[at++])} on {frames} from reset.";
         }
 
         int frame = ResetFrame(press);
@@ -1417,7 +1502,8 @@ public sealed class EncounterPanel : Panel
             ? ""
             : $" Table swept with {TitleCombos.Swept(press).Short}; this combo is unmeasured.";
 
-        _status.Text = settings + intro + title + flag + " Esc: back to the search.";
+        string next = _around is null ? " Double-click: the frames around it." : " Esc: back to the search.";
+        _status.Text = settings + intro + title + flag + next;
     }
 
     private void ShowAround(EncounterMatch match)

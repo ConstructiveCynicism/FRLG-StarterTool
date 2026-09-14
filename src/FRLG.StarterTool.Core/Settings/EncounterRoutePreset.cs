@@ -25,6 +25,10 @@ public sealed class EncounterRoutePreset
 
     public int IntroWindow { get; set; } = 1;
 
+    public int LoopFrame { get; set; }
+
+    public int LoopWindow { get; set; } = 1;
+
     public int TitleFrame { get; set; }
 
     public int TitleWindow { get; set; } = 1;
@@ -37,12 +41,15 @@ public sealed class EncounterRoutePreset
 
     public bool HasIntroPress => IntroFrame > 0;
 
+    public bool HasLoopPress => LoopFrame > 0;
+
     public bool HasTitlePress => TitleFrame > 0;
 
     public List<ManipPress> Presses()
     {
         var presses = new List<ManipPress>(2);
         if (HasIntroPress) presses.Add(new ManipPress("Intro", IntroFrame, IntroWindow));
+        if (HasLoopPress) presses.Add(new ManipPress("Loop", LoopFrame, LoopWindow));
         if (HasTitlePress) presses.Add(new ManipPress("Title", TitleFrame, TitleWindow));
         return presses;
     }
@@ -57,7 +64,7 @@ public sealed class EncounterRoutePreset
         Game = Game is "lg" ? Game : "fr";
         Buttons = Buttons is "la" ? Buttons : "help";
         Sound = Sound is "stereo" or "any" ? Sound : "mono";
-        Intro = Intro is "skip477" or "skip990" or "any" ? Intro : "none";
+        Intro = Intro is "any" ? Intro : TitleVariant.Parse(null, null, Intro).ChoiceKey;
         Title = Title is "played" or "spedup" ? Title : "either";
         Combo = TitleCombo.Parse(Combo)?.Key ?? "any";
         DelayMs = Math.Clamp(DelayMs, -10000, 10000);
@@ -65,6 +72,8 @@ public sealed class EncounterRoutePreset
         IntroFrame = Math.Clamp(IntroFrame, 0, 100000);
         TitleFrame = Math.Clamp(TitleFrame, 0, 100000);
         IntroWindow = Math.Clamp(IntroWindow, 1, 60);
+        LoopFrame = Math.Clamp(LoopFrame, 0, 100000);
+        LoopWindow = Math.Clamp(LoopWindow, 1, 60);
         TitleWindow = Math.Clamp(TitleWindow, 1, 60);
         if (Seed < -1 || Seed > 0xFFFF) Seed = -1;
         Offset = Math.Max(Offset, 0);
@@ -86,6 +95,8 @@ public sealed class EncounterRoutePreset
         OffsetMs = OffsetMs,
         IntroFrame = IntroFrame,
         IntroWindow = IntroWindow,
+        LoopFrame = LoopFrame,
+        LoopWindow = LoopWindow,
         TitleFrame = TitleFrame,
         TitleWindow = TitleWindow,
         Seed = Seed,

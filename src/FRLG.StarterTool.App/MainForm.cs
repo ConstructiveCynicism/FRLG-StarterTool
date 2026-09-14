@@ -223,6 +223,8 @@ public partial class MainForm : Form
         EncounterPanel.OffsetMs = settings.EncounterOffsetMs;
         EncounterPanel.IntroFrame = settings.EncounterIntroFrame;
         EncounterPanel.IntroWindow = settings.EncounterIntroWindow;
+        EncounterPanel.LoopFrame = settings.EncounterLoopFrame;
+        EncounterPanel.LoopWindow = settings.EncounterLoopWindow;
         EncounterPanel.TitleFrame = settings.EncounterTitleFrame;
         EncounterPanel.TitleWindow = settings.EncounterTitleWindow;
         EncounterPanel.SetRoutes(settings.EncounterRoutes, settings.EncounterActiveRoute);
@@ -284,13 +286,15 @@ public partial class MainForm : Form
         settings.EncounterGame = EncounterPanel.Variant.GameKey;
         settings.EncounterButtons = EncounterPanel.Variant.ButtonsKey;
         settings.EncounterSound = EncounterPanel.SoundAny ? "any" : EncounterPanel.Variant.SoundKey;
-        settings.EncounterIntro = EncounterPanel.IntroAny ? "any" : EncounterPanel.Variant.IntroKey;
+        settings.EncounterIntro = EncounterPanel.IntroAny ? "any" : EncounterPanel.Variant.ChoiceKey;
         settings.EncounterTitle = EncounterPanel.Variant.AnimationKey;
         settings.EncounterCombo = EncounterPanel.Variant.ComboKey;
         settings.EncounterDelayMs = EncounterPanel.DelayMs;
         settings.EncounterOffsetMs = EncounterPanel.OffsetMs;
         settings.EncounterIntroFrame = EncounterPanel.IntroFrame;
         settings.EncounterIntroWindow = EncounterPanel.IntroWindow;
+        settings.EncounterLoopFrame = EncounterPanel.LoopFrame;
+        settings.EncounterLoopWindow = EncounterPanel.LoopWindow;
         settings.EncounterTitleFrame = EncounterPanel.TitleFrame;
         settings.EncounterTitleWindow = EncounterPanel.TitleWindow;
         settings.EncounterRoutes = EncounterPanel.Routes;

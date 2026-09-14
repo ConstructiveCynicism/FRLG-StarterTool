@@ -32,6 +32,7 @@ public sealed class SettingsForm : Form
         "Cue Context (ms)",
         "Beep Sound",
         "Volume",
+        "Output",
         "Clipboard Format",
         "Time Format",
         "Nature and Frame",
@@ -327,7 +328,30 @@ public sealed class SettingsForm : Form
         Controls.Add(volumeLabel);
         Controls.Add(volumeBar);
 
-        y = volumeBar.Bottom + Scaled(SectionGap);
+        var outputLabel = new Label
+        {
+            Text = "Output",
+            Location = new Point(Scaled(LeftMargin), volumeBar.Bottom + Scaled(RowGap) + Scaled(4)),
+            AutoSize = true
+        };
+        var outputBox = new ThemedComboBox
+        {
+            Location = new Point(comboX, volumeBar.Bottom + Scaled(RowGap)),
+            Size = new Size(comboWidth, Scaled(23)),
+            DropDownStyle = ComboBoxStyle.DropDownList
+        };
+        outputBox.Items.Add("WASAPI (low latency)");
+        outputBox.Items.Add("waveOut (legacy)");
+        outputBox.SelectedIndex = (int)_settings.AudioOutput;
+        outputBox.SelectedIndexChanged += (_, _) =>
+        {
+            _settings.AudioOutput = (AudioOutput)outputBox.SelectedIndex;
+            StarterTool.Beeps.Configure(_settings.AudioOutput, _settings.AudioPeriodMs);
+        };
+        Controls.Add(outputLabel);
+        Controls.Add(outputBox);
+
+        y = outputBox.Bottom + Scaled(SectionGap);
         Label inputHeader = AddSectionHeader("Input", y);
         y = inputHeader.Bottom + Scaled(RowGap);
 

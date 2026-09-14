@@ -113,6 +113,8 @@ public partial class MainForm
         Keys.PageUp => extended ? Keys.None : Keys.NumPad9,
         Keys.Delete => extended ? Keys.None : Keys.Decimal,
 
+        Keys.Back => TrainerIdFocused ? Keys.Back : Keys.None,
+
         _ => Keys.None
     };
 
@@ -128,6 +130,10 @@ public partial class MainForm
         {
             case Keys.Decimal:
                 ResetTrainerId();
+                break;
+
+            case Keys.Back:
+                EraseTrainerIdDigit();
                 break;
 
             case Keys.Return:
@@ -159,6 +165,24 @@ public partial class MainForm
 
         FocusTrainerIdIfNeeded();
         TextBoxTrainerId.SelectedText = digit.ToString();
+    }
+
+    private void EraseTrainerIdDigit()
+    {
+        if (!TextBoxTrainerId.Enabled) return;
+        if (_trainerIdLocked) return;
+
+        FocusTrainerIdIfNeeded();
+        if (TextBoxTrainerId.SelectionLength > 0)
+        {
+            TextBoxTrainerId.SelectedText = "";
+            return;
+        }
+
+        int at = TextBoxTrainerId.SelectionStart;
+        if (at <= 0) return;
+        TextBoxTrainerId.Text = TextBoxTrainerId.Text.Remove(at - 1, 1);
+        TextBoxTrainerId.SelectionStart = at - 1;
     }
 
     private void ResetTrainerId()

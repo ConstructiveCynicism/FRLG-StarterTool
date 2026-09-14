@@ -1,5 +1,13 @@
 # Features
 
+### v2.1.4
+- Backspace erases a Trainer ID digit while the ID box has the caret, even with the emulator focused (a hotkey bound to Backspace wins)
+- Planner: the frames around a row open on double-click, not on selection; arrowing the rows only reads them on the status line
+- Planner: no more arithmetic loop rows, every result is a measured one (pass 0 off the pair's table, pass 1 off its second-title-screen table)
+- Planner: the second title screen as `Intro` choices (`Loop: none → 477` through `Loop: 990 → 990`); the Intro box carries both skips as `477-479,4055-4059`, routes and the countdown carry the second press as `Loop`
+- Fixed the encounter manip cueing every press one frame late; a `-1f` Delay dialled in by hand should be removed
+- Beeps now go through WASAPI (2-4 ms period instead of 10 ms); `Output` and period settings in the Audio section, waveOut as the fallback
+
 ### v2.1.3
 - Fixed DS FPS
 - Routes can now have their own Offset and Delay, these **OVERRIDE** the settings, not add
