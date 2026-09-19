@@ -1,5 +1,11 @@
 # Features
 
+### v2.2.0
+- More encounter manip seeds (not close to done, only partial for Fire Red, no new ones for Leaf Green)
+- Updated input UI for seeds, and tile prediction
+- PC Potion audio cue, configured in the top left of the Constraints tab
+- Encounter Manip Visual Cue Helper
+
 ### v2.1.4
 - Backspace added as global hotkey
 - Removed guessed loop tables, added confirmed single loop tables

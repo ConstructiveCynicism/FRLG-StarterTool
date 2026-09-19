@@ -58,7 +58,7 @@ public static class EncounterModel
                 }
                 if (!proceed) continue;
 
-                if (tile == 0)
+                if (spec.IsPatchEntry(tile))
                 {
                     main = NextMain(main);
                     if ((main >> 16) % 100 >= PatchRate) continue;
@@ -122,7 +122,7 @@ public static class EncounterModel
             for (int tile = 0; tile < spec.Tiles; tile++)
             {
                 bool repel = tile < spec.RepelTiles;
-                bool patch = tile == 0;
+                bool patch = spec.IsPatchEntry(tile);
                 int rate = spec.Rate;
                 int minSteps = spec.MinSteps;
 

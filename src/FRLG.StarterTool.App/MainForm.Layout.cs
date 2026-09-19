@@ -89,5 +89,8 @@ public partial class MainForm
         ButtonContextLate.Location = new Point(ContextPanel.Right - ButtonContextLate.Width, buttonY);
         ButtonContextFinished.Location =
             new Point(ContextPanel.Right - ButtonContextFinished.Width, buttonY);
+
+        CaptureView.Bounds = ContextPanel.Bounds;
+        ManipView.Bounds = ContextPanel.Bounds;
     }
 }

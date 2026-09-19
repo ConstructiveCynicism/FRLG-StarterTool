@@ -11,6 +11,8 @@ public sealed class FilterPreset
     public string MinFrame { get; set; } = "0";
     public string MaxFrame { get; set; } = "10000";
 
+    public string PcFrame { get; set; } = "";
+
     public bool[] Natures { get; set; } = SettingsArrays.NewNatureFilter();
 
     public int[] IvMinus { get; set; } = new int[6];
@@ -25,6 +27,7 @@ public sealed class FilterPreset
         if (SpeciesId < 1 || SpeciesId > PokemonSpecies.Gen3DexSize) SpeciesId = SettingsArrays.DefaultSpeciesId;
         MinFrame ??= "0";
         MaxFrame ??= "10000";
+        PcFrame = (PcFrame ?? "").Trim();
 
         Natures = SettingsArrays.Resize(Natures, Nature.NatureCount);
         IvMinus = SettingsArrays.Resize(IvMinus, 6);
@@ -46,6 +49,7 @@ public sealed class FilterPreset
         SpeciesId = SpeciesId,
         MinFrame = MinFrame,
         MaxFrame = MaxFrame,
+        PcFrame = PcFrame,
         Natures = (bool[])Natures.Clone(),
         IvMinus = (int[])IvMinus.Clone(),
         IvNeutral = (int[])IvNeutral.Clone(),
@@ -58,6 +62,7 @@ public sealed class FilterPreset
         && SpeciesId == other.SpeciesId
         && FrameEquals(MinFrame, other.MinFrame)
         && FrameEquals(MaxFrame, other.MaxFrame)
+        && FrameEquals(PcFrame, other.PcFrame)
         && SameRangesAs(other);
 
     private bool SameRangesAs(FilterPreset other)

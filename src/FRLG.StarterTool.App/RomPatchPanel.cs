@@ -12,8 +12,9 @@ public sealed class RomPatchPanel : Panel
 
     private const int FieldX = 50;
 
-    private const int StatusTop = 52;
-    private const int ButtonTop = 78;
+    private const int ButtonTop = 52;
+
+    private const int ButtonWidth = 130;
 
     public const int PanelHeight = ButtonTop + RowHeight;
 
@@ -71,14 +72,15 @@ public sealed class RomPatchPanel : Panel
 
         _status = new Label
         {
-            Location = new Point(0, StatusTop),
-            Size = new Size(PanelWidth, RowHeight),
-            TextAlign = ContentAlignment.MiddleCenter,
+            Location = new Point(ButtonWidth + 8, ButtonTop),
+            Size = new Size(PanelWidth - ButtonWidth - 8, RowHeight),
+            TextAlign = ContentAlignment.MiddleLeft,
+            AutoEllipsis = true,
             Tag = Theme.KeepForeColor
         };
         Controls.Add(_status);
 
-        _buttonPatch = MakeButton("Patch ROM…", 0, ButtonTop, 130);
+        _buttonPatch = MakeButton("Patch ROM…", 0, ButtonTop, ButtonWidth);
         _buttonPatch.Click += (_, _) => ApplyPatch();
         Controls.Add(_buttonPatch);
 

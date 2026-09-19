@@ -10,6 +10,33 @@ public readonly record struct ManipPress(string Name, int Frame, int Window)
         ? Frame.ToString(System.Globalization.CultureInfo.InvariantCulture) + "-"
           + LastFrame.ToString(System.Globalization.CultureInfo.InvariantCulture)
         : Frame.ToString(System.Globalization.CultureInfo.InvariantCulture);
+
+    public const int MaxWindow = 60;
+
+    public static ManipPress? Parse(string name, string? text)
+    {
+        string value = (text ?? "").Trim();
+        int dash = value.IndexOf('-');
+        if (Number(dash <= 0 ? value : value[..dash]) is not int first || first <= 0) return null;
+        if (dash <= 0 || Number(value[(dash + 1)..]) is not int last || last <= first) return new ManipPress(name, first, 1);
+        return new ManipPress(name, first, Math.Min(last - first + 1, MaxWindow));
+    }
+
+    public static List<ManipPress> ParseList(string name, string? text, int firstNumber = 2)
+    {
+        var presses = new List<ManipPress>();
+        foreach (string item in (text ?? "").Split(','))
+        {
+            if (Parse($"{name} {firstNumber + presses.Count}", item) is ManipPress press) presses.Add(press);
+        }
+        return presses;
+    }
+
+    public static string FormatList(IEnumerable<ManipPress> presses) => string.Join(",", presses.Select(press => press.Frames));
+
+    private static int? Number(string text) =>
+        int.TryParse(text.Trim(), System.Globalization.NumberStyles.Integer,
+            System.Globalization.CultureInfo.InvariantCulture, out int value) && value >= 0 ? value : null;
 }
 
 public static class EncounterManip

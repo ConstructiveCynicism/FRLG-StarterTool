@@ -12,6 +12,8 @@ public static class StarterTool
 
     public static MainForm MainForm = null!;
     public static BeepPlayer Beeps = null!;
+
+    internal static readonly Capture.CaptureSession Capture = new();
     public static VariableOffsetTimer VariableOffset = null!;
     public static AppSettings Settings = null!;
 
@@ -72,6 +74,8 @@ public static class StarterTool
 
         if (firstRun) Settings.ZoomPercent = DefaultZoomPercent();
 
+        if (Settings.HighPriority) Win32.SetHighPriority(true);
+
         Win32.SetDrift(Settings.ClockDrift);
         DriftMonitor.Start();
         if (Settings.AtomicClockSync) AtomicClock.Start();
@@ -86,6 +90,7 @@ public static class StarterTool
         VariableOffset = new VariableOffsetTimer(mainForm);
         VariableOffset.OnInit();
         mainForm.ApplySettings(Settings);
+        mainForm.RefreshCapture();
 
         MainFormHandle = mainForm.Handle;
         StartHookThread();
@@ -141,6 +146,7 @@ public static class StarterTool
 
         StopTimerThread();
         Beeps?.Dispose();
+        Capture.Dispose();
 
         DriftMonitor.Stop();
         AtomicClock.Stop();
@@ -270,6 +276,7 @@ public static class StarterTool
         while (reopen);
 
         SaveSettings();
+        MainForm.RefreshCapture();
     }
 
     public static void ApplyTheme()
@@ -560,13 +567,23 @@ public static class StarterTool
         TimerStartLagMs = startTimeMs != null ? lagMs : 0.0;
 
         if (VariableOffset.StartsEncounterRun) Context.Reset();
-        else Context.Start();
+        else
+        {
+            Context.Start();
+            MainForm.CloseCapture();
+        }
 
         CurrentTab.OnTimerStart();
 
         _timerThreadRunning = true;
         _timerUpdateThread = new Thread(TimerUpdateCallback) { IsBackground = true, Name = "TimerUpdate" };
         _timerUpdateThread.Start();
+
+        string before = Win32.CurrentPriority();
+        string now = Settings.HighPriority ? Win32.SetHighPriority(true) : before;
+        ContextSession.Log(before == now
+            ? $"priority: {now}"
+            : $"priority: {now} (was {before}, put back)");
     }
 
     public static void StopTimer(bool timerExpired, double lagMs = 0.0, bool letCuesFinish = false)

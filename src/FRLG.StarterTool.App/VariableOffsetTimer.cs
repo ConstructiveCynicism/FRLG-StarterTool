@@ -164,6 +164,14 @@ public sealed class VariableOffsetTimer : BaseTimer
         if (Submitted) Arm();
     }
 
+    private const double AlertFadeMs = 600.0;
+
+    public void Alert()
+    {
+        if (_form.CheckBoxBeepEnabled.Checked) StarterTool.Beeps.QueueBeeps(new[] { 0.0 }, 1);
+        if (_form.CheckBoxFlashEnabled.Checked) _form.LabelTimer.Alert(AlertFadeMs);
+    }
+
     private void PreviewOrRearm()
     {
         if (Submitted)
@@ -494,6 +502,17 @@ public sealed class VariableOffsetTimer : BaseTimer
         _encounter = new EncounterRun(route, info);
         _encounterLastTargetTime = StarterTool.TimerStart + _encounter.LastPressMs;
 
+        _form.CloseCapture();
+        if (_encounter.TitleTarget is { } title)
+        {
+            StarterTool.Capture.Arm(route.Name, StarterTool.TimerStart + _encounter.DueMs(title),
+                _encounter.EarlyWindowMs, _encounter.LateWindowMs, route.VideoDelayMs, _encounter.Fps);
+        }
+        else
+        {
+            StarterTool.Capture.Disarm();
+        }
+
         double elapsedMs = Win32.GetTime() - StarterTool.TimerStart;
         double[] beeps = _form.CheckBoxBeepEnabled.Checked
             ? _encounter.BeepSchedule(elapsedMs)
@@ -532,6 +551,10 @@ public sealed class VariableOffsetTimer : BaseTimer
         }
 
         _encounter.Score(target, elapsedMs);
+        if (ReferenceEquals(target, _encounter.TitleTarget))
+        {
+            StarterTool.Capture.Pressed(pressTimeMs);
+        }
         ContextSession.Log(string.Format(CultureInfo.InvariantCulture,
             "encounter {0} press at {1:F1} ms ({2:+0.0;-0.0;0.0} ms off frame {3}), landed frame {4}, hit chance {5:P0} - press lag {6:F1} ms",
             target.Press.Name, elapsedMs, target.DeltaMs, target.Press.Frames, target.LandedFrame, target.Chance, pressLagMs));
@@ -567,6 +590,7 @@ public sealed class VariableOffsetTimer : BaseTimer
         }
 
         _landingWindowClose?.Stop();
+        StarterTool.Capture.Disarm();
         ContextSession.Log("encounter manip stopped by hand - still pending");
         _encounter = null;
         _encounterDone = false;
@@ -590,6 +614,10 @@ public sealed class VariableOffsetTimer : BaseTimer
 
         _landingWindowClose?.Stop();
         _encounter.MissRest();
+        if (_encounter.TitleTarget is { Missed: true } title)
+        {
+            StarterTool.Capture.Missed(StarterTool.TimerStart + _encounter.DueMs(title));
+        }
         _form.ShowEncounterLanding(_encounter.Rows(), _encounter.Status(), _encounter.WorstChance);
         ContextSession.Log("encounter manip closed - " + _encounter.Status());
 

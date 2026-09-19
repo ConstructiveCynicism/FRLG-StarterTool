@@ -31,6 +31,13 @@ public enum TitleGame
     LeafGreen = 1,
 }
 
+public enum TitleSaves
+{
+    Multi = 0,
+
+    Single = 1,
+}
+
 public enum TitleIntro
 {
     Played = 0,
@@ -62,8 +69,14 @@ public enum TitleAnimation
 
 public readonly record struct TitleVariant(TitleButtonMode Buttons, TitleSoundMode Sound, TitleIntro Intro = TitleIntro.Played,
     TitleAnimation Animation = TitleAnimation.Either, TitleCombo? Combo = null, TitleGame Game = TitleGame.FireRed,
-    TitleLoop Loop = TitleLoop.None)
+    TitleLoop Loop = TitleLoop.None, TitleSaves Saves = TitleSaves.Multi, string? Recipe = null)
 {
+    public bool HasRecipe => Recipe is not null;
+
+    public string SavesKey => Saves == TitleSaves.Single ? "single" : "multi";
+
+    public bool Skip477IsTerm => Intro == TitleIntro.Skip477 && !OnLoop && !OwnsTable && Saves == TitleSaves.Multi && !HasRecipe;
+
     public bool OnLoop => Loop != TitleLoop.None;
 
     public bool LoopSkipped => Loop is TitleLoop.Skip477 or TitleLoop.Skip990;
@@ -114,13 +127,14 @@ public readonly record struct TitleVariant(TitleButtonMode Buttons, TitleSoundMo
 
     public TitleVariant Table => this with
     {
-        Intro = OnLoop || Intro == TitleIntro.Skip990 || (Intro == TitleIntro.Skip477 && OwnsTable) ? Intro : TitleIntro.Played,
+        Intro = OnLoop || Intro == TitleIntro.Skip990 || (Intro == TitleIntro.Skip477 && !Skip477IsTerm) ? Intro : TitleIntro.Played,
         Animation = TitleAnimation.Either,
         Combo = OwnsTable ? Combo : null,
     };
 
     public bool OwnsTable =>
-        !OnLoop
+        !HasRecipe
+        && !OnLoop
         && Combo is TitleCombo c && TitleCombos.OwnTableKey(c, IntroSkipped, Sound) is not null
         && (Intro != TitleIntro.Skip477 || TitleSeedTable.IntroSkipShiftOf(this) is null);
 
@@ -135,20 +149,23 @@ public readonly record struct TitleVariant(TitleButtonMode Buttons, TitleSoundMo
             TitleAnimation.SpedUp => speed,
             _ => true,
         };
-        return allowed && (Combo is not TitleCombo combo || combo.Fits(Skips, speed));
+        return allowed && (Combo is not TitleCombo combo || combo.Fits(Skips, speed))
+            && (TitleRecipes.Find(this) is not TitleRecipe recipe || recipe.Presses(speed));
     }
 
     public string ButtonsKey => Buttons == TitleButtonMode.LEqualsA ? "la" : "help";
 
     public string SoundKey => Sound == TitleSoundMode.Stereo ? "stereo" : "mono";
 
-    public string Name => (OnLoop ? "loop" + FirstKey + "-" + LoopKey + "_" : Intro == TitleIntro.Skip990 ? "intro990_" : Intro == TitleIntro.Skip477 && OwnsTable ? "intro477_" : "")
+    public string Name => (OnLoop ? "loop" + FirstKey + "-" + LoopKey + "_" : Intro == TitleIntro.Skip990 ? "intro990_" : Intro == TitleIntro.Skip477 && !Skip477IsTerm ? "intro477_" : "")
+        + (Saves == TitleSaves.Single ? "single_" : "")
         + (Game == TitleGame.LeafGreen ? "lg_" : "")
         + ButtonsKey + "_" + SoundKey
-        + (Combo is TitleCombo c && TitleCombos.OwnTableKey(c, IntroSkipped, Sound) is string key ? "__" + key : "");
+        + (HasRecipe ? "__r-" + Recipe
+            : Combo is TitleCombo c && TitleCombos.OwnTableKey(c, IntroSkipped, Sound) is string key ? "__" + key : "");
 
     public static TitleVariant Parse(string? buttons, string? sound, string? intro = null, string? animation = null,
-        string? combo = null, string? game = null)
+        string? combo = null, string? game = null, string? saves = null)
     {
         TitleButtonMode mode = buttons == "la" ? TitleButtonMode.LEqualsA : TitleButtonMode.Help;
         TitleCombo? presses = TitleCombo.Parse(combo);
@@ -172,12 +189,14 @@ public readonly record struct TitleVariant(TitleButtonMode Buttons, TitleSoundMo
             loop = intro[(dash + 1)..] switch { "477" => TitleLoop.Skip477, "990" => TitleLoop.Skip990, _ => TitleLoop.Played };
         }
         return new TitleVariant(mode, sound == "stereo" ? TitleSoundMode.Stereo : TitleSoundMode.Mono, skip, title, presses,
-            game == "lg" ? TitleGame.LeafGreen : TitleGame.FireRed, loop);
+            game == "lg" ? TitleGame.LeafGreen : TitleGame.FireRed, loop,
+            saves == "single" ? TitleSaves.Single : TitleSaves.Multi);
     }
 
     public override string ToString() => (Game == TitleGame.LeafGreen ? "LeafGreen, " : "")
        + (Buttons == TitleButtonMode.LEqualsA ? "L=A" : "Help")
        + " + " + (Sound == TitleSoundMode.Stereo ? "stereo" : "mono")
+       + (Saves == TitleSaves.Single ? ", single save" : "")
        + (Intro switch
        {
            TitleIntro.Skip477 => ", intro skipped at 477",
@@ -197,7 +216,8 @@ public readonly record struct TitleVariant(TitleButtonMode Buttons, TitleSoundMo
            TitleAnimation.SpedUp => ", title sped up",
            _ => "",
        })
-       + (Combo is TitleCombo combo ? ", " + combo.Short : "");
+       + (Combo is TitleCombo combo ? ", " + combo.Short : "")
+       + (HasRecipe ? ", " + TitleRecipes.Label(Recipe!) : "");
 }
 
 public readonly record struct RtaSeedEntry(int Offset, int Seed, int Band, bool Measured);
@@ -215,11 +235,13 @@ public readonly record struct PressFrame(int Offset, int Pass, int Seed, int Cyc
 
     public int Recorded => (Seed + Cycles) & 0xFFFF;
 
-    public int TableCounter => (Recorded - (Variant.Intro == TitleIntro.Skip477 && !Variant.OwnsTable && !Variant.OnLoop ? TitleSeedTable.IntroSkipShiftOf(Variant) ?? 0 : 0)) & 0xFFFF;
+    public int TableCounter => (Recorded - (Variant.Skip477IsTerm ? TitleSeedTable.IntroSkipShiftOf(Variant) ?? 0 : 0)) & 0xFFFF;
 
-    public int ResetFrame => Variant.OnLoop
+    public int ResetFrame => TitleRecipes.Find(Variant) is TitleRecipe recipe
+        ? recipe.Anchor + Offset
+        : Variant.OnLoop
         ? TitleSeedTable.LoopAnchorOf(Variant) + (Pass - 1) * TitleSeedTable.RtaPassFrames + Offset
-        : TitleSeedTable.IntroAnchorOf(Variant.Intro) + WaitFrames;
+        : TitleSeedTable.IntroAnchorOf(Variant.Intro, Variant.Saves) + WaitFrames;
 
     public int WaitFrames => Pass * TitleSeedTable.PassFramesOf(Protocol) + Offset;
 
@@ -244,7 +266,9 @@ public static class TitleSeedTable
 
     public static int? IntroSkipShiftOf(TitleVariant variant)
     {
-        int? term = variant.PairTable.Name switch
+        if (variant.Saves == TitleSaves.Single) return null;
+
+        int? term = (variant with { Combo = null, Intro = TitleIntro.Played, Loop = TitleLoop.None }).Name switch
         {
             "help_mono" => IntroSkipShift,
             "help_stereo" => IntroSkipShift,
@@ -268,7 +292,7 @@ public static class TitleSeedTable
               || (title[0] == TitleButton.Start && title[1] == TitleButton.A)
             : title[0] == TitleButton.Start;
         if (skip == TitleButton.Select || skip == TitleButton.Start) return tableTitle ? term : null;
-        if (variant.PairTable.Name is not ("la_mono" or "la_stereo")) return null;
+        if ((variant with { Combo = null, Intro = TitleIntro.Played, Loop = TitleLoop.None }).Name is not ("la_mono" or "la_stereo")) return null;
         if (skip == TitleButton.A)
         {
             return sped && title[0] != TitleButton.A && title[1] != TitleButton.A && title.Contains(TitleButton.L) && title.Contains(TitleButton.Start)
@@ -285,7 +309,7 @@ public static class TitleSeedTable
 
     public const int IntroSkip990Window = 5;
 
-    public static bool SweptHeld(TitleVariant variant) => variant.OnLoop || variant.PairTable.Name is
+    public static bool SweptHeld(TitleVariant variant) => variant.OnLoop || variant.Saves == TitleSaves.Single || variant.HasRecipe || variant.PairTable.Name is
         "help_mono" or "intro990_help_mono"
         or "help_stereo" or "intro990_help_stereo"
         or "la_mono" or "intro990_la_mono"
@@ -303,12 +327,20 @@ public static class TitleSeedTable
     };
 
     public static int IntroFrameOf(TitleVariant variant) =>
-        SkipsWithAOrL(variant)
-            ? (variant.Intro == TitleIntro.Skip990 ? IntroSkip990AOrLFrame : IntroSkipFrame)
+        TitleRecipes.Find(variant) is TitleRecipe recipe ? recipe.SkipFrame
+        : SkipsWithAOrL(variant)
+            ? (variant.Intro == TitleIntro.Skip990 ? IntroSkip990AOrLFrame : IntroSkipFrame - (variant.Saves == TitleSaves.Single ? 1 : 0))
+            : variant.Saves == TitleSaves.Single && variant.Intro == TitleIntro.Skip477 ? IntroSkipFrame - 1
             : IntroFrameOf(variant.Intro);
 
     public static int IntroWindowOf(TitleVariant variant) =>
-        SkipsWithAOrL(variant) ? (variant.Intro == TitleIntro.Skip990 ? IntroSkip990AOrLWindow : 1) : IntroWindowOf(variant.Intro);
+        TitleRecipes.Find(variant) is TitleRecipe recipe ? recipe.SkipWindow
+        : SkipsWithAOrL(variant) ? (variant.Intro == TitleIntro.Skip990 ? IntroSkip990AOrLWindow - (variant.Saves == TitleSaves.Single ? 1 : 0)
+                                   : IntroSkip477AOrLWindow)
+        : variant.Saves == TitleSaves.Single && variant.Intro == TitleIntro.Skip990 ? IntroSkip990Window - 1
+        : IntroWindowOf(variant.Intro);
+
+    public const int IntroSkip477AOrLWindow = 3;
 
     public const int IntroSkip990AOrLFrame = 988;
 
@@ -325,12 +357,12 @@ public static class TitleSeedTable
         _ => 0,
     };
 
-    public static int IntroAnchorOf(TitleIntro intro) => intro switch
+    public static int IntroAnchorOf(TitleIntro intro, TitleSaves saves = TitleSaves.Multi) => (intro switch
     {
         TitleIntro.Skip477 => 482,
         TitleIntro.Skip990 => 994,
         _ => 1742,
-    };
+    }) - (saves == TitleSaves.Single ? 1 : 0);
 
     public static int PassFramesOf(TitleProtocol protocol) =>
         protocol == TitleProtocol.Rta ? RtaPassFrames : PassFrames;
@@ -356,6 +388,16 @@ public static class TitleSeedTable
     private static readonly Lazy<Dictionary<int, int>> SweepWindows = new(() => Windows(Table.Value.Select(e => (e.Offset, e.Seed))));
 
     private static readonly ConcurrentDictionary<TitleVariant, Dictionary<int, int>> RtaWindows = new();
+
+    private static readonly ConcurrentDictionary<TitleVariant, Dictionary<int, RtaSeedEntry[]>> RtaByCounter = new();
+
+    private static readonly RtaSeedEntry[] NoEntries = Array.Empty<RtaSeedEntry>();
+
+    private static RtaSeedEntry[] RowsReading(TitleVariant table, int counter) =>
+        RtaByCounter.GetOrAdd(table, t => RtaEntriesFor(t)
+                .GroupBy(entry => entry.Seed)
+                .ToDictionary(group => group.Key, group => group.ToArray()))
+            .TryGetValue(counter, out RtaSeedEntry[]? rows) ? rows : NoEntries;
 
     public static int WindowOf(int offset, TitleProtocol protocol = TitleProtocol.Sweep, TitleVariant variant = default)
     {
@@ -392,38 +434,40 @@ public static class TitleSeedTable
 
     public static bool HasRta(TitleVariant variant) =>
         RtaTables.GetOrAdd(variant.Table, LoadRta) is not null
-        && (variant.OnLoop || variant.Intro != TitleIntro.Skip477 || variant.OwnsTable || IntroSkipShiftOf(variant) is not null);
+        && (!variant.Skip477IsTerm || IntroSkipShiftOf(variant) is not null);
 
     public static int LoopFrameOf(TitleVariant variant)
     {
-        (int loop477, int loop990) = variant.Intro switch
-        {
-            TitleIntro.Skip477 => LoopSkipFramesAfter477,
-            TitleIntro.Skip990 => LoopSkipFramesAfter990,
-            _ => LoopSkipFramesAfterPlayed,
-        };
+        int anchor = IntroAnchorOf(variant.Intro, variant.Saves);
         return variant.Loop switch
         {
-            TitleLoop.Skip477 => loop477,
-            TitleLoop.Skip990 => loop990,
+            TitleLoop.Skip477 => anchor + LoopSkipAfterAnchor477,
+            TitleLoop.Skip990 => anchor + LoopSkipAfterAnchor990 - 3,
             _ => 0,
         };
     }
 
+    public const int LoopSkip477Window = 3;
+
+    public const int LoopSkip990Window = 5;
+
     public static int LoopWindowOf(TitleVariant variant) => variant.Loop switch
     {
-        TitleLoop.Skip477 => IntroSkipWindow,
-        TitleLoop.Skip990 => IntroSkip990Window,
+        TitleLoop.Skip477 => LoopSkip477Window,
+        TitleLoop.Skip990 => LoopSkip990Window,
         _ => 0,
     };
 
+    public const int LoopSkipAfterAnchor477 = 3060;
+
+    public const int LoopSkipAfterAnchor990 = 3573;
+
     public static int LoopAnchorOf(TitleVariant variant)
     {
-        if (!variant.OnLoop) return IntroAnchorOf(variant.Intro);
-        if (variant.Loop == TitleLoop.Played) return IntroAnchorOf(variant.Intro) + RtaPassFrames;
-        TitleIntro asFirst = variant.Loop == TitleLoop.Skip477 ? TitleIntro.Skip477 : TitleIntro.Skip990;
-        int gap = IntroAnchorOf(asFirst) - (asFirst == TitleIntro.Skip477 ? IntroSkipFrame : IntroSkip990Press);
-        return LoopFrameOf(variant) + gap;
+        if (!variant.OnLoop) return IntroAnchorOf(variant.Intro, variant.Saves);
+        if (variant.Loop == TitleLoop.Played) return IntroAnchorOf(variant.Intro, variant.Saves) + RtaPassFrames;
+        return IntroAnchorOf(variant.Intro, variant.Saves)
+            + (variant.Loop == TitleLoop.Skip477 ? LoopSkipAfterAnchor477 + 5 : LoopSkipAfterAnchor990 + 4);
     }
 
     public static readonly (int, int) LoopSkipFramesAfterPlayed = (477 + RtaPassFrames, 990 + RtaPassFrames);
@@ -435,9 +479,9 @@ public static class TitleSeedTable
     public static IReadOnlyList<RtaSeedEntry> RtaEntries => RtaEntriesFor(TitleVariant.Default);
 
     public static PressFrame? Find(int titleSeed, int cycles = CycleOffset,
-        TitleProtocol protocol = TitleProtocol.Sweep, TitleVariant variant = default)
+        TitleProtocol protocol = TitleProtocol.Sweep, TitleVariant variant = default, int maxResetFrame = 0)
     {
-        if (protocol == TitleProtocol.Rta) return FindRta(titleSeed, cycles, variant);
+        if (protocol == TitleProtocol.Rta) return FindRta(titleSeed, cycles, variant, maxResetFrame);
 
         int wanted = ((titleSeed + cycles) % SeedSpace + SeedSpace) % SeedSpace;
 
@@ -464,24 +508,24 @@ public static class TitleSeedTable
         return best;
     }
 
-    private static PressFrame? FindRta(int titleSeed, int cycles, TitleVariant variant)
+    private static PressFrame? FindRta(int titleSeed, int cycles, TitleVariant variant, int maxResetFrame = 0)
     {
         int shift = 0;
-        if (variant.Intro == TitleIntro.Skip477 && !variant.OwnsTable && !variant.OnLoop)
+        if (variant.Skip477IsTerm)
         {
             if (IntroSkipShiftOf(variant) is not int term) return null;
             shift = term;
         }
         int wanted = ((titleSeed + cycles - shift) % SeedSpace + SeedSpace) % SeedSpace;
-        int inverse = Inverse(RtaPassShift / Stride, PassCycle);
 
         TitleVariant loopPlayed = variant with { Loop = TitleLoop.Played };
-        bool measuredLoop = !variant.OnLoop && variant.Table.Combo is null
+        bool measuredLoop = !variant.OnLoop && variant.Table.Combo is null && !variant.HasRecipe
             && RtaTables.GetOrAdd(loopPlayed.Table, LoadRta) is not null;
 
         PressFrame? best = null;
         void Consider(PressFrame candidate)
         {
+            if (maxResetFrame > 0 && candidate.ResetFrame > maxResetFrame) return;
             if (best is null || candidate.Pass < best.Value.Pass
                 || (candidate.Pass == best.Value.Pass && (candidate.Measured && !best.Value.Measured
                     || (candidate.Measured == best.Value.Measured && (candidate.Window > best.Value.Window
@@ -491,15 +535,10 @@ public static class TitleSeedTable
             }
         }
 
-        foreach (RtaSeedEntry entry in RtaEntriesFor(variant.Table))
+        foreach (RtaSeedEntry entry in RowsReading(variant.Table, wanted))
         {
             if (!variant.Allows(entry.Offset)) continue;
 
-            int difference = ((wanted - entry.Seed) % SeedSpace + SeedSpace) % SeedSpace;
-            if (difference % Stride != 0) continue;
-
-            int pass = (int)((long)(difference / Stride) * inverse % PassCycle);
-            if (pass != 0) continue;
             int window = WindowOf(entry.Offset, TitleProtocol.Rta, variant.Table);
             if (window == 0) continue;
             Consider(new PressFrame(entry.Offset, variant.OnLoop ? 1 : 0, titleSeed, cycles, TitleProtocol.Rta,
@@ -509,9 +548,9 @@ public static class TitleSeedTable
         if (measuredLoop)
         {
             int wantedLoop = ((titleSeed + cycles) % SeedSpace + SeedSpace) % SeedSpace;
-            foreach (RtaSeedEntry entry in RtaEntriesFor(loopPlayed.Table))
+            foreach (RtaSeedEntry entry in RowsReading(loopPlayed.Table, wantedLoop))
             {
-                if (entry.Seed != wantedLoop || !loopPlayed.Allows(entry.Offset)) continue;
+                if (!loopPlayed.Allows(entry.Offset)) continue;
                 int window = WindowOf(entry.Offset, TitleProtocol.Rta, loopPlayed.Table);
                 if (window == 0) continue;
                 Consider(new PressFrame(entry.Offset, 1, titleSeed, cycles, TitleProtocol.Rta,
@@ -522,10 +561,89 @@ public static class TitleSeedTable
         return best;
     }
 
+    public static IReadOnlyCollection<int> ReachableSeeds(TitleVariant variant, int cycles = CycleOffset)
+    {
+        var seeds = new HashSet<int>();
+        if (!HasRta(variant)) return seeds;
+
+        int shift = variant.Skip477IsTerm ? IntroSkipShiftOf(variant) ?? 0 : 0;
+        foreach (RtaSeedEntry entry in RtaEntriesFor(variant.Table))
+        {
+            seeds.Add(((entry.Seed + shift - cycles) % SeedSpace + SeedSpace) % SeedSpace);
+        }
+
+        TitleVariant loopPlayed = variant with { Loop = TitleLoop.Played };
+        if (!variant.OnLoop && variant.Table.Combo is null && !variant.HasRecipe && RtaTables.GetOrAdd(loopPlayed.Table, LoadRta) is not null)
+        {
+            foreach (RtaSeedEntry entry in RtaEntriesFor(loopPlayed.Table))
+            {
+                seeds.Add(((entry.Seed - cycles) % SeedSpace + SeedSpace) % SeedSpace);
+            }
+        }
+        return seeds;
+    }
+
+    private static readonly (TitleIntro Intro, TitleLoop Loop)[] IntroChoices =
+    {
+        (TitleIntro.Played, TitleLoop.None), (TitleIntro.Skip477, TitleLoop.None), (TitleIntro.Skip990, TitleLoop.None),
+        (TitleIntro.Played, TitleLoop.Skip477), (TitleIntro.Played, TitleLoop.Skip990),
+        (TitleIntro.Skip477, TitleLoop.Skip477), (TitleIntro.Skip477, TitleLoop.Skip990),
+        (TitleIntro.Skip990, TitleLoop.Skip477), (TitleIntro.Skip990, TitleLoop.Skip990),
+    };
+
+    public static List<TitleVariant> Spanning(TitleGame game, TitleButtonMode? buttons, TitleSaves? saves,
+        List<TitleVariant>? unswept = null)
+    {
+        var variants = new List<TitleVariant>();
+        var seen = new HashSet<(string Table, int Term, int Count)>();
+        TitleButtonMode[] modes = buttons is TitleButtonMode one
+            ? new[] { one }
+            : new[] { TitleButtonMode.Help, TitleButtonMode.LEqualsA };
+        TitleSaves[] kinds = saves is TitleSaves kind
+            ? new[] { kind }
+            : new[] { TitleSaves.Multi, TitleSaves.Single };
+
+        foreach (TitleSaves saveKind in kinds)
+        foreach (TitleButtonMode mode in modes)
+        foreach (TitleSoundMode sound in new[] { TitleSoundMode.Mono, TitleSoundMode.Stereo })
+        {
+            var pair = new TitleVariant(mode, sound, Game: game, Saves: saveKind);
+            if (!HasRta(pair))
+            {
+                unswept?.Add(pair);
+                continue;
+            }
+
+            foreach ((TitleIntro intro, TitleLoop loop) in IntroChoices)
+            {
+                TitleVariant plain = pair with { Intro = intro, Loop = loop };
+                if (HasRta(plain)) variants.Add(plain);
+
+                foreach (TitleCombo combo in TitleCombos.All(mode))
+                {
+                    TitleVariant own = plain with { Combo = combo };
+                    if (!combo.Fits(own.Skips, speed: true) && !combo.Fits(own.Skips, speed: false)) continue;
+
+                    int term = own.Skip477IsTerm ? IntroSkipShiftOf(own) ?? -1 : 0;
+                    bool ownTerm = own.Skip477IsTerm && term >= 0 && term != (IntroSkipShiftOf(plain) ?? -1);
+                    if (!own.OwnsTable && !ownTerm) continue;
+                    if (!HasRta(own)) continue;
+                    if (seen.Add((own.Table.Name, term, combo.Count))) variants.Add(own);
+                }
+            }
+
+            foreach (TitleRecipe recipe in TitleRecipes.For(pair))
+            {
+                if (HasRta(recipe.Variant)) variants.Add(recipe.Variant);
+            }
+        }
+        return variants;
+    }
+
     public static int? SeedAt(int offset, int pass, int cycles, TitleVariant variant)
     {
         int shift = 0;
-        if (variant.Intro == TitleIntro.Skip477 && !variant.OwnsTable && !variant.OnLoop)
+        if (variant.Skip477IsTerm)
         {
             if (IntroSkipShiftOf(variant) is not int term) return null;
             shift = term;
@@ -533,7 +651,7 @@ public static class TitleSeedTable
         TitleVariant table = variant;
         if (!variant.OnLoop && pass == 1)
         {
-            if (variant.Table.Combo is not null) return null;
+            if (variant.Table.Combo is not null || variant.HasRecipe) return null;
             table = variant with { Loop = TitleLoop.Played };
             shift = 0;
             if (RtaTables.GetOrAdd(table.Table, LoadRta) is null) return null;

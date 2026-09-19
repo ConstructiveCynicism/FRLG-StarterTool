@@ -138,10 +138,12 @@ public sealed class ThemedListView : ListView
             {
                 case Win32.WM_PAINT:
                     PaintTail(IntPtr.Zero);
+                    PaintOutline(IntPtr.Zero);
                     break;
 
                 case Win32.WM_PRINTCLIENT:
                     PaintTail(m.WParam);
+                    PaintOutline(m.WParam);
                     break;
             }
         }
@@ -162,6 +164,14 @@ public sealed class ThemedListView : ListView
 
             using var pen = new Pen(Theme.Border);
             g.DrawLine(pen, used, bounds.Bottom - 1, bounds.Right, bounds.Bottom - 1);
+        }
+
+        private void PaintOutline(IntPtr hdc)
+        {
+            if (!_owner.IsHandleCreated || !Win32.GetClientRect(Handle, out Win32.RECT bounds)) return;
+
+            using Graphics g = hdc == IntPtr.Zero ? Graphics.FromHwnd(Handle) : Graphics.FromHdc(hdc);
+            ScrollBarOutline.PaintHeader(g, _owner, Handle, bounds);
         }
     }
 }

@@ -25,7 +25,7 @@ public static class SettingsStore
 
         if (!File.Exists(path))
         {
-            return new AppSettings().Normalize();
+            return WithLibrary(new AppSettings(), path);
         }
 
         try
@@ -46,7 +46,7 @@ public static class SettingsStore
             AppSettings? settings = JsonSerializer.Deserialize<AppSettings>(json, Options);
             if (settings != null)
             {
-                return settings.Normalize();
+                return WithLibrary(settings, path);
             }
             error = "The settings file was empty.";
         }
@@ -56,7 +56,42 @@ public static class SettingsStore
             error = e.Message;
         }
 
-        return new AppSettings().Normalize();
+        return WithLibrary(new AppSettings(), path);
+    }
+
+    private static readonly string[] LibraryKeys = { nameof(AppSettings.Presets), nameof(AppSettings.EncounterRoutes) };
+
+    private static AppSettings WithLibrary(AppSettings settings, string path)
+    {
+        PresetLibrary library = PresetLibrary.For(path);
+        List<FilterPreset> legacyFilters = (settings.Presets ?? new()).Where(preset => preset != null).ToList();
+        List<EncounterRoutePreset> legacyRoutes = (settings.EncounterRoutes ?? new()).Where(route => route != null).ToList();
+
+        List<FilterPreset> filters = library.ReadFilters();
+        List<FilterPreset> newFilters = legacyFilters
+            .Where(legacy => !filters.Any(filter => FilterPreset.NameEquals(filter.Name, legacy.Name)))
+            .ToList();
+        List<EncounterRoutePreset> routes = library.ReadRoutes();
+        List<EncounterRoutePreset> newRoutes = legacyRoutes
+            .Where(legacy => !routes.Any(route => EncounterRoutePreset.NameEquals(route.Name, legacy.Name)))
+            .ToList();
+
+        settings.Presets = filters.Concat(newFilters).ToList();
+        settings.EncounterRoutes = routes.Concat(newRoutes).ToList();
+        settings.Normalize();
+
+        if (newFilters.Count > 0 || newRoutes.Count > 0)
+        {
+            try
+            {
+                library.Sync(newFilters.Where(settings.Presets.Contains), newRoutes.Where(settings.EncounterRoutes.Contains));
+            }
+            catch (Exception e) when (e is IOException or UnauthorizedAccessException)
+            {
+            }
+        }
+
+        return settings;
     }
 
     private static void WriteBack(string path, int fromVersion, string upgradedJson)
@@ -83,9 +118,25 @@ public static class SettingsStore
                 Directory.CreateDirectory(directory);
             }
 
+            bool libraryWritten = true;
+            try
+            {
+                PresetLibrary.For(path).Sync(settings.Presets, settings.EncounterRoutes);
+            }
+            catch (Exception e) when (e is IOException or UnauthorizedAccessException)
+            {
+                libraryWritten = false;
+                error = e.Message;
+            }
+
             settings.Version = SettingsMigrations.CurrentVersion;
-            File.WriteAllText(path, JsonSerializer.Serialize(settings, Options));
-            return true;
+            JsonObject root = JsonSerializer.SerializeToNode(settings, Options)!.AsObject();
+            if (libraryWritten)
+            {
+                foreach (string key in LibraryKeys) root.Remove(key);
+            }
+            File.WriteAllText(path, root.ToJsonString(Options));
+            return libraryWritten;
         }
         catch (Exception e) when (e is IOException or UnauthorizedAccessException or JsonException)
         {

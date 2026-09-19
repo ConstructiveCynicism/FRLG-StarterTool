@@ -80,12 +80,14 @@ partial class MainForm
     public ThemedComboBox ComboBoxPokemon;
     public TextBox TextBoxMinFrame;
     public TextBox TextBoxMaxFrame;
+    public TextBox TextBoxPcFrame;
     public TextBox TextBoxTrainerId;
 
     public Label LabelStarterPokemon;
 
     public Label LabelStarterMinFrame;
     public Label LabelStarterMaxFrame;
+    public Label LabelStarterPcFrame;
     public Label LabelStarterTrainerId;
 
     public Button ButtonCalculateOdds;
@@ -123,6 +125,9 @@ partial class MainForm
     public ThemedGroupBox GroupBoxContext;
 
     public NpcGridPanel ContextPanel;
+
+    internal CaptureViewPanel CaptureView;
+    internal EncounterManipView ManipView;
 
     public ThemedGroupBox GroupBoxTroubleshoot;
 
@@ -223,11 +228,23 @@ partial class MainForm
 
         MenuFilters = new ToolStripMenuItem("Filters");
 
+        var menuOpenFolder = new ToolStripMenuItem("Open Folder");
+        menuOpenFolder.Click += (_, _) =>
+        {
+            Directory.CreateDirectory(SettingsStore.DefaultDirectory);
+            System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
+            {
+                FileName = SettingsStore.DefaultDirectory,
+                UseShellExecute = true,
+            });
+        };
+
         var menuExit = new ToolStripMenuItem("Exit");
         menuExit.Click += (_, _) => Close();
         var menuFile = new ToolStripMenuItem("File");
         menuFile.DropDownItems.Add(MenuFilters);
         menuFile.DropDownItems.Add(MenuItemHotkeys);
+        menuFile.DropDownItems.Add(menuOpenFolder);
         menuFile.DropDownItems.Add(new ToolStripSeparator());
         menuFile.DropDownItems.Add(menuExit);
 
@@ -343,7 +360,13 @@ partial class MainForm
         TextBoxMaxFrame = MakeTextBox(StarterFieldX, starterRow, StarterFieldWidth, "10000");
         GroupBoxStarterConstraints.Controls.Add(TextBoxMaxFrame);
 
-        GroupBoxStarterConstraints.Height = TextBoxMaxFrame.Bottom + BoxBottomPad;
+        starterRow += RowPitch;
+        LabelStarterPcFrame = MakeLabel("PC Frame", LeftInner, starterRow, StarterCaptionWidth);
+        GroupBoxStarterConstraints.Controls.Add(LabelStarterPcFrame);
+        TextBoxPcFrame = MakeTextBox(StarterFieldX, starterRow, StarterFieldWidth, "");
+        GroupBoxStarterConstraints.Controls.Add(TextBoxPcFrame);
+
+        GroupBoxStarterConstraints.Height = TextBoxPcFrame.Bottom + BoxBottomPad;
 
         GroupBoxStarter = new ThemedGroupBox
         {
@@ -533,7 +556,7 @@ partial class MainForm
 
         GroupBoxResults = new ThemedGroupBox
         {
-            Text = "Found List",
+            Text = "Frame List",
             Location = new Point(RightColumnLeft, SectionTop),
             Size = new Size(RightColumnWidth, 372)
         };
@@ -739,6 +762,22 @@ partial class MainForm
         GroupBoxContext.Controls.Add(ButtonContextAnchor);
 
         ContextPanel.SendToBack();
+
+        CaptureView = new CaptureViewPanel
+        {
+            Location = ContextPanel.Location,
+            Size = ContextPanel.Size,
+            Visible = false
+        };
+        GroupBoxContext.Controls.Add(CaptureView);
+
+        ManipView = new EncounterManipView
+        {
+            Location = ContextPanel.Location,
+            Size = ContextPanel.Size,
+            Visible = false
+        };
+        GroupBoxContext.Controls.Add(ManipView);
 
         TabStrip = new ThemedTabStrip
         {

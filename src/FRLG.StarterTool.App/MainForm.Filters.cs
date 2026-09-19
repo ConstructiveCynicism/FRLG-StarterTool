@@ -19,6 +19,7 @@ public partial class MainForm
         SelectSpecies(filter.SpeciesId);
         TextBoxMinFrame.Text = filter.MinFrame;
         TextBoxMaxFrame.Text = filter.MaxFrame;
+        TextBoxPcFrame.Text = filter.PcFrame;
 
         ShowRanges(filter.Clone().Normalize().Ranges);
     }
@@ -30,6 +31,7 @@ public partial class MainForm
             SpeciesId = SelectedSpecies.Id,
             MinFrame = TextBoxMinFrame.Text,
             MaxFrame = TextBoxMaxFrame.Text,
+            PcFrame = TextBoxPcFrame.Text,
             Ranges = CaptureRanges()
         }.Normalize();
 
@@ -171,6 +173,7 @@ public partial class MainForm
             settings.Presets.Remove(clash);
         }
 
+        if (!DeleteFilterFile(active.Name, "Rename Filter")) return;
         active.Name = name;
         settings.ActivePreset = name;
         StarterTool.SaveSettings();
@@ -184,9 +187,24 @@ public partial class MainForm
 
         if (!Confirm($"Delete the filter \"{active.Name}\"?", "Delete Filter")) return;
 
+        if (!DeleteFilterFile(active.Name, "Delete Filter")) return;
         settings.Presets.Remove(active);
         settings.ActivePreset = "";
         StarterTool.SaveSettings();
+    }
+
+    private bool DeleteFilterFile(string name, string title)
+    {
+        try
+        {
+            PresetLibrary.Default.DeleteFilter(name);
+            return true;
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            Fail($"Could not delete the file of \"{name}\": {ex.Message}", title);
+            return false;
+        }
     }
 
     private void ImportFilter()
@@ -272,12 +290,7 @@ public partial class MainForm
             return dialog.ShowDialog(this) == DialogResult.OK ? dialog.FileName : null;
         });
 
-    public static string PresetFileName(string name)
-    {
-        char[] illegal = Path.GetInvalidFileNameChars();
-        string stem = new string(name.Trim().Select(c => illegal.Contains(c) ? '_' : c).ToArray()).Trim();
-        return (stem.Length == 0 ? "preset" : stem) + ".json";
-    }
+    public static string PresetFileName(string name) => PresetFile.Stem(name) + ".json";
 
     private void Fail(string message, string title)
         => StarterTool.Modal(() => MessageBox.Show(

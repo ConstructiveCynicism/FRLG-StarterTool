@@ -126,6 +126,50 @@ public static class Win32
         return step > 0.5 && step < 40.0 ? step : 16.0;
     }
 
+    public static string SetHighPriority(bool high)
+    {
+        IntPtr process = GetCurrentProcess();
+        uint wanted = high ? HIGH_PRIORITY_CLASS : NORMAL_PRIORITY_CLASS;
+
+        if (GetPriorityClass(process) != wanted) SetPriorityClass(process, wanted);
+
+        if (high && !_throttlingOptedOut)
+        {
+            var state = new PROCESS_POWER_THROTTLING_STATE
+            {
+                Version = 1,
+                ControlMask = PROCESS_POWER_THROTTLING_EXECUTION_SPEED | PROCESS_POWER_THROTTLING_IGNORE_TIMER_RESOLUTION,
+                StateMask = 0
+            };
+            bool ok = SetProcessInformation(process, ProcessPowerThrottling, ref state, (uint)Marshal.SizeOf<PROCESS_POWER_THROTTLING_STATE>());
+            if (!ok)
+            {
+                state.ControlMask = PROCESS_POWER_THROTTLING_EXECUTION_SPEED;
+                SetProcessInformation(process, ProcessPowerThrottling, ref state, (uint)Marshal.SizeOf<PROCESS_POWER_THROTTLING_STATE>());
+            }
+
+            _throttlingOptedOut = true;
+        }
+
+        return PriorityName(GetPriorityClass(process));
+    }
+
+    public static string CurrentPriority() => PriorityName(GetPriorityClass(GetCurrentProcess()));
+
+    private static string PriorityName(uint priorityClass) => priorityClass switch
+    {
+        HIGH_PRIORITY_CLASS => "high",
+        NORMAL_PRIORITY_CLASS => "normal",
+        0x8000 => "above normal",
+        0x4000 => "below normal",
+        0x40 => "idle",
+        0x100 => "realtime",
+        0 => "unreadable",
+        _ => "0x" + priorityClass.ToString("X")
+    };
+
+    private static bool _throttlingOptedOut;
+
     public static void EndTiming()
     {
         if (!_highResolutionTimer) return;
@@ -138,6 +182,14 @@ public static class Win32
     {
         QueryPerformanceCounter(out long timeStamp);
         return _originMs + (timeStamp - _originTicks) / _frequencyDrifted;
+    }
+
+    public static double QpcToMs(long timeStamp) => _originMs + (timeStamp - _originTicks) / _frequencyDrifted;
+
+    public static double SystemRelativeToMs(TimeSpan systemRelativeTime)
+    {
+        long counts = (long)(systemRelativeTime.Ticks / 10_000.0 * _frequency);
+        return QpcToMs(counts);
     }
 
     public static double Drift { get; private set; } = 1.0;
@@ -349,6 +401,40 @@ public static class Win32
     [DllImport("user32.dll")]
     public static extern int ReleaseDC(IntPtr hWnd, IntPtr hDC);
 
+    public const int GWL_STYLE = -16;
+    public const int WS_VSCROLL = 0x00200000;
+    public const int WS_HSCROLL = 0x00100000;
+
+    [DllImport("user32.dll", EntryPoint = "GetWindowLongW")]
+    public static extern int GetWindowLong(IntPtr hWnd, int nIndex);
+
+    public const int OBJID_HSCROLL = unchecked((int)0xFFFFFFFA);
+    public const int OBJID_VSCROLL = unchecked((int)0xFFFFFFFB);
+
+    [StructLayout(LayoutKind.Sequential)]
+    public struct SCROLLBARINFO
+    {
+        public int cbSize;
+        public RECT rcScrollBar;
+        public int dxyLineButton;
+        public int xyThumbTop;
+        public int xyThumbBottom;
+        public int reserved;
+        [MarshalAs(UnmanagedType.ByValArray, SizeConst = 6)]
+        public int[] rgstate;
+    }
+
+    [DllImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    public static extern bool GetScrollBarInfo(IntPtr hWnd, int idObject, ref SCROLLBARINFO info);
+
+    [DllImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    public static extern bool GetWindowRect(IntPtr hWnd, out RECT lpRect);
+
+    [DllImport("user32.dll")]
+    public static extern int MapWindowPoints(IntPtr from, IntPtr to, ref RECT points, int count);
+
     [DllImport("user32.dll")]
     public static extern IntPtr SetWindowsHookEx(int idHook, Proc lpfn, IntPtr hMod, uint dwThreadId);
 
@@ -400,9 +486,78 @@ public static class Win32
     [DllImport("kernel32.dll")]
     public static extern uint GetTickCount();
 
+    private const uint NORMAL_PRIORITY_CLASS = 0x20;
+    private const uint HIGH_PRIORITY_CLASS = 0x80;
+    private const int ProcessPowerThrottling = 4;
+    private const uint PROCESS_POWER_THROTTLING_EXECUTION_SPEED = 0x1;
+    private const uint PROCESS_POWER_THROTTLING_IGNORE_TIMER_RESOLUTION = 0x4;
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct PROCESS_POWER_THROTTLING_STATE
+    {
+        public uint Version;
+        public uint ControlMask;
+        public uint StateMask;
+    }
+
+    [DllImport("kernel32.dll")]
+    private static extern IntPtr GetCurrentProcess();
+
+    [DllImport("kernel32.dll")]
+    private static extern uint GetPriorityClass(IntPtr hProcess);
+
+    [DllImport("kernel32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool SetPriorityClass(IntPtr hProcess, uint dwPriorityClass);
+
+    [DllImport("kernel32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool SetProcessInformation(IntPtr hProcess, int processInformationClass,
+        ref PROCESS_POWER_THROTTLING_STATE processInformation, uint processInformationSize);
+
     [DllImport("winmm.dll")]
     private static extern uint timeBeginPeriod(uint uPeriod);
 
     [DllImport("winmm.dll")]
     private static extern uint timeEndPeriod(uint uPeriod);
+
+    public delegate bool EnumWindowsProc(IntPtr hWnd, IntPtr lParam);
+
+    [DllImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    public static extern bool EnumWindows(EnumWindowsProc lpEnumFunc, IntPtr lParam);
+
+    [DllImport("user32.dll", CharSet = CharSet.Unicode)]
+    public static extern int GetWindowText(IntPtr hWnd, System.Text.StringBuilder lpString, int nMaxCount);
+
+    [DllImport("user32.dll")]
+    public static extern int GetWindowTextLength(IntPtr hWnd);
+
+    [DllImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    public static extern bool IsWindowVisible(IntPtr hWnd);
+
+    [DllImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    public static extern bool IsWindow(IntPtr hWnd);
+
+    [DllImport("user32.dll")]
+    public static extern uint GetWindowThreadProcessId(IntPtr hWnd, out uint processId);
+
+    private const int DWMWA_CLOAKED = 14;
+
+    [DllImport("dwmapi.dll", EntryPoint = "DwmGetWindowAttribute")]
+    private static extern int DwmGetWindowAttributeInt(IntPtr hwnd, int dwAttribute, out int pvAttribute, int cbAttribute);
+
+    public static bool IsCloaked(IntPtr hwnd) =>
+        DwmGetWindowAttributeInt(hwnd, DWMWA_CLOAKED, out int cloaked, sizeof(int)) == 0 && cloaked != 0;
+
+    public static string WindowText(IntPtr hwnd)
+    {
+        int length = GetWindowTextLength(hwnd);
+        if (length <= 0) return "";
+        var text = new System.Text.StringBuilder(length + 1);
+        GetWindowText(hwnd, text, text.Capacity);
+        return text.ToString();
+    }
 }

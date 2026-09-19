@@ -34,8 +34,9 @@ internal sealed class WasapiOutput : IBeepOutput
 
     private double _defaultPeriodMs = 10.0;
 
-    private const double ValidateMs = 600.0;
-    private const double ValidateTolerance = 0.008;
+    private const double ValidateMs = 5000.0;
+    private const double ValidateJitterPeriods = 1.5;
+    private const double ValidateRate = 0.0003;
     private const double ValidateSettleMs = 100.0;
 
     public double SuggestedPeriodMs { get; private set; }
@@ -283,8 +284,7 @@ internal sealed class WasapiOutput : IBeepOutput
         try
         {
             double startedMs = Win32.GetTime();
-            double baseClock = double.NaN, basePull = double.NaN;
-            bool judged = false;
+            double baseClock = double.NaN, basePull = double.NaN, windowStartMs = double.NaN;
 
             while (!_stopping)
             {
@@ -298,18 +298,23 @@ internal sealed class WasapiOutput : IBeepOutput
                     {
                         Fill();
 
-                        if (!judged && _clock != null)
+                        if (_clock != null)
                         {
-                            double sinceStart = Win32.GetTime() - startedMs;
-                            if (double.IsNaN(baseClock) && sinceStart >= ValidateSettleMs)
+                            double now = Win32.GetTime();
+                            if (double.IsNaN(baseClock))
                             {
-                                (baseClock, basePull) = ClockAndPull();
+                                if (now - startedMs >= ValidateSettleMs)
+                                {
+                                    (baseClock, basePull) = ClockAndPull();
+                                    windowStartMs = now;
+                                }
                             }
-                            else if (!double.IsNaN(baseClock) && sinceStart >= ValidateSettleMs + ValidateMs)
+                            else if (now - windowStartMs >= ValidateMs && !Playing())
                             {
-                                judged = true;
                                 Judge(baseClock, basePull);
                                 if (_needsReopen) break;
+                                (baseClock, basePull) = ClockAndPull();
+                                windowStartMs = now;
                             }
                         }
                     }
@@ -377,6 +382,8 @@ internal sealed class WasapiOutput : IBeepOutput
         return (clock, _totalFedFrames - padding);
     }
 
+    private bool Playing() => _pcm != null && _mix.FramesAvailable(_pcm, _sourceFrame, 1) > 0;
+
     private void Judge(double baseClock, double basePull)
     {
         (double clock, double pull) = ClockAndPull();
@@ -384,8 +391,11 @@ internal sealed class WasapiOutput : IBeepOutput
         double pullFrames = pull - basePull;
         if (double.IsNaN(clockFrames) || clockFrames <= 0) return;
 
+        double periodFrames = _periodMs * _mix.SampleRate / 1000.0;
+        double allowance = ValidateJitterPeriods * periodFrames + ValidateRate * clockFrames;
+        if (Math.Abs(pullFrames - clockFrames) <= allowance) return;
         double ratio = pullFrames / clockFrames;
-        if (Math.Abs(ratio - 1.0) <= ValidateTolerance) return;
+        double windowMs = clockFrames * 1000.0 / _mix.SampleRate;
 
         double next;
         string then;
@@ -402,8 +412,8 @@ internal sealed class WasapiOutput : IBeepOutput
 
         SuggestedPeriodMs = next;
         Invalidate(string.Format(CultureInfo.InvariantCulture,
-            "WASAPI period {0:F2} ms is unfit - the engine pulled {1:+0.0;-0.0}% against the device clock over {2:F0} ms - {3}",
-            _periodMs, (ratio - 1.0) * 100.0, ValidateMs, then));
+            "WASAPI period {0:F2} ms is unfit - the engine pulled {1:+0.00;-0.00}% ({2:+0.0;-0.0} ms) against the device clock over {3:F0} ms - {4}",
+            _periodMs, (ratio - 1.0) * 100.0, (pullFrames - clockFrames) * 1000.0 / _mix.SampleRate, windowMs, then));
     }
 
     private static readonly byte[] SilenceBlock = new byte[16 * 1024];

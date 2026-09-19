@@ -3,6 +3,7 @@ using System.Globalization;
 using FRLG.StarterTool.Core.Npc;
 using FRLG.StarterTool.Core.Settings;
 using FRLG.StarterTool.Core.Timing;
+using CaptureSourceInfo = FRLG.StarterTool.App.Capture.CaptureSourceInfo;
 
 namespace FRLG.StarterTool.App;
 
@@ -42,7 +43,9 @@ public sealed class SettingsForm : Form
         "Stat Box Text",
         "Stat Box Background",
         "Stat Box Outline",
-        "Stat Box Frame"
+        "Stat Box Frame",
+        "Source",
+        "Configure Crop"
     };
 
     private readonly AppSettings _settings;
@@ -273,7 +276,21 @@ public sealed class SettingsForm : Form
         };
         Controls.Add(clockDrift);
 
-        y = clockDrift.Bottom + Scaled(SectionGap);
+        var highPriority = new ThemedCheckBox
+        {
+            Text = "Run at high process priority",
+            Location = new Point(Scaled(LeftMargin), clockDrift.Bottom + Scaled(RowGap)),
+            AutoSize = true,
+            Checked = _settings.HighPriority
+        };
+        highPriority.CheckedChanged += (_, _) =>
+        {
+            _settings.HighPriority = highPriority.Checked;
+            Win32.SetHighPriority(highPriority.Checked);
+        };
+        Controls.Add(highPriority);
+
+        y = highPriority.Bottom + Scaled(SectionGap);
         Label audioHeader = AddSectionHeader("Audio", y);
         y = audioHeader.Bottom + Scaled(RowGap);
 
@@ -744,6 +761,166 @@ public sealed class SettingsForm : Form
 
         ShowCaptureStatus();
 
+        y = captureStatus.Bottom + Scaled(SectionGap);
+        Label videoHeader = AddSectionHeader("Video", y);
+        y = videoHeader.Bottom + Scaled(RowGap);
+
+        var videoEnabled = new ThemedCheckBox
+        {
+            Text = "Title-Press Capture",
+            Location = new Point(Scaled(LeftMargin), y),
+            AutoSize = true,
+            Checked = _settings.VideoEnabled
+        };
+        Controls.Add(videoEnabled);
+
+        var downscale = new ThemedCheckBox
+        {
+            Text = "Downscale References",
+            Location = new Point(Scaled(LeftMargin), videoEnabled.Bottom + Scaled(RowGap)),
+            AutoSize = true,
+            Checked = _settings.VideoDownscale
+        };
+        Controls.Add(downscale);
+        downscale.CheckedChanged += (_, _) =>
+        {
+            _settings.VideoDownscale = downscale.Checked;
+            StarterTool.MainForm.RefreshCapture();
+        };
+
+        int sourceY = downscale.Bottom + Scaled(RowGap + 4);
+        Controls.Add(new Label
+        {
+            Text = "Source", Location = new Point(Scaled(LeftMargin), sourceY + Scaled(4)), AutoSize = true
+        });
+        int sourceWidth = Math.Max(comboWidth, Math.Max(table.Right, contextTable.Right) - comboX);
+        var sourceBox = new ThemedComboBox
+        {
+            Location = new Point(comboX, sourceY),
+            Size = new Size(sourceWidth, Scaled(23)),
+            DropDownStyle = ComboBoxStyle.DropDownList,
+            DropDownWidth = Math.Max(sourceWidth, Scaled(420))
+        };
+        Controls.Add(sourceBox);
+
+        int cropY = sourceBox.Bottom + Scaled(RowGap);
+        Controls.Add(new Label
+        {
+            Text = "Configure Crop", Location = new Point(Scaled(LeftMargin), cropY + Scaled(5)), AutoSize = true
+        });
+        var setCrop = new ThemedButton
+        {
+            Location = new Point(comboX, cropY),
+            Size = new Size(sourceWidth, Scaled(26))
+        };
+        Controls.Add(setCrop);
+
+        var videoStatus = new Label
+        {
+            Location = new Point(Scaled(LeftMargin), setCrop.Bottom + Scaled(RowGap + 2)),
+            AutoSize = true,
+            MaximumSize = new Size(comboX + sourceWidth - Scaled(LeftMargin), 0)
+        };
+        Controls.Add(videoStatus);
+
+        void ShowVideoStatus()
+        {
+            var crop = new Rectangle(_settings.VideoCropX, _settings.VideoCropY, _settings.VideoCropWidth, _settings.VideoCropHeight);
+            setCrop.Text = crop.Width <= 0 || crop.Height <= 0
+                ? "Whole frame"
+                : $"{crop.Width}x{crop.Height} at {crop.X},{crop.Y}";
+            videoStatus.Text = !_settings.VideoEnabled
+                ? "Off"
+                : StarterTool.MainForm.SelectedEncounterRoute.Length == 0
+                    ? "Opens with a route on the Route row"
+                    : "Source: " + StarterTool.Capture.Status;
+        }
+
+        bool fillingSources = false;
+        void FillSources()
+        {
+            fillingSources = true;
+            List<CaptureSourceInfo> sources = CaptureSourceInfo.List();
+            sourceBox.BeginUpdate();
+            sourceBox.Items.Clear();
+            sourceBox.Items.Add("None");
+            int selected = 0;
+            foreach (CaptureSourceInfo source in sources)
+            {
+                int index = sourceBox.Items.Add(source);
+                if (source.Kind == _settings.VideoSourceKind && source.Id == _settings.VideoSourceId) selected = index;
+            }
+            if (selected == 0 && _settings.VideoSourceKind != VideoSourceKind.None && _settings.VideoSourceId.Length > 0)
+            {
+                selected = sourceBox.Items.Add(new CaptureSourceInfo(
+                    _settings.VideoSourceKind, _settings.VideoSourceId,
+                    (_settings.VideoSourceKind == VideoSourceKind.Window ? "Window: " : "Device: ")
+                        + _settings.VideoSourceId + " (not found)"));
+            }
+            sourceBox.SelectedIndex = selected;
+            sourceBox.EndUpdate();
+            fillingSources = false;
+        }
+
+        FillSources();
+        sourceBox.DropDown += (_, _) => FillSources();
+        sourceBox.SelectedIndexChanged += (_, _) =>
+        {
+            if (fillingSources) return;
+            if (sourceBox.SelectedItem is CaptureSourceInfo source)
+            {
+                _settings.VideoSourceKind = source.Kind;
+                _settings.VideoSourceId = source.Id;
+            }
+            else
+            {
+                _settings.VideoSourceKind = VideoSourceKind.None;
+                _settings.VideoSourceId = "";
+            }
+            StarterTool.MainForm.RefreshCapture();
+            ShowVideoStatus();
+        };
+        videoEnabled.CheckedChanged += (_, _) =>
+        {
+            _settings.VideoEnabled = videoEnabled.Checked;
+            StarterTool.MainForm.RefreshCapture();
+            ShowVideoStatus();
+        };
+        setCrop.Click += (_, _) =>
+        {
+            if (_settings.VideoSourceKind == VideoSourceKind.None)
+            {
+                videoStatus.Text = "Pick a source first.";
+                return;
+            }
+
+            bool route = StarterTool.MainForm.SelectedEncounterRoute.Length > 0;
+            using var dialog = new CropDialog(new Rectangle(
+                _settings.VideoCropX, _settings.VideoCropY, _settings.VideoCropWidth, _settings.VideoCropHeight),
+                _settings.VideoDownscale);
+            StarterTool.Capture.SetPreview(dialog.ShowFrame, _settings, route);
+            DialogResult answer;
+            try
+            {
+                answer = dialog.ShowDialog(this);
+            }
+            finally
+            {
+                StarterTool.Capture.SetPreview(null, _settings, route);
+            }
+            if (answer != DialogResult.OK) return;
+
+            Rectangle crop = dialog.Crop;
+            _settings.VideoCropX = crop.X;
+            _settings.VideoCropY = crop.Y;
+            _settings.VideoCropWidth = crop.Width;
+            _settings.VideoCropHeight = crop.Height;
+            StarterTool.MainForm.RefreshCapture();
+            ShowVideoStatus();
+        };
+
+        ShowVideoStatus();
+
         int contentRight = Math.Max(
             Math.Max(Math.Max(table.Right, contextTable.Right), methodBox.Right),
             Math.Max(volumeBar.Right, copyUrl.Right));
@@ -752,7 +929,7 @@ public sealed class SettingsForm : Form
         {
             Text = "Close", Size = new Size(Scaled(80), Scaled(28)), DialogResult = DialogResult.OK
         };
-        close.Location = new Point(contentRight - close.Width, captureStatus.Bottom + Scaled(SectionGap));
+        close.Location = new Point(contentRight - close.Width, videoStatus.Bottom + Scaled(SectionGap));
         Controls.Add(close);
         AcceptButton = close;
         _close = close;

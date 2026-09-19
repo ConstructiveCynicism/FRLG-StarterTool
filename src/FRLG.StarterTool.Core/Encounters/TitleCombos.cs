@@ -232,7 +232,7 @@ public static class TitleCombos
     public static bool IsMeasured(PressFrame press) =>
         ReadsAsSwept(press)
         || press.Variant.Table.Combo is not null
-        || (press.Variant.Intro == TitleIntro.Skip477 && press.Variant.Combo is not null
+        || (press.Variant.Skip477IsTerm && press.Variant.Combo is not null
             && TitleSeedTable.IntroSkipShiftOf(press.Variant) is not null);
 
     public static IReadOnlyList<string> Describe(PressFrame press)
@@ -246,7 +246,7 @@ public static class TitleCombos
             int first = TitleSeedTable.IntroFrameOf(press.Variant);
             int last = first + press.IntroWindow - 1;
             lines.Add($"{TitleCombo.Name(order[at++])} on frame {first}-{last} after power-on, and keep it held"
-                + $" - skips the intro, anchor then at {TitleSeedTable.IntroAnchorOf(press.Variant.Intro)}");
+                + $" - skips the intro, anchor then at {TitleSeedTable.IntroAnchorOf(press.Variant.Intro, press.Variant.Saves)}");
         }
 
         if (press.Variant.OnLoop)

@@ -8,7 +8,7 @@ public sealed class EncounterPanel : Panel
 {
     private const int PanelWidth = 600;
 
-    private const int PanelHeight = 640;
+    private const int PanelHeight = 666;
 
     private const int BoxInset = 6;
 
@@ -25,16 +25,13 @@ public sealed class EncounterPanel : Panel
     private const int FileLeft = OffsetWidth + SectionGap;
     private const int FileWidth = PanelWidth - FileLeft;
 
-    private const int OptionLabelWidth = 52;
+    private static readonly int[] OptionFields = { 86, 86, 86, 86 };
 
-    private const int OptionBoxWidth =
-        (PanelWidth - 2 * BoxInset - 2 * (OptionLabelWidth + 6) - 24) / 2;
-
-    private const int OptionColumn2 = BoxInset + OptionLabelWidth + 6 + OptionBoxWidth + 24;
+    private const int OptionCaptionGap = 6;
 
     private int _seedsHeight;
 
-    private const int StatusHeight = 74;
+    private const int StatusHeight = 108;
 
     private const int VisibleRows = 5;
 
@@ -44,21 +41,22 @@ public sealed class EncounterPanel : Panel
 
     private static readonly (int X, int Width)[] Columns =
     {
-        (0, 200),
-        (204, 60),
-        (268, 60),
-        (332, 66),
-        (402, 60),
-        (466, 68),
+        (0, 150),
+        (154, 52),
+        (210, 52),
+        (266, 60),
+        (330, 66),
+        (400, 56),
+        (460, 74),
     };
 
     private const int RemoveX = 540;
     private const int ScrollX = 571;
 
     private static readonly string[] Headings =
-        { "Path", "Rate", "Tiles", "Immunity", "Repel", "Encounters" };
+        { "Path", "Rate", "Tiles", "Patches", "Immunity", "Repel", "Encounters" };
 
-    private const int Fields = 6;
+    private const int Fields = 7;
 
     private readonly Label[] _headings = new Label[Headings.Length];
     private readonly TextBox[][] _slots = new TextBox[VisibleRows][];
@@ -98,10 +96,6 @@ public sealed class EncounterPanel : Panel
 
     private readonly ThemedButton _buttonSearch;
     private readonly ThemedButton _buttonAdd;
-    private readonly Label _labelCombo;
-    private readonly ThemedComboBox _combo;
-
-    private List<TitleCombo> _combos = new();
 
     private bool _settingOptions;
 
@@ -109,14 +103,21 @@ public sealed class EncounterPanel : Panel
     private readonly ThemedComboBox _game;
     private readonly Label _labelButtons;
     private readonly ThemedComboBox _buttons;
-    private readonly Label _labelSound;
-    private readonly ThemedComboBox _sound;
-    private readonly Label _labelIntro;
-    private readonly ThemedComboBox _intro;
-    private readonly Label _labelTitle;
-    private readonly ThemedComboBox _title;
+    private readonly Label _labelSaves;
+    private readonly ThemedComboBox _saves;
+    private readonly Label _labelMax;
+    private readonly TextBox _maxSeconds;
     private readonly ThemedListView _results;
-    private readonly Label _status;
+    private readonly ManipDetail _status;
+
+    private readonly ThemedGroupBox _boxTileTable;
+
+    private readonly ThemedListView _tileList;
+    private readonly ThemedButton _buttonBack;
+    private readonly ThemedButton _buttonScan;
+    private readonly HScrollBar _tileScroll;
+
+    private int _tileSeed;
 
     private List<EncounterMatch> _matches = new();
     private List<EncounterPath> _searched = new();
@@ -217,47 +218,54 @@ public sealed class EncounterPanel : Panel
         _boxSettings = AddSection("Game Settings", 0, TopBandHeight + SectionGap, PanelWidth, TopBandHeight);
 
         int optionRow = BoxTop;
-        _labelGame = AddCaption(_boxSettings, "Game", BoxInset, optionRow + 4, OptionLabelWidth);
-        _game = AddOptionBox(BoxInset + OptionLabelWidth + 6, optionRow, OptionBoxWidth);
+        string[] captions = { "Game", "Buttons", "Save", "Max Time (s)" };
+        var captionWidths = new int[captions.Length];
+        int used = 0;
+        for (int i = 0; i < captions.Length; i++)
+        {
+            captionWidths[i] = TextRenderer.MeasureText(captions[i], Font).Width + 2;
+            used += captionWidths[i] + OptionCaptionGap + OptionFields[i];
+        }
+        int cellGap = (PanelWidth - 2 * BoxInset - used) / (captions.Length - 1);
+        var cellX = new int[captions.Length];
+        for (int i = 0, x = BoxInset; i < captions.Length; i++)
+        {
+            cellX[i] = x;
+            x += captionWidths[i] + OptionCaptionGap + OptionFields[i] + cellGap;
+        }
+        int FieldX(int cell) => cellX[cell] + captionWidths[cell] + OptionCaptionGap;
+
+        _labelGame = AddCaption(_boxSettings, captions[0], cellX[0], optionRow + 4, captionWidths[0]);
+        _game = AddOptionBox(FieldX(0), optionRow, OptionFields[0]);
         _game.Items.AddRange(new object[] { "FireRed", "LeafGreen" });
         _game.SelectedIndex = 0;
         _game.SelectedIndexChanged += (_, _) => OptionsChanged();
 
-        _labelCombo = AddCaption(_boxSettings, "Combo", OptionColumn2, optionRow + 4, OptionLabelWidth);
-        _combo = AddOptionBox(OptionColumn2 + OptionLabelWidth + 6, optionRow, OptionBoxWidth);
-
-        optionRow += 26;
-        _labelButtons = AddCaption(_boxSettings, "Buttons", BoxInset, optionRow + 4, OptionLabelWidth);
-        _buttons = AddOptionBox(BoxInset + OptionLabelWidth + 6, optionRow, OptionBoxWidth);
-        _buttons.Items.AddRange(new object[] { "Help", "L=A" });
+        _labelButtons = AddCaption(_boxSettings, captions[1], cellX[1], optionRow + 4, captionWidths[1]);
+        _buttons = AddOptionBox(FieldX(1), optionRow, OptionFields[1]);
+        _buttons.Items.AddRange(new object[] { "Help", "L=A", "Either" });
         _buttons.SelectedIndex = 0;
-        _buttons.SelectedIndexChanged += (_, _) => { FillCombos(Variant.Combo); OptionsChanged(); };
-        FillCombos(null);
-        _combo.SelectedIndexChanged += (_, _) => OptionsChanged();
+        _buttons.SelectedIndexChanged += (_, _) => OptionsChanged();
 
-        _labelSound = AddCaption(_boxSettings, "Sound", OptionColumn2, optionRow + 4, OptionLabelWidth);
-        _sound = AddOptionBox(OptionColumn2 + OptionLabelWidth + 6, optionRow, OptionBoxWidth);
-        _sound.Items.AddRange(new object[] { "Mono", "Stereo", "Any" });
-        _sound.SelectedIndex = 0;
-        _sound.SelectedIndexChanged += (_, _) => OptionsChanged();
+        _labelSaves = AddCaption(_boxSettings, captions[2], cellX[2], optionRow + 4, captionWidths[2]);
+        _saves = AddOptionBox(FieldX(2), optionRow, OptionFields[2]);
+        _saves.Items.AddRange(new object[] { "Multi", "Single", "Either" });
+        _saves.SelectedIndex = 0;
+        _saves.SelectedIndexChanged += (_, _) => OptionsChanged();
 
-        optionRow += 26;
+        _labelMax = AddCaption(_boxSettings, captions[3], cellX[3], optionRow + 4, captionWidths[3]);
+        _maxSeconds = AddNumberBox(_boxSettings, FieldX(3), optionRow, OptionFields[3]);
+        _maxSeconds.AutoSize = false;
+        _maxSeconds.Height = _game.Height;
+        _maxSeconds.Leave += (_, _) => MaxSecondsCommitted();
+        _maxSeconds.KeyDown += (_, e) =>
+        {
+            if (e.KeyCode != Keys.Enter) return;
+            MaxSecondsCommitted();
+            e.Handled = e.SuppressKeyPress = true;
+        };
 
-        _labelIntro = AddCaption(_boxSettings, "Intro", BoxInset, optionRow + 4, OptionLabelWidth);
-        _intro = AddOptionBox(BoxInset + OptionLabelWidth + 6, optionRow, OptionBoxWidth);
-        _intro.Items.AddRange(new object[] { "Played", "Skip 477", "Skip 990", "Any" });
-        foreach ((TitleIntro _, TitleLoop _, string label) in LoopChoices) _intro.Items.Add(label);
-        _intro.DropDownWidth = 150;
-        _intro.SelectedIndex = 0;
-        _intro.SelectedIndexChanged += (_, _) => OptionsChanged();
-
-        _labelTitle = AddCaption(_boxSettings, "Title", OptionColumn2, optionRow + 4, OptionLabelWidth);
-        _title = AddOptionBox(OptionColumn2 + OptionLabelWidth + 6, optionRow, OptionBoxWidth);
-        _title.Items.AddRange(new object[] { "Either", "Played", "Skipped" });
-        _title.SelectedIndex = 0;
-        _title.SelectedIndexChanged += (_, _) => OptionsChanged();
-
-        _boxSettings.Height = _title.Bottom + BoxBottomPad;
+        _boxSettings.Height = _game.Bottom + BoxBottomPad;
 
         _boxTiles = AddSection("Tiles", 0, _boxSettings.Bottom + SectionGap, PanelWidth, 0);
 
@@ -301,10 +309,11 @@ public sealed class EncounterPanel : Panel
             _boxTiles.Controls.Add(_remove[row]);
         }
 
+        int rowsBottom = _remove[VisibleRows - 1].Bottom;
         _scroll = new VScrollBar
         {
-            Location = new Point(BoxInset + ScrollX, rowsTop),
-            Size = new Size(17, VisibleRows * RowPitch - 2),
+            Location = new Point(BoxInset + ScrollX, rowsTop + 2),
+            Size = new Size(17, rowsBottom - rowsTop - 4),
             Minimum = 0,
             SmallChange = 1,
             LargeChange = VisibleRows,
@@ -337,6 +346,70 @@ public sealed class EncounterPanel : Panel
         _boxTiles.Controls.Add(_buttonAdd);
         _boxTiles.Height = _buttonAdd.Bottom + BoxBottomPad;
 
+        _boxTileTable = AddSection("Tiles Table", 0, _boxTiles.Top, PanelWidth, _boxTiles.Height);
+        _boxTileTable.Visible = false;
+
+        _tileList = new ThemedListView
+        {
+            Location = new Point(BoxInset, BoxTop),
+            Size = new Size(PanelWidth - 2 * BoxInset, tileButtonRow - 4 - BoxTop),
+            View = View.Details,
+            FullRowSelect = true,
+            MultiSelect = false,
+            HeaderStyle = ColumnHeaderStyle.Nonclickable,
+            Font = new Font("Segoe UI", 8F),
+            OwnerDraw = true,
+        };
+        _tileList.DrawColumnHeader += DrawColumnHeader;
+        _tileList.DrawItem += (_, _) => { };
+        _tileList.DrawSubItem += DrawSubItem;
+        _tileList.Columns.Add("Path", 120, HorizontalAlignment.Left);
+        _tileList.Columns.Add("Tiles", 44, HorizontalAlignment.Center);
+        _tileList.Columns.Add("Enc", 40, HorizontalAlignment.Center);
+        _tileList.Columns.Add("%", 44, HorizontalAlignment.Center);
+        _tileList.Columns.Add("Encounter On Tile", 200, HorizontalAlignment.Left);
+        _tileList.HandleCreated += (_, _) => _tileList.BeginInvoke(() =>
+        {
+            FitLastColumn(_tileList, _tileList.Columns.Count - 1);
+            FitTileScroll();
+        });
+        _tileList.KeyDown += (_, e) =>
+        {
+            if (e.KeyCode != Keys.Escape || _around is null) return;
+            RestoreResults();
+            e.Handled = true;
+        };
+        _boxTileTable.Controls.Add(_tileList);
+
+        _buttonBack = new ThemedButton
+        {
+            Text = "Back",
+            Location = new Point(BoxInset, tileButtonRow),
+            Size = new Size(90, 24),
+        };
+        _buttonBack.Click += (_, _) => RestoreResults();
+        _boxTileTable.Controls.Add(_buttonBack);
+
+        _buttonScan = new ThemedButton
+        {
+            Text = "Scan",
+            Location = new Point(_buttonBack.Right + 4, tileButtonRow),
+            Size = new Size(90, 24),
+        };
+        _buttonScan.Click += (_, _) => ScanTiles();
+        _boxTileTable.Controls.Add(_buttonScan);
+
+        _tileScroll = new HScrollBar
+        {
+            Location = new Point(_buttonScan.Right + 8, tileButtonRow + 3),
+            Size = new Size(PanelWidth - BoxInset - _buttonScan.Right - 8, 17),
+            Minimum = 0,
+            SmallChange = 8,
+            Visible = false,
+        };
+        _tileScroll.ValueChanged += (_, _) => _tileList.Invalidate();
+        _boxTileTable.Controls.Add(_tileScroll);
+
         int seedsTop = _boxTiles.Bottom + SectionGap;
         _seedsHeight = PanelHeight - seedsTop;
         _boxSeeds = AddSection("Seeds", 0, seedsTop, PanelWidth, _seedsHeight);
@@ -344,7 +417,7 @@ public sealed class EncounterPanel : Panel
         _results = new ThemedListView
         {
             Location = new Point(BoxInset, BoxTop),
-            Size = new Size(PanelWidth - 2 * BoxInset, _seedsHeight - BoxTop - StatusHeight - 4 - BoxBottomPad),
+            Size = new Size(PanelWidth - 2 * BoxInset, _seedsHeight - BoxTop - StatusHeight - SectionGap - BoxBottomPad),
             View = View.Details,
             FullRowSelect = true,
             MultiSelect = false,
@@ -375,15 +448,18 @@ public sealed class EncounterPanel : Panel
         };
         _boxSeeds.Controls.Add(_results);
 
-        _status = new Label
+        _status = new ManipDetail
         {
             Location = new Point(BoxInset, _seedsHeight - BoxBottomPad - StatusHeight),
             Size = new Size(PanelWidth - 2 * BoxInset, StatusHeight),
-            TextAlign = ContentAlignment.TopLeft,
+            Font = new Font("Segoe UI", 8F),
         };
+        _status.RowClicked += ToggleCue;
+        _introFrame.TextChanged += (_, _) => _status.SetCued(CuedRows());
+        _titleFrame.TextChanged += (_, _) => _status.SetCued(CuedRows());
         _boxSeeds.Controls.Add(_status);
 
-        LoadRoute(EncounterPath.DefaultRoute);
+        LoadRoute(EncounterPath.PlannerDefault);
     }
 
     private ThemedGroupBox AddSection(string text, int x, int y, int width, int height)
@@ -505,7 +581,7 @@ public sealed class EncounterPanel : Panel
 
     private void AddPath()
     {
-        _rows.Add(new[] { "", "21", "", "", "", "" });
+        _rows.Add(new[] { "", "21", "", "1", "", "", "" });
         _top = Math.Max(0, _rows.Count - VisibleRows);
         Bind();
 
@@ -534,7 +610,8 @@ public sealed class EncounterPanel : Panel
         {
             lines.Add(string.Join(',', path.Name.Replace(',', ' '), path.Rate, path.Tiles,
                 path.NewMap ? 1 : 0, path.MinSteps, path.RepelTiles,
-                path.TargetEncounters?.ToString(CultureInfo.InvariantCulture) ?? ""));
+                path.TargetEncounters?.ToString(CultureInfo.InvariantCulture) ?? "",
+                path.Patches));
         }
         return string.Join('\n', lines);
     }
@@ -543,23 +620,9 @@ public sealed class EncounterPanel : Panel
     {
         get => new(
             _buttons.SelectedIndex == 1 ? TitleButtonMode.LEqualsA : TitleButtonMode.Help,
-            _sound.SelectedIndex == 1 ? TitleSoundMode.Stereo : TitleSoundMode.Mono,
-            _intro.SelectedIndex switch
-            {
-                1 => TitleIntro.Skip477,
-                2 => TitleIntro.Skip990,
-                >= 4 when _intro.SelectedIndex - 4 < LoopChoices.Length => LoopChoices[_intro.SelectedIndex - 4].Intro,
-                _ => TitleIntro.Played,
-            },
-            _title.SelectedIndex switch
-            {
-                1 => TitleAnimation.PlayedOut,
-                2 => TitleAnimation.SpedUp,
-                _ => TitleAnimation.Either,
-            },
-            _combo.SelectedIndex >= 1 && _combo.SelectedIndex - 1 < _combos.Count ? _combos[_combo.SelectedIndex - 1] : null,
-            _game.SelectedIndex == 1 ? TitleGame.LeafGreen : TitleGame.FireRed,
-            _intro.SelectedIndex >= 4 && _intro.SelectedIndex - 4 < LoopChoices.Length ? LoopChoices[_intro.SelectedIndex - 4].Loop : TitleLoop.None);
+            TitleSoundMode.Mono,
+            Game: _game.SelectedIndex == 1 ? TitleGame.LeafGreen : TitleGame.FireRed,
+            Saves: _saves.SelectedIndex == 1 ? TitleSaves.Single : TitleSaves.Multi);
         set
         {
             bool was = _settingOptions;
@@ -568,15 +631,7 @@ public sealed class EncounterPanel : Panel
             {
                 _game.SelectedIndex = value.Game == TitleGame.LeafGreen ? 1 : 0;
                 _buttons.SelectedIndex = value.Buttons == TitleButtonMode.LEqualsA ? 1 : 0;
-                FillCombos(value.Combo);
-                _sound.SelectedIndex = value.Sound == TitleSoundMode.Stereo ? 1 : 0;
-                _intro.SelectedIndex = IntroIndexOf(value.Intro, value.Loop);
-                _title.SelectedIndex = value.Animation switch
-                {
-                    TitleAnimation.PlayedOut => 1,
-                    TitleAnimation.SpedUp => 2,
-                    _ => 0,
-                };
+                _saves.SelectedIndex = value.Saves == TitleSaves.Single ? 1 : 0;
             }
             finally
             {
@@ -585,82 +640,61 @@ public sealed class EncounterPanel : Panel
         }
     }
 
+    public bool SavesEither
+    {
+        get => _saves.SelectedIndex == 2;
+        set
+        {
+            bool was = _settingOptions;
+            _settingOptions = true;
+            try { if (value) _saves.SelectedIndex = 2; else if (_saves.SelectedIndex == 2) _saves.SelectedIndex = 0; }
+            finally { _settingOptions = was; }
+        }
+    }
+
+    public string SavesKey => SavesEither ? "either" : Variant.SavesKey;
+
+    public bool ButtonsEither
+    {
+        get => _buttons.SelectedIndex == 2;
+        set
+        {
+            bool was = _settingOptions;
+            _settingOptions = true;
+            try { if (value) _buttons.SelectedIndex = 2; else if (_buttons.SelectedIndex == 2) _buttons.SelectedIndex = 0; }
+            finally { _settingOptions = was; }
+        }
+    }
+
+    public string ButtonsKey => ButtonsEither ? "either" : Variant.ButtonsKey;
+
+    public int MaxSeconds
+    {
+        get => Number(_maxSeconds.Text) ?? 0;
+        set
+        {
+            bool was = _settingOptions;
+            _settingOptions = true;
+            try { _maxSeconds.Text = value <= 0 ? "" : value.ToString(CultureInfo.InvariantCulture); }
+            finally { _settingOptions = was; }
+            _searchedMaxSeconds = MaxSeconds;
+        }
+    }
+
+    private int _searchedMaxSeconds;
+
+    private void MaxSecondsCommitted()
+    {
+        if (MaxSeconds == _searchedMaxSeconds) return;
+        _searchedMaxSeconds = MaxSeconds;
+        OptionsChanged();
+    }
+
     private void OptionsChanged()
     {
         if (_settingOptions || _matches.Count == 0 || _cancel is not null) return;
         Search();
     }
-
-    private void FillCombos(TitleCombo? keep)
-    {
-        TitleButtonMode mode = _buttons.SelectedIndex == 1 ? TitleButtonMode.LEqualsA : TitleButtonMode.Help;
-        _combos = TitleCombos.All(mode).ToList();
-
-        bool was = _settingOptions;
-        _settingOptions = true;
-        try
-        {
-            _combo.BeginUpdate();
-            _combo.Items.Clear();
-            _combo.Items.Add("Any");
-            foreach (TitleCombo combo in _combos) _combo.Items.Add(combo.Short);
-            _combo.EndUpdate();
-
-            int index = keep is TitleCombo wanted ? _combos.IndexOf(wanted) : -1;
-            _combo.SelectedIndex = index + 1;
-        }
-        finally
-        {
-            _settingOptions = was;
-        }
-    }
-
-    public bool SoundAny
-    {
-        get => _sound.SelectedIndex == 2;
-        set
-        {
-            bool was = _settingOptions;
-            _settingOptions = true;
-            try { if (value) _sound.SelectedIndex = 2; else if (_sound.SelectedIndex == 2) _sound.SelectedIndex = 0; }
-            finally { _settingOptions = was; }
-        }
-    }
-
-    private static readonly (TitleIntro Intro, TitleLoop Loop, string Label)[] LoopChoices =
-    {
-        (TitleIntro.Played, TitleLoop.Skip477, "Loop: none → 477"),
-        (TitleIntro.Played, TitleLoop.Skip990, "Loop: none → 990"),
-        (TitleIntro.Skip477, TitleLoop.Skip477, "Loop: 477 → 477"),
-        (TitleIntro.Skip477, TitleLoop.Skip990, "Loop: 477 → 990"),
-        (TitleIntro.Skip990, TitleLoop.Skip477, "Loop: 990 → 477"),
-        (TitleIntro.Skip990, TitleLoop.Skip990, "Loop: 990 → 990"),
-    };
-
-    private static int IntroIndexOf(TitleIntro intro, TitleLoop loop)
-    {
-        for (int i = 0; i < LoopChoices.Length; i++)
-        {
-            if (LoopChoices[i].Intro == intro && LoopChoices[i].Loop == loop) return 4 + i;
-        }
-        return intro switch { TitleIntro.Skip477 => 1, TitleIntro.Skip990 => 2, _ => 0 };
-    }
-
-    public bool IntroAny
-    {
-        get => _intro.SelectedIndex == 3;
-        set
-        {
-            bool was = _settingOptions;
-            _settingOptions = true;
-            try { if (value) _intro.SelectedIndex = 3; else if (_intro.SelectedIndex == 3) _intro.SelectedIndex = 0; }
-            finally { _settingOptions = was; }
-        }
-    }
-
-    private string SoundKey => SoundAny ? "any" : Variant.SoundKey;
-
-    private string IntroKey => IntroAny ? "any" : Variant.ChoiceKey;
 
     public int DelayMs
     {
@@ -676,80 +710,85 @@ public sealed class EncounterPanel : Panel
 
     public int IntroFrame
     {
-        get => ParsePress(IntroPart(_introFrame.Text)).Frame;
-        set => WriteIntroBox(value, IntroWindow, LoopFrame, LoopWindow);
+        get => PressAt(_introFrame, 0).Frame;
+        set => WriteIntroBox(value, IntroWindow, LoopFrame, LoopWindow, IntroExtra);
     }
 
     public int IntroWindow
     {
-        get => ParsePress(IntroPart(_introFrame.Text)).Window;
-        set => WriteIntroBox(IntroFrame, value, LoopFrame, LoopWindow);
+        get => PressAt(_introFrame, 0).Window;
+        set => WriteIntroBox(IntroFrame, value, LoopFrame, LoopWindow, IntroExtra);
     }
 
     public int LoopFrame
     {
-        get => ParsePress(LoopPart(_introFrame.Text)).Frame;
-        set => WriteIntroBox(IntroFrame, IntroWindow, value, LoopWindow);
+        get => PressAt(_introFrame, 1).Frame;
+        set => WriteIntroBox(IntroFrame, IntroWindow, value, LoopWindow, IntroExtra);
     }
 
     public int LoopWindow
     {
-        get => ParsePress(LoopPart(_introFrame.Text)).Window;
-        set => WriteIntroBox(IntroFrame, IntroWindow, LoopFrame, value);
+        get => PressAt(_introFrame, 1).Window;
+        set => WriteIntroBox(IntroFrame, IntroWindow, LoopFrame, value, IntroExtra);
     }
 
-    private static string IntroPart(string text)
+    public string IntroExtra
     {
-        string value = (text ?? "").Trim();
-        int comma = value.IndexOf(',');
-        return comma < 0 ? value : value[..comma];
+        get => ExtraOf(_introFrame, 2);
+        set => WriteIntroBox(IntroFrame, IntroWindow, LoopFrame, LoopWindow, value);
     }
 
-    private static string LoopPart(string text)
+    private static string[] Places(string text) => (text ?? "").Split(',');
+
+    private static (int Frame, int Window) PressAt(TextBox box, int place)
     {
-        string value = (text ?? "").Trim();
-        int comma = value.IndexOf(',');
-        return comma < 0 ? "" : value[(comma + 1)..];
+        string[] places = Places(box.Text);
+        return place < places.Length ? ParsePress(places[place]) : (0, 1);
     }
 
-    private void WriteIntroBox(int introFrame, int introWindow, int loopFrame, int loopWindow)
+    private static string ExtraOf(TextBox box, int from) =>
+        ManipPress.FormatList(ManipPress.ParseList("", string.Join(',', Places(box.Text).Skip(from))));
+
+    private void WriteIntroBox(int introFrame, int introWindow, int loopFrame, int loopWindow, string extra)
     {
-        string intro = introFrame <= 0 ? "" : new ManipPress("", introFrame, Math.Clamp(introWindow, 1, MaxWindow)).Frames;
-        string loop = loopFrame <= 0 ? "" : new ManipPress("", loopFrame, Math.Clamp(loopWindow, 1, MaxWindow)).Frames;
-        WritePress(_introFrame, loop.Length == 0 ? intro : intro + "," + loop);
+        var places = new List<string> { Press(introFrame, introWindow) };
+        if (loopFrame > 0) places.Add(Press(loopFrame, loopWindow));
+        places.AddRange(ManipPress.ParseList("", extra).Select(press => press.Frames));
+        WritePress(_introFrame, places.Count == 1 ? places[0] : string.Join(",", places));
     }
 
     public int TitleFrame
     {
-        get => ParsePress(_titleFrame.Text).Frame;
-        set => WritePress(_titleFrame, value, TitleWindow);
+        get => PressAt(_titleFrame, 0).Frame;
+        set => WriteTitleBox(value, TitleWindow, TitleExtra);
     }
 
     public int TitleWindow
     {
-        get => ParsePress(_titleFrame.Text).Window;
-        set => WritePress(_titleFrame, TitleFrame, value);
+        get => PressAt(_titleFrame, 0).Window;
+        set => WriteTitleBox(TitleFrame, value, TitleExtra);
     }
 
-    private static (int Frame, int Window) ParsePress(string text)
+    public string TitleExtra
     {
-        string value = (text ?? "").Trim();
-        int dash = value.IndexOf('-');
-        if (dash <= 0) return (Number(value) ?? 0, 1);
-
-        int? first = Number(value[..dash]);
-        if (first is null) return (0, 1);
-
-        int? last = Number(value[(dash + 1)..]);
-        if (last is null || last <= first) return (first.Value, 1);
-        return (first.Value, Math.Min(last.Value - first.Value + 1, MaxWindow));
+        get => ExtraOf(_titleFrame, 1);
+        set => WriteTitleBox(TitleFrame, TitleWindow, value);
     }
 
-    private const int MaxWindow = 60;
+    private void WriteTitleBox(int frame, int window, string extra)
+    {
+        var places = new List<string> { Press(frame, window) };
+        places.AddRange(ManipPress.ParseList("", extra).Select(press => press.Frames));
+        WritePress(_titleFrame, places.Count == 1 ? places[0] : string.Join(",", places));
+    }
 
-    private void WritePress(TextBox box, int frame, int window) => WritePress(
-        box,
-        frame <= 0 ? "" : new ManipPress("", frame, Math.Clamp(window, 1, MaxWindow)).Frames);
+    private static (int Frame, int Window) ParsePress(string text) =>
+        ManipPress.Parse("", text) is ManipPress press ? (press.Frame, press.Window) : (0, 1);
+
+    private const int MaxWindow = ManipPress.MaxWindow;
+
+    private static string Press(int frame, int window) =>
+        frame <= 0 ? "" : new ManipPress("", frame, Math.Clamp(window, 1, MaxWindow)).Frames;
 
     private void WritePress(TextBox box, string text)
     {
@@ -769,11 +808,19 @@ public sealed class EncounterPanel : Panel
         _writingPresses = true;
         try
         {
-            WriteIntroBox(
-                press.Variant.IntroSkipped ? TitleSeedTable.IntroFrameOf(press.Variant) : 0, press.IntroWindow,
-                press.Variant.LoopSkipped ? TitleSeedTable.LoopFrameOf(press.Variant) : 0, TitleSeedTable.LoopWindowOf(press.Variant));
+            if (TitleRecipes.Find(press.Variant) is TitleRecipe recipe)
+            {
+                WritePress(_introFrame, string.Join(",", recipe.Steps.Where(step => step.Cued).Select(step => step.Press.Frames)));
+            }
+            else
+            {
+                WriteIntroBox(
+                    press.Variant.IntroSkipped ? TitleSeedTable.IntroFrameOf(press.Variant) : 0, press.IntroWindow,
+                    press.Variant.LoopSkipped ? TitleSeedTable.LoopFrameOf(press.Variant) : 0, TitleSeedTable.LoopWindowOf(press.Variant),
+                    "");
+            }
 
-            WritePress(_titleFrame, ResetFrame(press), press.Window);
+            WriteTitleBox(ResetFrame(press), press.Window, "");
             _pickedSeed = press.Seed;
             _pickedOffset = press.Offset;
             _pickedPass = press.Pass;
@@ -796,6 +843,28 @@ public sealed class EncounterPanel : Panel
     }
 
     public string ActiveRoute => _routeIndex >= 0 && _routeIndex < _routes.Count ? _routes[_routeIndex].Name : "";
+
+    public (int Seed, int Offset, int Pass) PickedSeed
+    {
+        get => (_pickedSeed, _pickedOffset, _pickedPass);
+        set => (_pickedSeed, _pickedOffset, _pickedPass) = value;
+    }
+
+    public bool LoadActiveRoute()
+    {
+        if (_routeIndex < 0 || _routeIndex >= _routes.Count) return false;
+
+        LoadSelectedRoute();
+        return true;
+    }
+
+    public void FindPickedSeed()
+    {
+        if (_pickedSeed < 0) return;
+
+        _highlight = (_pickedSeed, TitleFrame, _pickedPass);
+        Search();
+    }
 
     public void SetRoutes(IEnumerable<EncounterRoutePreset> routes, string active)
     {
@@ -865,7 +934,7 @@ public sealed class EncounterPanel : Panel
         {
             if (!Confirm($"A route named \"{_routes[existing].Name}\" already exists. Overwrite it?", "Save route")) return;
 
-            _routes[existing] = preset;
+            _routes[existing] = KeepReference(_routes[existing], preset);
         }
         else
         {
@@ -882,7 +951,7 @@ public sealed class EncounterPanel : Panel
         if (_routeIndex < 0 || _routeIndex >= _routes.Count) return;
 
         string name = _routes[_routeIndex].Name;
-        _routes[_routeIndex] = CaptureRoute(name);
+        _routes[_routeIndex] = KeepReference(_routes[_routeIndex], CaptureRoute(name));
         FillRoutes(name);
         _status.Text = $"Route \"{name}\" updated.";
         RoutesChanged?.Invoke(this, EventArgs.Empty);
@@ -897,12 +966,14 @@ public sealed class EncounterPanel : Panel
         if (name is null || EncounterRoutePreset.NameEquals(name, active.Name)) return;
 
         int clash = _routes.FindIndex(route => EncounterRoutePreset.NameEquals(route.Name, name));
-        if (clash >= 0)
-        {
-            if (!Confirm($"A route named \"{_routes[clash].Name}\" already exists. Overwrite it?", "Rename route")) return;
+        if (clash >= 0 && !Confirm($"A route named \"{_routes[clash].Name}\" already exists. Overwrite it?", "Rename route")) return;
 
-            _routes.RemoveAt(clash);
-        }
+        if (!OnDisk(() =>
+            {
+                if (clash >= 0) PresetLibrary.Default.DeleteRoute(_routes[clash].Name);
+                PresetLibrary.Default.RenameRoute(active.Name, name);
+            }, "rename")) return;
+        if (clash >= 0) _routes.RemoveAt(clash);
 
         active.Name = name;
         FillRoutes(name);
@@ -915,7 +986,8 @@ public sealed class EncounterPanel : Panel
         if (_routeIndex < 0 || _routeIndex >= _routes.Count) return;
 
         string name = _routes[_routeIndex].Name;
-        if (!Confirm($"Delete the route \"{name}\"?", "Delete route")) return;
+        if (!Confirm($"Delete the route \"{name}\" and its reference pictures?", "Delete route")) return;
+        if (!OnDisk(() => PresetLibrary.Default.DeleteRoute(name), "delete")) return;
 
         _routes.RemoveAt(_routeIndex);
         FillRoutes("");
@@ -928,7 +1000,7 @@ public sealed class EncounterPanel : Panel
         Form owner = FindForm() ?? throw new InvalidOperationException("The planner has no window.");
         using var dialog = new OpenFileDialog
         {
-            Title = "Import route",
+            Title = "Import route - a route's .json, alone or in its folder of references",
             Filter = "Route (*.json)|*.json|All files (*.*)|*.*",
             CheckFileExists = true,
         };
@@ -936,9 +1008,10 @@ public sealed class EncounterPanel : Panel
 
         string path = dialog.FileName;
         EncounterRoutePreset? preset;
+        Dictionary<string, byte[]> pictures;
         try
         {
-            preset = PresetFile.Read<EncounterRoutePreset>(path);
+            preset = PresetLibrary.ReadImport(path, out pictures);
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or System.Text.Json.JsonException)
         {
@@ -951,14 +1024,12 @@ public sealed class EncounterPanel : Panel
             return;
         }
 
-        preset.Normalize();
-        if (preset.Name.Length == 0) preset.Name = Path.GetFileNameWithoutExtension(path);
-
         int existing = _routes.FindIndex(route => EncounterRoutePreset.NameEquals(route.Name, preset.Name));
+        if (existing >= 0 && !Confirm($"A route named \"{_routes[existing].Name}\" already exists. Overwrite it?", "Import route")) return;
+
+        if (!OnDisk(() => PresetLibrary.Default.InstallRoute(preset, pictures), "import")) return;
         if (existing >= 0)
         {
-            if (!Confirm($"A route named \"{_routes[existing].Name}\" already exists. Overwrite it?", "Import route")) return;
-
             _routes[existing] = preset;
         }
         else
@@ -968,6 +1039,10 @@ public sealed class EncounterPanel : Panel
 
         FillRoutes(preset.Name);
         LoadPreset(preset);
+        int count = preset.References.Count;
+        _status.Text = count > 0
+            ? $"Route \"{preset.Name}\" imported with {count} reference picture{(count == 1 ? "" : "s")}."
+            : $"Route \"{preset.Name}\" imported.";
         RoutesChanged?.Invoke(this, EventArgs.Empty);
     }
 
@@ -977,23 +1052,37 @@ public sealed class EncounterPanel : Panel
 
         EncounterRoutePreset route = _routes[_routeIndex];
         Form owner = FindForm() ?? throw new InvalidOperationException("The planner has no window.");
-        using var dialog = new SaveFileDialog
+        using var dialog = new FolderBrowserDialog
         {
-            Title = "Export route",
-            Filter = "Route (*.json)|*.json|All files (*.*)|*.*",
-            FileName = MainForm.PresetFileName(route.Name),
-            OverwritePrompt = true,
+            Description = $"Export \"{route.Name}\": pick where its folder goes",
+            UseDescriptionForTitle = true,
+            ShowNewFolderButton = true,
         };
         if (StarterTool.Modal(() => dialog.ShowDialog(owner)) != DialogResult.OK) return;
 
         try
         {
-            PresetFile.Write(dialog.FileName, route);
-            _status.Text = $"Route \"{route.Name}\" exported to {Path.GetFileName(dialog.FileName)}.";
+            PresetLibrary.Default.Sync(Array.Empty<FilterPreset>(), new[] { route });
+            string folder = PresetLibrary.Default.ExportRoute(route, dialog.SelectedPath);
+            _status.Text = $"Route \"{route.Name}\" exported to {folder}.";
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
-            _status.Text = $"Could not write \"{Path.GetFileName(dialog.FileName)}\": {ex.Message}";
+            _status.Text = $"Could not export \"{route.Name}\": {ex.Message}";
+        }
+    }
+
+    private bool OnDisk(Action change, string verb)
+    {
+        try
+        {
+            change();
+            return true;
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            _status.Text = $"Could not {verb} the route's files: {ex.Message}";
+            return false;
         }
     }
 
@@ -1013,16 +1102,39 @@ public sealed class EncounterPanel : Panel
             owner, message, title, MessageBoxButtons.YesNo, MessageBoxIcon.Question)) == DialogResult.Yes;
     }
 
+    private static EncounterRoutePreset KeepReference(EncounterRoutePreset old, EncounterRoutePreset updated)
+    {
+        updated.References = old.References.Select(reference => reference.Clone()).ToList();
+        updated.VideoDelayMs = old.VideoDelayMs;
+        updated.ReferenceZoom = old.ReferenceZoom;
+        updated.ReferenceCenterX = old.ReferenceCenterX;
+        updated.ReferenceCenterY = old.ReferenceCenterY;
+        return updated;
+    }
+
+    public bool EditCapture(string routeName, Action<EncounterRoutePreset> edit)
+    {
+        int index = _routes.FindIndex(route => EncounterRoutePreset.NameEquals(route.Name, routeName));
+        if (index < 0) return false;
+
+        edit(_routes[index]);
+        _routes[index].Normalize();
+        RoutesChanged?.Invoke(this, EventArgs.Empty);
+        return true;
+    }
+
     private EncounterRoutePreset CaptureRoute(string name) => new EncounterRoutePreset
     {
         Name = name,
         Route = SaveRoute(),
         Game = Variant.GameKey,
-        Buttons = Variant.ButtonsKey,
-        Sound = SoundKey,
-        Intro = IntroKey,
-        Title = Variant.AnimationKey,
-        Combo = Variant.ComboKey,
+        Buttons = ButtonsKey,
+        Saves = SavesKey,
+        MaxSeconds = MaxSeconds,
+        Sound = "any",
+        Intro = "any",
+        Title = "either",
+        Combo = "any",
         DelayMs = DelayMs,
         OffsetMs = OffsetMs,
         IntroFrame = IntroFrame,
@@ -1031,17 +1143,46 @@ public sealed class EncounterPanel : Panel
         LoopWindow = LoopWindow,
         TitleFrame = TitleFrame,
         TitleWindow = TitleWindow,
+        IntroExtra = IntroExtra,
+        TitleExtra = TitleExtra,
         Seed = _pickedSeed,
         Offset = _pickedOffset,
         Pass = _pickedPass,
+        ManipRows = _lastTable.Seed == _pickedSeed && _pickedSeed >= 0 ? new List<string>(_lastTable.Rows) : new(),
+        ManipSettings = _lastTable.Seed == _pickedSeed && _pickedSeed >= 0 ? new List<string>(_lastTable.Settings) : new(),
     }.Normalize();
+
+    private (int Seed, List<string> Rows, List<string> Settings) _lastTable = (-1, new(), new());
+
+    private void KeepManipTable(int seed, IReadOnlyList<(string Frames, string Inputs)> rows, IReadOnlyList<string> settings)
+    {
+        List<string> packed = rows.Select(row => row.Frames + "\t" + row.Inputs).ToList();
+        _lastTable = (seed, packed, settings.ToList());
+        if (_routeIndex < 0 || _routeIndex >= _routes.Count) return;
+
+        EncounterRoutePreset route = _routes[_routeIndex];
+        if (route.Seed != seed || (route.ManipRows.SequenceEqual(packed) && route.ManipSettings.SequenceEqual(settings))) return;
+        route.ManipRows = packed;
+        route.ManipSettings = settings.ToList();
+        RoutesChanged?.Invoke(this, EventArgs.Empty);
+    }
+
+    public (List<(string Frames, string Inputs)> Rows, List<string> Settings)? ManipTableFor(string routeName)
+    {
+        foreach (EncounterRoutePreset route in _routes)
+        {
+            if (EncounterRoutePreset.NameEquals(route.Name, routeName)) return route.ManipTable();
+        }
+        return null;
+    }
 
     private void LoadPreset(EncounterRoutePreset preset)
     {
         LoadRoute(preset.Route);
-        Variant = TitleVariant.Parse(preset.Buttons, preset.Sound, preset.Intro, preset.Title, preset.Combo, preset.Game);
-        SoundAny = preset.Sound == "any";
-        IntroAny = preset.Intro == "any";
+        Variant = TitleVariant.Parse(preset.Buttons, null, game: preset.Game, saves: preset.Saves);
+        ButtonsEither = preset.Buttons == "either";
+        SavesEither = preset.Saves == "either";
+        MaxSeconds = preset.MaxSeconds;
         DelayMs = preset.DelayMs;
         OffsetMs = preset.OffsetMs;
         IntroFrame = preset.IntroFrame;
@@ -1050,6 +1191,8 @@ public sealed class EncounterPanel : Panel
         LoopWindow = preset.LoopWindow;
         TitleFrame = preset.TitleFrame;
         TitleWindow = preset.TitleWindow;
+        IntroExtra = preset.IntroExtra;
+        TitleExtra = preset.TitleExtra;
         _pickedSeed = preset.Seed;
         _pickedOffset = preset.Offset;
         _pickedPass = preset.Pass;
@@ -1079,7 +1222,7 @@ public sealed class EncounterPanel : Panel
     {
         if (string.IsNullOrWhiteSpace(saved))
         {
-            LoadRoute(EncounterPath.DefaultRoute);
+            LoadRoute(EncounterPath.PlannerDefault);
             return;
         }
 
@@ -1096,10 +1239,11 @@ public sealed class EncounterPanel : Panel
                 fields[3] == "1",
                 Number(fields[4]) ?? 0,
                 Number(fields[5]) ?? 0,
-                Number(fields[6])));
+                Number(fields[6]),
+                fields.Length > 7 ? Number(fields[7]) ?? 1 : 1));
         }
 
-        if (paths.Count == 0) paths.AddRange(EncounterPath.DefaultRoute);
+        if (paths.Count == 0) paths.AddRange(EncounterPath.PlannerDefault);
         LoadRoute(paths);
     }
 
@@ -1113,6 +1257,7 @@ public sealed class EncounterPanel : Panel
                 path.Name,
                 path.Rate.ToString(CultureInfo.InvariantCulture),
                 path.Tiles.ToString(CultureInfo.InvariantCulture),
+                path.Patches.ToString(CultureInfo.InvariantCulture),
                 path.MinSteps.ToString(CultureInfo.InvariantCulture),
                 path.RepelTiles == 0 ? "" : path.RepelTiles.ToString(CultureInfo.InvariantCulture),
                 path.TargetEncounters?.ToString(CultureInfo.InvariantCulture) ?? "",
@@ -1134,16 +1279,17 @@ public sealed class EncounterPanel : Panel
             string name = row[0].Trim();
             int tiles = Number(row[2]) ?? 0;
             if (strict && (name.Length == 0 || tiles <= 0)) continue;
-            if (!strict && name.Length == 0 && tiles == 0 && row[5].Length == 0) continue;
+            if (!strict && name.Length == 0 && tiles == 0 && row[6].Length == 0) continue;
 
             int rate = Number(row[1]) ?? 21;
 
-            int immune = Number(row[3]) ?? EncounterPath.DefaultMinSteps(rate);
+            int immune = Number(row[4]) ?? EncounterPath.DefaultMinSteps(rate);
 
             paths.Add(new EncounterPath(
                 name, rate, tiles, NewMap: true, immune,
-                Math.Min(tiles, Number(row[4]) ?? 0),
-                Number(row[5])));
+                Math.Min(tiles, Number(row[5]) ?? 0),
+                Number(row[6]),
+                Number(row[3]) ?? 1));
         }
         return paths;
     }
@@ -1172,44 +1318,9 @@ public sealed class EncounterPanel : Panel
             return;
         }
 
-        List<TitleVariant> variants = Variants();
-        var missing = variants.Where(v => !TitleSeedTable.HasRta(v)).ToList();
-        variants.RemoveAll(v => !TitleSeedTable.HasRta(v));
-        if (variants.Count == 0)
-        {
-            ClearRows();
-            _matches = new List<EncounterMatch>();
-            TitleVariant variant = missing[0];
-            _status.Text = variant.Intro switch
-            {
-                _ when variant.OnLoop =>
-                    $"No table for {variant} yet - the second title screen is a ladder sweep of its own per first-intro x loop-intro pair "
-                    + "(make_loop_chain.py), and this one has not been run for this pair.",
-                TitleIntro.Skip990 => $"No RTA table for {variant} yet - the 990 skip is a table of its own per pair of options.",
-                TitleIntro.Skip477 when variant.OwnsTable =>
-                    $"No table for {variant} yet - that combo reads a seed of its own off the 477 skip on every frame (2026-08-25), "
-                    + "a table nobody has swept for this pair.",
-                TitleIntro.Skip477 when variant.Combo is not null && TitleSeedTable.IntroSkipShiftOf(variant with { Combo = null }) is not null =>
-                    $"No 477 term for {variant} - the term is per combo, and this one read a different seed on every frame "
-                    + "off its boot (2026-08-25), so it would be a table of its own that nobody has swept. Measured at 477: "
-                    + "SELECT or START skipping with A→START, START→A, A→L or START alone; A skipping with START→L / L→START; L skipping with A→START.",
-                TitleIntro.Skip477 => $"No 477 term for {variant} yet - the skip's constant is the button mode's "
-                                      + "(Help +6004, L=A +6015, on either sound), and this pair's has not been booted.",
-                _ when variant.Table.Combo is not null =>
-                    $"No table for {variant} yet - that combo reads a seed of its own (L first, A or L alone, or a skip made with A or L) "
-                    + "and has not been swept for this pair.",
-                _ when variant.Game == TitleGame.LeafGreen =>
-                    $"No RTA table for {variant} yet - LeafGreen's seeds are a table of their own per pair of options "
-                    + "(no title lag frames, the read elsewhere in its frame; 2026-08-28), swept on the LeafGreen ROM. Help + stereo ships.",
-                _ => $"No RTA table for {variant} yet - that pair of options has not been swept "
-                     + "off a save set to it. All four button x sound pairs ship.",
-            };
-            NoHighlight();
-            return;
-        }
-
         _cancel = new CancellationTokenSource();
         _buttonSearch.Enabled = false;
+        FitStatus(0);
         _status.Text = "Searching every reachable seed...";
         ClearRows();
         _matches = new List<EncounterMatch>();
@@ -1218,11 +1329,34 @@ public sealed class EncounterPanel : Panel
         {
             CancellationToken token = _cancel.Token;
             int cycles = Cycles;
-            EncounterSearchResult result = await Task.Run(
-                () => EncounterSearch.Search(route, cycles: cycles, protocol: TitleProtocol.Rta,
-                    variants: variants, cancellationToken: token),
+            TitleVariant chosen = Variant;
+            TitleButtonMode? buttons = ButtonsEither ? null : chosen.Buttons;
+            TitleSaves? saves = SavesEither ? null : chosen.Saves;
+            _searchedMaxSeconds = MaxSeconds;
+            int maxFrame = MaxSeconds > 0 ? (int)Math.Floor(MaxSeconds * TitleSeedTable.FramesPerSecond) : 0;
+
+            var unswept = new List<TitleVariant>();
+            EncounterSearchResult? result = await Task.Run(
+                () =>
+                {
+                    List<TitleVariant> variants = TitleSeedTable.Spanning(chosen.Game, buttons, saves, unswept);
+                    return variants.Count == 0
+                        ? null
+                        : EncounterSearch.Search(route, cycles: cycles, protocol: TitleProtocol.Rta,
+                            variants: variants, cancellationToken: token, maxResetFrame: maxFrame);
+                },
                 token);
-            _skipped = missing;
+            _skipped = unswept;
+
+            if (result is null)
+            {
+                _status.Text = $"No tables yet for {(chosen.Game == TitleGame.LeafGreen ? "LeafGreen" : "FireRed")}"
+                    + (saves is null ? "" : $" with {(chosen.Saves == TitleSaves.Single ? "a single save" : "two saves")}")
+                    + (buttons is null ? "" : $" in {(chosen.Buttons == TitleButtonMode.LEqualsA ? "L=A" : "Help")} mode")
+                    + " - that boot has not been swept.";
+                NoHighlight();
+                return;
+            }
 
             _searched = route;
             _matches = result.Matches;
@@ -1242,73 +1376,31 @@ public sealed class EncounterPanel : Panel
         }
     }
 
-    private List<TitleVariant> Variants()
-    {
-        TitleVariant chosen = Variant;
-        TitleSoundMode[] sounds = SoundAny
-            ? new[] { TitleSoundMode.Mono, TitleSoundMode.Stereo }
-            : new[] { chosen.Sound };
-        var intros = new List<(TitleIntro Intro, TitleLoop Loop)>();
-        if (IntroAny)
-        {
-            intros.Add((TitleIntro.Played, TitleLoop.None));
-            intros.Add((TitleIntro.Skip477, TitleLoop.None));
-            intros.Add((TitleIntro.Skip990, TitleLoop.None));
-            foreach ((TitleIntro intro, TitleLoop loop, _) in LoopChoices) intros.Add((intro, loop));
-        }
-        else
-        {
-            intros.Add((chosen.Intro, chosen.Loop));
-        }
-
-        var variants = new List<TitleVariant>();
-        foreach (TitleSoundMode sound in sounds)
-        {
-            foreach ((TitleIntro intro, TitleLoop loop) in intros)
-            {
-                variants.Add(chosen with { Sound = sound, Intro = intro, Loop = loop });
-            }
-        }
-        return variants;
-    }
-
     private void ShowResults(EncounterSearchResult result)
     {
         FillRows(result.Matches);
 
+        string skipped = _skipped.Count == 0
+            ? ""
+            : $" Not swept, so not searched: {string.Join("; ", _skipped.Select(v => Setup(v) + (SavesEither ? (v.Saves == TitleSaves.Single ? " single" : " multi") : "")))}.";
+        string within = MaxSeconds > 0 ? $" within {MaxSeconds} s of the reset" : "";
+
         if (result.Matches.Count == 0)
         {
-            string rows = Variant.Animation switch
-            {
-                TitleAnimation.PlayedOut => " on the rows from 268 (Title: plays out)",
-                TitleAnimation.SpedUp => " on the rows before 268 (Title: sped up)",
-                _ => "",
-            };
-            string combo = Variant.Combo is TitleCombo chosen
-                ? $" that {chosen.Short} has the presses for ({chosen.Count} button{(chosen.Count == 1 ? "" : "s")}: "
-                  + (chosen.Count == 3 ? "intro skipped and title sped up"
-                     : chosen.Count == 2 ? "intro skipped or title sped up, not both"
-                     : "intro played, title played out") + ")"
-                : "";
-            _status.Text = result.SeedsMatched == 0
+            _status.Text = (result.SeedsMatched == 0
                 ? "No seed runs that route, on any of the sampled main streams."
-                : $"That route is reachable, but no measured press frame reaches it{rows}{combo}.";
+                : $"That route is reachable, but no measured press frame reaches it{within}.") + skipped;
             return;
         }
 
         string capped = result.Truncated
             ? $" of {result.TotalMatches.ToString("N0", CultureInfo.InvariantCulture)}"
             : "";
-        string skipped = _skipped.Count == 0
-            ? ""
-            : $" Not swept, so not searched: {string.Join("; ", _skipped)}.";
-        string under = Variant.Combo is TitleCombo chosenCombo
-            ? $" under {chosenCombo.Short}"
-            : " under each table's own combo";
         _status.Text =
-            $"{result.Matches.Count.ToString("N0", CultureInfo.InvariantCulture)}{capped} press frames{under}, "
-            + $"{result.SeedsMatched.ToString("N0", CultureInfo.InvariantCulture)} of 65536 seeds. "
-            + "Pick a row for the press - it fills Intro and Title above." + skipped;
+            $"{result.Matches.Count.ToString("N0", CultureInfo.InvariantCulture)}{capped} press frames{within}, "
+            + $"{result.SeedsMatched.ToString("N0", CultureInfo.InvariantCulture)} of 65536 seeds, over every sound mode, intro, "
+            + "title press and combo the save has a table for. Pick a row for its inputs - it fills Intro and Title above. "
+            + "Double-click: its tile table and the frames around it." + skipped;
     }
 
     private void FillRows(IReadOnlyList<EncounterMatch> matches)
@@ -1332,12 +1424,14 @@ public sealed class EncounterPanel : Panel
         }
 
         _results.EndUpdate();
+        FitLastColumn();
     }
 
     private void ClearRows()
     {
         _around = null;
         _picked = null;
+        HideTiles();
         ApplyColumns(around: false);
         _results.Items.Clear();
     }
@@ -1382,6 +1476,11 @@ public sealed class EncounterPanel : Panel
     private static string Windows(PressFrame press)
     {
         string window = press.Window.ToString(CultureInfo.InvariantCulture);
+        if (TitleRecipes.Find(press.Variant) is TitleRecipe recipe)
+        {
+            int tightest = recipe.Windows.DefaultIfEmpty(0).Min();
+            return tightest > 0 ? tightest.ToString(CultureInfo.InvariantCulture) + "→" + window : window;
+        }
         if (press.Variant.LoopSkipped)
         {
             window = TitleSeedTable.LoopWindowOf(press.Variant).ToString(CultureInfo.InvariantCulture) + "→" + window;
@@ -1412,6 +1511,10 @@ public sealed class EncounterPanel : Panel
         return parts.Count == 0 ? "none" : string.Join(", ", parts);
     }
 
+    private static string Setup(TitleVariant variant) =>
+        (variant.Buttons == TitleButtonMode.LEqualsA ? "L=A" : "Help") + " "
+        + (variant.Sound == TitleSoundMode.Stereo ? "Stereo" : "Mono");
+
     private void ShowSelected()
     {
         if (_restoring) return;
@@ -1425,23 +1528,7 @@ public sealed class EncounterPanel : Panel
         EncounterMatch match = _matches[_results.SelectedIndices[0]];
 
         FillPresses(match.Press);
-
-        if (match.Press.Protocol == TitleProtocol.Rta)
-        {
-            DescribeRta(match);
-            return;
-        }
-
-        string loops = match.Press.Pass == 0
-            ? "on the first title screen"
-            : $"after {match.Press.Pass} title-screen loop{(match.Press.Pass == 1 ? "" : "s")}";
-
-        _status.Text =
-            $"Press {match.Press.Offset} frames in, {loops} - {Wait(match.Press)} from the reset. "
-            + $"Trainer ID {match.Press.Seed:X4} (counter {match.Press.Recorded:X4}), "
-            + $"wild seed {match.WildSeed:X4}. "
-            + $"{match.Total} encounter{(match.Total == 1 ? "" : "s")}: {Where(match.PathCounts)}"
-            + $" - on {match.Rate * 100:0}% of sampled main streams.";
+        DescribeRta(match);
     }
 
     private void SearchAroundSelected()
@@ -1454,6 +1541,7 @@ public sealed class EncounterPanel : Panel
 
         FillPresses(match.Press);
         ShowAround(match);
+        ShowTiles(match.Press.Seed);
         DescribeRta(match);
     }
 
@@ -1462,48 +1550,210 @@ public sealed class EncounterPanel : Panel
         PressFrame press = match.Press;
         TitleVariant variant = press.Variant;
         IReadOnlyList<TitleButton> order = TitleCombos.Of(press).Order;
+        bool exact = variant.Combo is not null;
         int at = 0;
 
-        string loops = press.Pass == 0
-            ? ""
-            : press.Measured
-                ? $", on the second title screen ({Wait(press)} from the reset; measured)"
-                : $", {press.Pass} loop{(press.Pass == 1 ? "" : "s")} ({Wait(press)} from the reset; arithmetic, up to {press.Band} cycles off)";
-        string loopIntro = variant.OnLoop
-            ? (variant.LoopSkipped ? $", loop intro skipped at {TitleSeedTable.LoopFrameOf(variant)}" : ", loop intro played")
-            : "";
-        string settings = $"{variant.PairTable}, intro {(variant.IntroSkipped ? "skipped at " + TitleSeedTable.IntroFrameOf(variant.Intro) : "played")}{loopIntro}"
-            + $", title {(press.SeedPressFrame is null ? "played out" : "sped up")}, {TitleCombos.Of(press).Short}{loops}."
-            + $" Trainer ID {press.Seed:X4}.";
-
-        string intro = "";
-        if (variant.IntroSkipped)
+        var rows = new List<(string Frames, string Inputs)>();
+        TitleRecipe? recipe = TitleRecipes.Find(variant);
+        if (recipe is not null)
         {
-            int first = TitleSeedTable.IntroFrameOf(variant);
-            int last = first + press.IntroWindow - 1;
-            string frames = press.IntroWindow > 1 ? $"{first}-{last}" : first.ToString(CultureInfo.InvariantCulture);
-            intro = $"\nSkip: {TitleCombo.Name(order[at++])} on {frames} from reset.";
+            foreach (RecipeStep step in recipe.Steps)
+            {
+                rows.Add((step.Frame > 0 ? step.Press.Frames : step.Label, step.Text));
+            }
         }
-        if (variant.LoopSkipped)
+        else if (variant.IntroSkipped)
         {
-            int first = TitleSeedTable.LoopFrameOf(variant);
-            int last = first + TitleSeedTable.LoopWindowOf(variant) - 1;
-            string frames = last > first ? $"{first}-{last}" : first.ToString(CultureInfo.InvariantCulture);
-            intro += $"\nLoop skip: {TitleCombo.Name(order[at++])} on {frames} from reset.";
+            var skip = new ManipPress("", TitleSeedTable.IntroFrameOf(variant), Math.Max(press.IntroWindow, 1));
+            rows.Add((skip.Frames, $"Hold {Button(order[at++])} - skips the intro"));
+        }
+        if (recipe is null && variant.LoopSkipped)
+        {
+            var skip = new ManipPress("", TitleSeedTable.LoopFrameOf(variant), Math.Max(TitleSeedTable.LoopWindowOf(variant), 1));
+            rows.Add((skip.Frames, $"Hold {Button(order[at++])} - skips the loop's intro"));
+        }
+        else if (recipe is null && variant.OnLoop)
+        {
+            rows.Add(("loop", ""));
         }
 
-        int frame = ResetFrame(press);
-        string window = press.Window > 1 ? $"{frame}-{frame + press.Window - 1}" : frame.ToString(CultureInfo.InvariantCulture);
-        string title = press.SeedPressFrame is null
-            ? $"\nTitle (played out): {TitleCombo.Name(order[at])} on {window} from reset."
-            : $"\nTitle (speed-up): {TitleCombo.Name(order[at])} on {window} from reset, {TitleCombo.Name(order[at + 1])} next frame.";
+        var title = new ManipPress("", ResetFrame(press), press.Window);
+        if (recipe is not null)
+        {
+            foreach ((int offset, string text) in recipe.EntrySteps(press.SeedPressFrame is not null))
+            {
+                var edge = new ManipPress("", title.Frame + offset, title.Window);
+                rows.Add((edge.Frames, offset == 0 && press.SeedPressFrame is null ? text.Replace(" - enters", " - title clears") : text));
+            }
+        }
+        else if (press.SeedPressFrame is null)
+        {
+            rows.Add((title.Frames, $"Hold {Button(order[at])} - title clears"));
+        }
+        else
+        {
+            TitleButton first = order[at], second = order[at + 1];
+            bool either = !exact && first == TitleButton.Start && second == TitleButton.A;
+            var entry = new ManipPress("", title.Frame + 1, title.Window);
+            rows.Add((title.Frames, either ? "Hold Start/A - speeds the title up" : $"Hold {Button(first)} - speeds the title up"));
+            rows.Add((entry.Frames, either ? "Hold A/Start, the other one - enters" : $"Hold {Button(second)} - enters"));
+        }
 
-        string flag = TitleCombos.IsSwept(press) || TitleCombos.IsMeasured(press)
-            ? ""
-            : $" Table swept with {TitleCombos.Swept(press).Short}; this combo is unmeasured.";
+        var settings = new List<string>
+        {
+            variant.Buttons == TitleButtonMode.LEqualsA ? "L=A" : "Help",
+            match.EitherSound ? "Mono/Stereo" : variant.Sound == TitleSoundMode.Stereo ? "Stereo" : "Mono",
+            variant.Saves == TitleSaves.Single ? "Single Save" : "Multi Save",
+            $"Seed {press.Seed:X4}",
+        };
 
-        string next = _around is null ? " Double-click: the frames around it." : " Esc: back to the search.";
-        _status.Text = settings + intro + title + flag + next;
+        int titleRows = recipe is not null ? recipe.EntrySteps(press.SeedPressFrame is not null).Count : press.SeedPressFrame is null ? 1 : 2;
+        _detailRows = rows.Select((row, i) => (row.Frames, Title: i >= rows.Count - titleRows, First: i == rows.Count - titleRows)).ToList();
+        FitStatus(rows.Count);
+        _status.ShowManip(rows, settings, CuedRows(), "");
+        KeepManipTable(press.Seed, rows, settings);
+    }
+
+    private List<(string Frames, bool Title, bool First)> _detailRows = new();
+
+    private List<bool> CuedRows() => _detailRows.Select(row =>
+        ManipPress.Parse("", row.Frames) is ManipPress press
+        && ManipPress.ParseList("", (row.Title ? _titleFrame : _introFrame).Text).Any(p => p.Frame == press.Frame)).ToList();
+
+    private void ToggleCue(int index)
+    {
+        if (index < 0 || index >= _detailRows.Count) return;
+        (string frames, bool title, bool first) = _detailRows[index];
+        if (ManipPress.Parse("", frames) is not ManipPress press) return;
+
+        TextBox box = title ? _titleFrame : _introFrame;
+        List<ManipPress> places = ManipPress.ParseList("", box.Text);
+        if (places.RemoveAll(p => p.Frame == press.Frame) == 0)
+        {
+            if (title && first) places.Insert(0, press); else places.Add(press);
+        }
+        if (!title) places = places.OrderBy(p => p.Frame).ToList();
+        WritePress(box, ManipPress.FormatList(places));
+        _status.SetCued(CuedRows());
+    }
+
+    private int _statusGrown;
+
+    private int _statusHeightSet;
+
+    private void FitStatus(int rows)
+    {
+        if (_statusGrown != 0 && _status.Height != _statusHeightSet) _statusGrown = 0;
+
+        int row = _status.Font.Height + 2;
+        int grow = Math.Max(0, rows - 4) * row;
+        grow = Math.Min(grow, Math.Max(0, _results.Height + _statusGrown - 6 * row));
+        int change = grow - _statusGrown;
+        if (change == 0) return;
+
+        _results.Height -= change;
+        _status.SetBounds(_status.Left, _status.Top - change, _status.Width, _status.Height + change);
+        _statusGrown = grow;
+        _statusHeightSet = _status.Height;
+    }
+
+    private static string Button(TitleButton button) => button switch
+    {
+        TitleButton.Start => "Start",
+        TitleButton.Select => "Select",
+        TitleButton.L => "L",
+        _ => "A",
+    };
+
+    private void ShowTiles(int titleSeed, int samples = EncounterSearch.DefaultSamples)
+    {
+        IReadOnlyList<EncounterPathTiles> tiles = EncounterSearch.TilesOf(_searched, titleSeed, samples);
+        _tileSeed = titleSeed;
+
+        _tileList.BeginUpdate();
+        _tileList.Items.Clear();
+        for (int path = 0; path < _searched.Count && path < tiles.Count; path++)
+        {
+            EncounterPathTiles one = tiles[path];
+            var item = new ListViewItem(_searched[path].Name);
+            item.SubItems.Add(_searched[path].Tiles.ToString(CultureInfo.InvariantCulture));
+            item.SubItems.Add(one.ModeCount.ToString(CultureInfo.InvariantCulture));
+            item.SubItems.Add(Percent(one.ModeShare));
+            item.SubItems.Add(one.Tiles.Count == 0
+                ? "none"
+                : string.Join(", ", one.Tiles.Select(tile => tile.Share >= 0.995
+                    ? tile.Tile.ToString(CultureInfo.InvariantCulture)
+                    : $"{tile.Tile} ({Percent(tile.Share)})")));
+            _tileList.Items.Add(item);
+        }
+        _tileList.EndUpdate();
+
+        bool scanned = samples > EncounterSearch.DefaultSamples;
+        _boxTileTable.Text = scanned
+            ? $"Wild Seed {titleSeed:X4} - {samples} streams"
+            : $"Wild Seed {titleSeed:X4}";
+        _buttonScan.Enabled = !scanned;
+        if (!_boxTileTable.Visible)
+        {
+            _boxTileTable.Visible = true;
+            _boxTiles.Visible = false;
+            FitLastColumn(_tileList, _tileList.Columns.Count - 1);
+        }
+        FitTileScroll();
+    }
+
+    private static string Percent(double share) => share > 0 && share < 0.005
+        ? "<1%"
+        : (share * 100).ToString("0", CultureInfo.InvariantCulture) + "%";
+
+    private void ScanTiles()
+    {
+        if (!_boxTileTable.Visible || _around is null) return;
+        Cursor.Current = Cursors.WaitCursor;
+        try
+        {
+            ShowTiles(_tileSeed, EncounterSearch.ScanSamples);
+        }
+        finally
+        {
+            Cursor.Current = Cursors.Default;
+        }
+    }
+
+    private void FitTileScroll()
+    {
+        int last = _tileList.Columns.Count - 1;
+        int left = 0;
+        for (int i = 0; i < last; i++) left += _tileList.Columns[i].Width;
+        int room = Math.Min(_tileList.Columns[last].Width, _tileList.ClientSize.Width - left) - 6;
+        int widest = 0;
+        foreach (ListViewItem item in _tileList.Items)
+        {
+            if (item is null || item.SubItems.Count <= last) continue;
+            widest = Math.Max(widest, TextRenderer.MeasureText(item.SubItems[last].Text, _tileList.Font, Size.Empty,
+                TextFormatFlags.NoPrefix | TextFormatFlags.SingleLine).Width);
+        }
+
+        int overhang = widest - room;
+        if (overhang <= 0)
+        {
+            _tileScroll.Value = 0;
+            _tileScroll.Visible = false;
+            return;
+        }
+        overhang += 8;
+        int large = Math.Max(1, room / 2);
+        _tileScroll.Maximum = overhang + large - 1;
+        _tileScroll.LargeChange = large;
+        if (_tileScroll.Value > overhang) _tileScroll.Value = overhang;
+        _tileScroll.Visible = true;
+    }
+
+    private void HideTiles()
+    {
+        if (!_boxTileTable.Visible) return;
+        _boxTiles.Visible = true;
+        _boxTileTable.Visible = false;
     }
 
     private void ShowAround(EncounterMatch match)
@@ -1528,10 +1778,12 @@ public sealed class EncounterPanel : Panel
             _results.Items.Add(item);
         }
         _results.EndUpdate();
+        FitLastColumn();
     }
 
     private void RestoreResults()
     {
+        if (_around is null) return;
         EncounterMatch? picked = _picked;
         FillRows(_matches);
         int index = picked is null ? -1 : _matches.IndexOf(picked);
@@ -1600,8 +1852,9 @@ public sealed class EncounterPanel : Panel
         if (_around is null || _results.SelectedIndices.Count == 0 || _results.SelectedIndices[0] >= _around.Count) return;
         EncounterNeighbourRow row = _around[_results.SelectedIndices[0]];
         string kept = row.Chance > 0 ? "keeps the picked encounters" : "loses the picked encounters";
+        ShowTiles(row.Seed);
         _status.Text = $"{row.Window}: title press on frame {row.Frames}, Trainer ID {row.Seed:X4} - {row.Encounters} encounter{(row.Encounters == 1 ? "" : "s")}"
-            + $" ({row.Where}) on {row.Rate * 100:0}% of sampled streams; {kept}. Esc: back to the search.";
+            + $" ({row.Where}) on {row.Rate * 100:0}% of sampled streams; {kept}. The tile table above is this seed's. Back or Esc: the search.";
     }
 
     private List<EncounterNeighbourRow> Neighbours(EncounterMatch match)
@@ -1658,13 +1911,14 @@ public sealed class EncounterPanel : Panel
 
     private void DrawColumnHeader(object? sender, DrawListViewColumnHeaderEventArgs e)
     {
+        ListView list = sender as ListView ?? _results;
         using (var background = new SolidBrush(Theme.HeaderBack))
         {
             e.Graphics.FillRectangle(background, e.Bounds);
         }
         using (var pen = new Pen(Theme.Border))
         {
-            if (e.ColumnIndex < _results.Columns.Count - 1)
+            if (e.ColumnIndex < list.Columns.Count - 1)
             {
                 e.Graphics.DrawLine(pen, e.Bounds.Right - 1, e.Bounds.Top + 2, e.Bounds.Right - 1, e.Bounds.Bottom - 3);
             }
@@ -1673,16 +1927,17 @@ public sealed class EncounterPanel : Panel
 
         Rectangle bounds = e.Bounds;
         bounds.Inflate(-2, 0);
-        TextRenderer.DrawText(e.Graphics, e.Header?.Text ?? "", _results.Font, bounds, Theme.Text,
+        TextRenderer.DrawText(e.Graphics, e.Header?.Text ?? "", list.Font, bounds, Theme.Text,
             CellFlags | Align(e.Header?.TextAlign ?? HorizontalAlignment.Left));
     }
 
     private void DrawSubItem(object? sender, DrawListViewSubItemEventArgs e)
     {
+        ListView list = sender as ListView ?? _results;
         bool selected = e.Item?.Selected == true;
-        Color back = selected ? Theme.Accent : _results.BackColor;
-        Color fore = selected ? Theme.AccentText : _results.ForeColor;
-        if (!selected && _around is not null && e.ItemIndex >= 0 && e.ItemIndex < _around.Count)
+        Color back = selected ? Theme.Accent : list.BackColor;
+        Color fore = selected ? Theme.AccentText : list.ForeColor;
+        if (!selected && list == _results && _around is not null && e.ItemIndex >= 0 && e.ItemIndex < _around.Count)
         {
             double chance = _around[e.ItemIndex].Chance;
             back = chance > 0.5 ? Theme.LandingHitBack : chance > 0.0 ? Theme.LandingMaybeBack : Theme.LandingMissBack;
@@ -1696,7 +1951,7 @@ public sealed class EncounterPanel : Panel
         using (var pen = new Pen(Theme.GridLine))
         {
             e.Graphics.DrawLine(pen, e.Bounds.Left, e.Bounds.Bottom - 1, e.Bounds.Right, e.Bounds.Bottom - 1);
-            if (e.ColumnIndex < _results.Columns.Count - 1)
+            if (e.ColumnIndex < list.Columns.Count - 1)
             {
                 e.Graphics.DrawLine(pen, e.Bounds.Right - 1, e.Bounds.Top, e.Bounds.Right - 1, e.Bounds.Bottom - 1);
             }
@@ -1705,20 +1960,164 @@ public sealed class EncounterPanel : Panel
         Rectangle bounds = e.Bounds;
         bounds.Inflate(-3, 0);
         bounds.Height -= ThemedListView.RuleClearance;
-        TextRenderer.DrawText(e.Graphics, e.SubItem?.Text ?? "", _results.Font, bounds, fore,
-            CellFlags | Align(_results.Columns[e.ColumnIndex].TextAlign));
+        int shift = list == _tileList && e.ColumnIndex == list.Columns.Count - 1 && _tileScroll.Visible ? _tileScroll.Value : 0;
+        if (shift > 0)
+        {
+            Region clip = e.Graphics.Clip;
+            e.Graphics.SetClip(bounds);
+            bounds.X -= shift;
+            bounds.Width = short.MaxValue;
+            TextRenderer.DrawText(e.Graphics, e.SubItem?.Text ?? "", list.Font, bounds, fore,
+                (CellFlags & ~TextFormatFlags.EndEllipsis) | TextFormatFlags.PreserveGraphicsClipping
+                | Align(list.Columns[e.ColumnIndex].TextAlign));
+            e.Graphics.Clip = clip;
+            return;
+        }
+        TextRenderer.DrawText(e.Graphics, e.SubItem?.Text ?? "", list.Font, bounds, fore,
+            CellFlags | Align(list.Columns[e.ColumnIndex].TextAlign));
     }
 
-    private void FitLastColumn()
-    {
-        int fillIndex = _around is null ? _results.Columns.Count - 1 : AroundFillColumn;
-        int used = 0;
-        for (int i = 0; i < fillIndex; i++) used += _results.Columns[i].Width;
+    private void FitLastColumn() =>
+        FitLastColumn(_results, _around is null ? _results.Columns.Count - 1 : AroundFillColumn);
 
-        ColumnHeader last = _results.Columns[fillIndex];
-        int fill = _results.ClientSize.Width - used;
+    private static void FitLastColumn(ListView list, int fillIndex)
+    {
+        int used = 0;
+        for (int i = 0; i < fillIndex; i++) used += list.Columns[i].Width;
+
+        ColumnHeader last = list.Columns[fillIndex];
+        int fill = list.ClientSize.Width - used;
         if (fill >= 60 && fill != last.Width) last.Width = fill;
     }
 
     public void Cancel() => _cancel?.Cancel();
+
+    internal sealed class ManipDetail : Panel
+    {
+        private IReadOnlyList<(string Frames, string Inputs)> _rows = Array.Empty<(string, string)>();
+        private IReadOnlyList<string> _settings = Array.Empty<string>();
+        private string _note = "";
+        private bool _table;
+        private IReadOnlyList<bool> _cued = Array.Empty<bool>();
+        private int _leftWidth;
+
+        public event Action<int>? RowClicked;
+
+        public void SetCued(IReadOnlyList<bool> cued)
+        {
+            _cued = cued;
+            Invalidate();
+        }
+
+        protected override void OnMouseClick(MouseEventArgs e)
+        {
+            base.OnMouseClick(e);
+            if (!_table || e.Button != MouseButtons.Left || e.X >= _leftWidth) return;
+            int index = e.Y / (Font.Height + 2) - 1;
+            if (index >= 0 && index < _rows.Count) RowClicked?.Invoke(index);
+        }
+
+        public ManipDetail()
+        {
+            DoubleBuffered = true;
+            ResizeRedraw = true;
+        }
+
+        [System.Diagnostics.CodeAnalysis.AllowNull]
+        public override string Text
+        {
+            get => base.Text;
+            set
+            {
+                base.Text = value;
+                _table = false;
+                Invalidate();
+            }
+        }
+
+        public void ShowManip(IReadOnlyList<(string Frames, string Inputs)> rows, IReadOnlyList<string> settings, IReadOnlyList<bool> cued, string note)
+        {
+            _rows = rows;
+            _cued = cued;
+            _settings = settings;
+            _note = note;
+            base.Text = string.Join("; ", rows.Select(row => $"{row.Frames}: {row.Inputs}"))
+                + " - " + string.Join(", ", settings) + ". " + note;
+            _table = true;
+            Invalidate();
+        }
+
+        private const TextFormatFlags Cell = TextFormatFlags.VerticalCenter | TextFormatFlags.EndEllipsis
+                                             | TextFormatFlags.NoPrefix | TextFormatFlags.SingleLine;
+
+        protected override void OnPaint(PaintEventArgs e)
+        {
+            base.OnPaint(e);
+            Graphics g = e.Graphics;
+
+            if (!_table)
+            {
+                TextRenderer.DrawText(g, base.Text, Font, ClientRectangle, Theme.Text,
+                    TextFormatFlags.WordBreak | TextFormatFlags.Left | TextFormatFlags.Top | TextFormatFlags.NoPrefix);
+                return;
+            }
+
+            int row = Font.Height + 2;
+            int pad = Math.Max(3, Font.Height / 4);
+            int gap = Math.Max(4, Font.Height * SectionGap / 15);
+            int settingsWidth = TextRenderer.MeasureText(g, "Save settings", Font).Width;
+            foreach (string setting in _settings) settingsWidth = Math.Max(settingsWidth, TextRenderer.MeasureText(g, setting, Font).Width);
+            settingsWidth += 2 * pad + 8;
+
+            int framesWidth = TextRenderer.MeasureText(g, "Frames", Font).Width;
+            foreach ((string frames, _) in _rows) framesWidth = Math.Max(framesWidth, TextRenderer.MeasureText(g, frames, Font).Width);
+            framesWidth += 2 * pad + 8;
+
+            int leftWidth = Width - settingsWidth - gap;
+            _leftWidth = leftWidth;
+            var left = new Rectangle(0, 0, leftWidth, row * (_rows.Count + 1));
+            var right = new Rectangle(leftWidth + gap, 0, settingsWidth - 1, row * (_settings.Count + 1));
+
+            using var back = new SolidBrush(Theme.ListBack);
+            using var head = new SolidBrush(Theme.HeaderBack);
+            using var line = new Pen(Theme.GridLine);
+            using var border = new Pen(Theme.Border);
+
+            void Frame(Rectangle table)
+            {
+                g.FillRectangle(back, table);
+                g.FillRectangle(head, table.X, table.Y, table.Width, row);
+                for (int y = table.Y + row; y < table.Bottom; y += row) g.DrawLine(line, table.X, y, table.Right, y);
+                g.DrawRectangle(border, table.X, table.Y, table.Width, table.Height);
+            }
+
+            void Put(string text, int x, int y, int width, Color color, TextFormatFlags align = TextFormatFlags.Left) =>
+                TextRenderer.DrawText(g, text, Font, new Rectangle(x + pad, y, width - 2 * pad, row), color, Cell | align);
+
+            Frame(left);
+            g.DrawLine(line, left.X + framesWidth, left.Y, left.X + framesWidth, left.Bottom);
+            Put("Frames", left.X, 0, framesWidth, Theme.Text, TextFormatFlags.HorizontalCenter);
+            Put("Inputs", left.X + framesWidth, 0, left.Width - framesWidth, Theme.Text);
+            for (int i = 0; i < _rows.Count; i++)
+            {
+                int y = row * (i + 1);
+                Put(_rows[i].Frames, left.X, y, framesWidth, i < _cued.Count && _cued[i] ? Theme.Text : Theme.DimText, TextFormatFlags.HorizontalCenter);
+                Put(_rows[i].Inputs, left.X + framesWidth, y, left.Width - framesWidth, Theme.Text);
+            }
+
+            Frame(right);
+            Put("Save settings", right.X, 0, right.Width, Theme.Text, TextFormatFlags.HorizontalCenter);
+            for (int i = 0; i < _settings.Count; i++)
+            {
+                Put(_settings[i], right.X, row * (i + 1), right.Width, Theme.Text, TextFormatFlags.HorizontalCenter);
+            }
+
+            int noteTop = Math.Max(left.Bottom, right.Bottom) + gap;
+            if (noteTop + Font.Height <= Height)
+            {
+                TextRenderer.DrawText(g, _note, Font, new Rectangle(0, noteTop, Width, Height - noteTop), Theme.DimText,
+                    TextFormatFlags.WordBreak | TextFormatFlags.EndEllipsis | TextFormatFlags.NoPrefix | TextFormatFlags.Left | TextFormatFlags.Top);
+            }
+        }
+    }
 }

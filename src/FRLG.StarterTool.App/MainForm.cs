@@ -81,7 +81,13 @@ public partial class MainForm : Form
         MenuItemAlwaysOnTop.CheckedChanged += (_, _) => RefreshAlwaysOnTop();
         MenuItemGlobalHotkeys.CheckedChanged += (_, _) => RefreshGlobalHotkeys();
         InitializeTabs();
-        EncounterPanel.RoutesChanged += (_, _) => RefreshEncounterRoutes(SelectedEncounterRoute);
+        InitializeCapture();
+        InitializeManipView();
+        EncounterPanel.RoutesChanged += (_, _) =>
+        {
+            RefreshEncounterRoutes(SelectedEncounterRoute);
+            StarterTool.SaveSettings();
+        };
         SavestatePanel.FilterSource = () => CaptureFilter();
         SavestatePanel.CloseRequested += (_, _) => SelectTab(TabKey.Manip);
         StarterTool.Context.Changed += (_, _) => ShowContextSession();
@@ -124,7 +130,7 @@ public partial class MainForm : Form
             e.SuppressKeyPress = true;
         };
 
-        var searchInputs = new List<Control> { TextBoxMinFrame, TextBoxMaxFrame, ComboBoxPokemon };
+        var searchInputs = new List<Control> { TextBoxMinFrame, TextBoxMaxFrame, TextBoxPcFrame, ComboBoxPokemon };
 
         foreach (Control input in searchInputs)
         {
@@ -215,10 +221,11 @@ public partial class MainForm : Form
 
         EncounterPanel.LoadRoute(settings.EncounterRoute);
         EncounterPanel.Cycles = settings.EncounterCycles;
-        EncounterPanel.Variant = Core.Encounters.TitleVariant.Parse(settings.EncounterButtons, settings.EncounterSound,
-            settings.EncounterIntro, settings.EncounterTitle, settings.EncounterCombo, settings.EncounterGame);
-        EncounterPanel.SoundAny = settings.EncounterSound == "any";
-        EncounterPanel.IntroAny = settings.EncounterIntro == "any";
+        EncounterPanel.Variant = Core.Encounters.TitleVariant.Parse(settings.EncounterButtons, null,
+            game: settings.EncounterGame, saves: settings.EncounterSaves);
+        EncounterPanel.ButtonsEither = settings.EncounterButtons == "either";
+        EncounterPanel.SavesEither = settings.EncounterSaves == "either";
+        EncounterPanel.MaxSeconds = settings.EncounterMaxSeconds;
         EncounterPanel.DelayMs = settings.EncounterDelayMs;
         EncounterPanel.OffsetMs = settings.EncounterOffsetMs;
         EncounterPanel.IntroFrame = settings.EncounterIntroFrame;
@@ -227,8 +234,12 @@ public partial class MainForm : Form
         EncounterPanel.LoopWindow = settings.EncounterLoopWindow;
         EncounterPanel.TitleFrame = settings.EncounterTitleFrame;
         EncounterPanel.TitleWindow = settings.EncounterTitleWindow;
+        EncounterPanel.IntroExtra = settings.EncounterIntroExtra;
+        EncounterPanel.TitleExtra = settings.EncounterTitleExtra;
+        EncounterPanel.PickedSeed = (settings.EncounterPickedSeed, settings.EncounterPickedOffset, settings.EncounterPickedPass);
         EncounterPanel.SetRoutes(settings.EncounterRoutes, settings.EncounterActiveRoute);
         RefreshEncounterRoutes(settings.TimerEncounterRoute);
+        if (!EncounterPanel.LoadActiveRoute()) EncounterPanel.FindPickedSeed();
 
         ContextPanel.ShowDelayDashes = settings.ShowLabDelayDashes;
         ContextPanel.ShowTips = settings.ShowRunTips;
@@ -284,11 +295,9 @@ public partial class MainForm : Form
         settings.EncounterRoute = EncounterPanel.SaveRoute();
         settings.EncounterCycles = EncounterPanel.Cycles;
         settings.EncounterGame = EncounterPanel.Variant.GameKey;
-        settings.EncounterButtons = EncounterPanel.Variant.ButtonsKey;
-        settings.EncounterSound = EncounterPanel.SoundAny ? "any" : EncounterPanel.Variant.SoundKey;
-        settings.EncounterIntro = EncounterPanel.IntroAny ? "any" : EncounterPanel.Variant.ChoiceKey;
-        settings.EncounterTitle = EncounterPanel.Variant.AnimationKey;
-        settings.EncounterCombo = EncounterPanel.Variant.ComboKey;
+        settings.EncounterButtons = EncounterPanel.ButtonsKey;
+        settings.EncounterSaves = EncounterPanel.SavesKey;
+        settings.EncounterMaxSeconds = EncounterPanel.MaxSeconds;
         settings.EncounterDelayMs = EncounterPanel.DelayMs;
         settings.EncounterOffsetMs = EncounterPanel.OffsetMs;
         settings.EncounterIntroFrame = EncounterPanel.IntroFrame;
@@ -297,6 +306,9 @@ public partial class MainForm : Form
         settings.EncounterLoopWindow = EncounterPanel.LoopWindow;
         settings.EncounterTitleFrame = EncounterPanel.TitleFrame;
         settings.EncounterTitleWindow = EncounterPanel.TitleWindow;
+        settings.EncounterIntroExtra = EncounterPanel.IntroExtra;
+        settings.EncounterTitleExtra = EncounterPanel.TitleExtra;
+        (settings.EncounterPickedSeed, settings.EncounterPickedOffset, settings.EncounterPickedPass) = EncounterPanel.PickedSeed;
         settings.EncounterRoutes = EncounterPanel.Routes;
         settings.EncounterActiveRoute = EncounterPanel.ActiveRoute;
         settings.TimerEncounterRoute = SelectedEncounterRoute;
@@ -510,16 +522,24 @@ public partial class MainForm : Form
 
         List<RangeSearchCriteria> criteria = ReadRangeCriteria();
 
+        int? pcFrame = ReadPcFrame();
+        bool alerted = false;
+
         UseWaitCursor = true;
         try
         {
-            List<PokemonRng> results = RangeSearch.Search(criteria);
+            List<PokemonRng> results = RangeSearch.Search(criteria, pcFrame, () =>
+            {
+                alerted = true;
+                StarterTool.VariableOffset?.Alert();
+            });
 
             ReadFrameRange(out int loggedMin, out int loggedMax);
             ContextSession.Log(string.Format(CultureInfo.InvariantCulture,
-                "search: TID {0}, frames {1}-{2}, {3} range{4}, {5} results",
+                "search: TID {0}, frames {1}-{2}, {3} range{4}, {5} results{6}",
                 ReadTrainerId(), loggedMin, loggedMax, criteria.Count, criteria.Count == 1 ? "" : "s",
-                results.Count));
+                results.Count,
+                alerted ? " - every row at or past PC frame " + pcFrame + ", alerted" : ""));
 
             ShowResults(results, 0);
         }
@@ -1125,6 +1145,12 @@ public partial class MainForm : Form
         }
     }
 
+    private int? ReadPcFrame() =>
+        int.TryParse(TextBoxPcFrame.Text, NumberStyles.Integer, CultureInfo.InvariantCulture, out int frame)
+        && frame >= 0
+            ? frame
+            : null;
+
     private void ListViewResults_RetrieveVirtualItem(object? sender, RetrieveVirtualItemEventArgs e)
     {
         if (_encounterGrid)
@@ -1231,7 +1257,8 @@ public partial class MainForm : Form
         bool selected = ListViewResults.SelectedIndices.Contains(e.ItemIndex);
 
         Color? range = !marked && !alternate && !contextOnly && !target && inRange
-            ? RangeRowColor(_results[e.ItemIndex].RangeIndex)
+            && RangeRowColor(_results[e.ItemIndex].RangeIndex) is { } tint
+            ? Theme.Banded(tint, e.ItemIndex)
             : null;
 
         Color back = marked

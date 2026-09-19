@@ -1,3 +1,4 @@
+using FRLG.StarterTool.Core.Pokemon;
 using FRLG.StarterTool.Core.Rng;
 
 namespace FRLG.StarterTool.Core.Search;
@@ -22,41 +23,176 @@ public static class RangeSearch
 {
     public static List<PokemonRng> Search(
         IReadOnlyList<RangeSearchCriteria> ranges, CancellationToken cancellationToken = default)
+        => Search(ranges, null, null, cancellationToken);
+
+    public static List<PokemonRng> Search(
+        IReadOnlyList<RangeSearchCriteria> ranges, int? fromFrame, Action? onlyFrom,
+        CancellationToken cancellationToken = default)
     {
-        var rows = new Dictionary<int, PokemonRng>();
-        var winner = new Dictionary<int, int>();
-        var nonBackup = new HashSet<int>();
+        var kept = new List<PokemonRng>();
+        if (ranges.Count == 0) return kept;
 
-        for (int index = 0; index < ranges.Count; index++)
+        int count = ranges.Count;
+        var walkers = new Walker[count];
+        int windowMin = int.MaxValue;
+        int windowMax = int.MinValue;
+        for (int i = 0; i < count; i++)
         {
-            RangeSearchCriteria range = ranges[index];
-            foreach (PokemonRng pkm in PredictorSearch.Search(range.Filter, cancellationToken))
-            {
-                if (!rows.ContainsKey(pkm.Frame))
-                {
-                    rows[pkm.Frame] = pkm;
-                    winner[pkm.Frame] = index;
-                }
+            walkers[i] = new Walker(ranges[i].Filter);
+            if (walkers[i].MaxFrame < walkers[i].MinFrame) continue;
+            windowMin = Math.Min(windowMin, walkers[i].MinFrame);
+            windowMax = Math.Max(windowMax, walkers[i].MaxFrame);
+        }
+        if (windowMax < windowMin) return kept;
 
-                if (!range.Backup) nonBackup.Add(pkm.Frame);
+        var rows = new List<(int Frame, int Seed, int Winner)>();
+        var nonBackup = new HashSet<int>();
+        var frames = new List<int>();
+
+        bool decided = fromFrame is null || onlyFrom is null;
+        int from = fromFrame ?? 0;
+        var pending = new List<(int Frame, int Within)>();
+
+        for (int frame = windowMin; frame <= windowMax; frame++)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+
+            int winner = -1;
+            bool target = false;
+            int seed = 0;
+            for (int i = 0; i < count; i++)
+            {
+                if (!walkers[i].Accepts(frame)) continue;
+
+                if (winner < 0)
+                {
+                    winner = i;
+                    seed = walkers[i].Seed;
+                }
+                if (!ranges[i].Backup)
+                {
+                    target = true;
+                    break;
+                }
+            }
+            if (winner < 0) continue;
+
+            rows.Add((frame, seed, winner));
+            frames.Add(frame);
+            if (target) nonBackup.Add(frame);
+
+            if (decided) continue;
+
+            if (target)
+            {
+                decided = true;
+                if (frame < from) continue;
+
+                bool listsAnEarlierBackup = false;
+                foreach ((int backupFrame, int within) in pending)
+                {
+                    if (frame - backupFrame <= within)
+                    {
+                        listsAnEarlierBackup = true;
+                        break;
+                    }
+                }
+                if (!listsAnEarlierBackup) onlyFrom!();
+            }
+            else if (frame < from)
+            {
+                pending.Add((frame, ranges[winner].BackupWithin));
+            }
+            else if (pending.Count == 0)
+            {
+                decided = true;
+                onlyFrom!();
             }
         }
 
-        var frames = new List<int>(rows.Keys);
-        frames.Sort();
-
-        var kept = new List<PokemonRng>(frames.Count);
-        foreach (int frame in frames)
+        foreach ((int frame, int seed, int winner) in rows)
         {
-            int index = winner[frame];
-            if (!Listable(frame, index, ranges, nonBackup, frames)) continue;
+            if (!Listable(frame, winner, ranges, nonBackup, frames)) continue;
 
-            PokemonRng pkm = rows[frame];
-            pkm.RangeIndex = index;
+            var pkm = new PokemonMethod1(new Seed(seed), frame) { RangeIndex = winner };
             kept.Add(pkm);
         }
 
         return kept;
+    }
+
+    private struct Walker
+    {
+        private readonly bool[] _allowed;
+        private readonly int[] _thresholds;
+        private int _v0, _v1, _v2, _v3;
+        private int _frame;
+
+        public Walker(PredictorSearchCriteria filter)
+        {
+            Seed = filter.Seed;
+            MinFrame = Math.Max(0, filter.MinFrame);
+            MaxFrame = filter.MaxFrame;
+            SeedOdds.BuildTables(filter, out _allowed, out _thresholds);
+
+            var rng = new Gen3Rng(filter.Seed);
+            rng.Advance(MinFrame);
+            _v0 = rng.Value;
+            _v1 = Next(_v0);
+            _v2 = Next(_v1);
+            _v3 = Next(_v2);
+            _frame = MinFrame;
+        }
+
+        public int Seed { get; }
+        public int MinFrame { get; }
+        public int MaxFrame { get; }
+
+        public bool Accepts(int frame)
+        {
+            if (frame < MinFrame || frame > MaxFrame) return false;
+
+            while (_frame < frame)
+            {
+                _v0 = _v1;
+                _v1 = _v2;
+                _v2 = _v3;
+                _v3 = Next(_v3);
+                _frame++;
+            }
+
+            long pid = ((long)Top(_v1) << 16) + Top(_v0);
+            int nature = (int)(pid % Nature.NatureCount);
+            if (!_allowed[nature]) return false;
+
+            int top = Top(_v2);
+            int hp = top % 32;
+            int atk = top / 32 % 32;
+            int def = top / 1024 % 32;
+
+            top = Top(_v3);
+            int spe = top % 32;
+            int spa = top / 32 % 32;
+            int spd = top / 1024 % 32;
+
+            int b = nature * 6;
+            return _thresholds[b] <= hp
+                   && _thresholds[b + 1] <= atk
+                   && _thresholds[b + 2] <= def
+                   && _thresholds[b + 3] <= spa
+                   && _thresholds[b + 4] <= spd
+                   && _thresholds[b + 5] <= spe;
+        }
+
+        private static int Next(int value)
+        {
+            unchecked
+            {
+                return value * 1103515245 + 24691;
+            }
+        }
+
+        private static int Top(int value) => (value >> 16) & 0xFFFF;
     }
 
     public static AllSeedSearchResult AllSeeds(

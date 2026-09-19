@@ -100,6 +100,10 @@ public static class Theme
         ? Blend(background, Color.White, 0.18)
         : Blend(background, Color.Black, 0.10);
 
+    public static Color Banded(Color background, int index) => index % 2 == 0 ? background : Dark
+        ? Blend(background, Color.White, 0.10)
+        : Blend(background, Color.Black, 0.06);
+
     private static Color Blend(Color from, Color to, double amount) => Color.FromArgb(
         from.R + (int)Math.Round((to.R - from.R) * amount),
         from.G + (int)Math.Round((to.G - from.G) * amount),
@@ -250,6 +254,7 @@ public static class Theme
                 listBox.ForeColor = Text;
                 listBox.BorderStyle = BorderStyle.FixedSingle;
                 StyleScrollBars(listBox);
+                ScrollBarOutline.Attach(listBox);
                 return false;
 
             case ListView list:
@@ -257,6 +262,7 @@ public static class Theme
                 list.ForeColor = Text;
                 list.BorderStyle = BorderStyle.FixedSingle;
                 StyleScrollBars(list);
+                ScrollBarOutline.Attach(list);
                 (list as ThemedListView)?.RefreshHeader();
                 return false;
 

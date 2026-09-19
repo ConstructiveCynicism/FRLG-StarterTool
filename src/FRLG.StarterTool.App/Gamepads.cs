@@ -29,6 +29,8 @@ public static class Gamepads
 
     private static readonly JoystickCaps[] Caps = new JoystickCaps[JoystickSlots];
 
+    private static readonly HidPadReader?[] Readers = new HidPadReader?[JoystickSlots];
+
     private static HashSet<uint> _xinputIds = new();
 
     private static double _xinputIdsRead = double.NegativeInfinity;
@@ -74,6 +76,12 @@ public static class Gamepads
         _running = false;
         _thread?.Join(500);
         _thread = null;
+
+        for (int slot = 0; slot < Readers.Length; slot++)
+        {
+            Readers[slot]?.Dispose();
+            Readers[slot] = null;
+        }
     }
 
     private static void Poll()
@@ -142,6 +150,22 @@ public static class Gamepads
     private static bool PollJoystick(int slot, double now, bool xinputLive)
     {
         int pad = GamepadInput.FirstJoystickPad + slot;
+
+        if (Readers[slot] is HidPadReader reader)
+        {
+            if (reader.Alive && reader.TryGetState(out HidPadReader.State report))
+            {
+                Connected[pad] = true;
+                Apply(pad, report);
+                return true;
+            }
+            if (!reader.Alive)
+            {
+                reader.Dispose();
+                Readers[slot] = null;
+            }
+        }
+
         if (!Connected[pad] && now < NextProbe[pad]) return false;
 
         if (!Connected[pad])
@@ -152,6 +176,8 @@ public static class Gamepads
                 return false;
             }
             Caps[slot] = new JoystickCaps(caps, IsXInputDevice(caps.ManufacturerId, caps.ProductId, now));
+
+            Readers[slot] ??= HidPadReader.Open(caps.ManufacturerId, caps.ProductId, Native.HidInterfacePaths(), ReaderHolds);
         }
 
         if (xinputLive && Caps[slot].IsXInput)
@@ -189,6 +215,36 @@ public static class Gamepads
         if (range.Axes > 4) SetAxis(pad, GamepadInput.AxisUMinus, GamepadInput.AxisUPlus, range.Normalize(info.U, range.UMin, range.UMax), now);
         if (range.Axes > 5) SetAxis(pad, GamepadInput.AxisVMinus, GamepadInput.AxisVPlus, range.Normalize(info.V, range.VMin, range.VMax), now);
         return true;
+    }
+
+    private static bool ReaderHolds(string path)
+    {
+        foreach (HidPadReader? reader in Readers)
+        {
+            if (reader != null && string.Equals(reader.Path, path, StringComparison.OrdinalIgnoreCase)) return true;
+        }
+        return false;
+    }
+
+    private static void Apply(int pad, HidPadReader.State report)
+    {
+        double time = report.Time;
+        for (int button = 0; button < GamepadInput.MaxButtons && button < 32; button++)
+        {
+            Set(pad, GamepadInput.FirstButton + button + 1, (report.Buttons & (1u << button)) != 0, time);
+        }
+
+        Set(pad, GamepadInput.DpadUp, report.Up, time);
+        Set(pad, GamepadInput.DpadRight, report.Right, time);
+        Set(pad, GamepadInput.DpadDown, report.Down, time);
+        Set(pad, GamepadInput.DpadLeft, report.Left, time);
+
+        SetAxis(pad, GamepadInput.LeftStickLeft, GamepadInput.LeftStickRight, report.LeftX, time);
+        SetAxis(pad, GamepadInput.LeftStickUp, GamepadInput.LeftStickDown, report.LeftY, time);
+        SetAxis(pad, GamepadInput.AxisZMinus, GamepadInput.AxisZPlus, report.RightX, time);
+        SetAxis(pad, GamepadInput.AxisRMinus, GamepadInput.AxisRPlus, report.RightY, time);
+        if (report.U is double u) SetAxis(pad, GamepadInput.AxisUMinus, GamepadInput.AxisUPlus, u, time);
+        if (report.V is double v) SetAxis(pad, GamepadInput.AxisVMinus, GamepadInput.AxisVPlus, v, time);
     }
 
     private static bool IsXInputDevice(ushort vendor, ushort product, double now)

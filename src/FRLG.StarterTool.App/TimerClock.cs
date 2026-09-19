@@ -18,6 +18,9 @@ public sealed class TimerClock : Control
     private double _intervalMs;
     private double _startTimeMs;
 
+    private double _alertAtMs = double.NaN;
+    private double _alertFadeMs;
+
     private readonly System.Windows.Forms.Timer _animation;
 
     public TimerClock()
@@ -51,11 +54,28 @@ public sealed class TimerClock : Control
         Sample();
     }
 
+    public void Alert(double fadeMs)
+    {
+        if (fadeMs <= 0.0) return;
+
+        _alertAtMs = Win32.GetTime();
+        _alertFadeMs = fadeMs;
+        _animation.Start();
+        Sample();
+    }
+
     public void ClearFlash()
     {
-        _animation.Stop();
         _schedule = Array.Empty<double>();
         _intervalMs = 0.0;
+
+        if (!double.IsNaN(_alertAtMs))
+        {
+            Sample();
+            return;
+        }
+
+        _animation.Stop();
         SetFlash(0.0);
     }
 
@@ -66,15 +86,40 @@ public sealed class TimerClock : Control
 
     public void Sample()
     {
-        if (_schedule.Length == 0 || _intervalMs <= 0.0) return;
+        bool beatLive = _schedule.Length > 0 && _intervalMs > 0.0;
+        bool alertLive = !double.IsNaN(_alertAtMs);
+        if (!beatLive && !alertLive) return;
 
-        double elapsedMs = Win32.GetTime() - _startTimeMs;
-        double intensity = Core.Timing.VariableOffsetCalculator.FlashIntensity(
-            _schedule, elapsedMs, _intervalMs, out int beat);
+        double nowMs = Win32.GetTime();
+
+        double intensity = 0.0;
+        int beat = -1;
+        bool beatDone = true;
+        if (beatLive)
+        {
+            double elapsedMs = nowMs - _startTimeMs;
+            intensity = Core.Timing.VariableOffsetCalculator.FlashIntensity(
+                _schedule, elapsedMs, _intervalMs, out beat);
+            beatDone = elapsedMs >= _schedule[^1] + _intervalMs;
+        }
+
+        if (alertLive)
+        {
+            double age = nowMs - _alertAtMs;
+            if (age >= _alertFadeMs)
+            {
+                _alertAtMs = double.NaN;
+            }
+            else if (1.0 - age / _alertFadeMs > intensity)
+            {
+                intensity = 1.0 - age / _alertFadeMs;
+                beat = -1;
+            }
+        }
 
         SetFlash(intensity, beat >= 0 && beat == _schedule.Length - 1);
 
-        if (elapsedMs >= _schedule[^1] + _intervalMs) _animation.Stop();
+        if (beatDone && double.IsNaN(_alertAtMs)) _animation.Stop();
     }
 
     private void SetFlash(double intensity, bool final = false)

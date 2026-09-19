@@ -18,6 +18,8 @@ public sealed class EncounterMatch
 
     public double Rate { get; }
 
+    public bool EitherSound { get; internal set; }
+
     public int Total
     {
         get
@@ -44,6 +46,10 @@ public readonly record struct EncounterOutcome(int WildSeed, IReadOnlyList<int> 
     }
 }
 
+public readonly record struct EncounterTileShare(int Tile, double Share);
+
+public sealed record EncounterPathTiles(int ModeCount, double ModeShare, IReadOnlyList<EncounterTileShare> Tiles);
+
 public sealed class EncounterSearchResult
 {
     public EncounterSearchResult(List<EncounterMatch> matches, int totalMatches, int seedsMatched)
@@ -66,6 +72,8 @@ public static class EncounterSearch
 {
     public const int DefaultSamples = 32;
 
+    public const int ScanSamples = 1 << 16;
+
     public const int DefaultLimit = 500;
 
     public static EncounterSearchResult Search(IReadOnlyList<EncounterPath> route,
@@ -74,7 +82,8 @@ public static class EncounterSearch
         TitleProtocol protocol = TitleProtocol.Sweep,
         TitleVariant variant = default,
         CancellationToken cancellationToken = default,
-        IReadOnlyList<TitleVariant>? variants = null)
+        IReadOnlyList<TitleVariant>? variants = null,
+        int maxResetFrame = 0)
     {
         IReadOnlyList<TitleVariant> asked = variants is { Count: > 0 } ? variants : new[] { variant };
         if (route.Count == 0)
@@ -150,29 +159,73 @@ public static class EncounterSearch
         }
 
         var found = new List<EncounterMatch>();
-        for (int titleSeed = 0; titleSeed < lanes; titleSeed++)
+        var shapes = new Dictionary<int, int[]>();
+        void Look(int titleSeed, TitleVariant one)
         {
-            cancellationToken.ThrowIfCancellationRequested();
-
             int wildSeed = EncounterModel.WildSeedOf(titleSeed);
-            if (hits[wildSeed] == 0) continue;
+            if (hits[wildSeed] == 0) return;
 
-            int[]? shape = null;
+            PressFrame? press = TitleSeedTable.Find(titleSeed, cycles, protocol, one, maxResetFrame);
+            if (press is null) return;
+
+            if (!shapes.TryGetValue(wildSeed, out int[]? shape))
+            {
+                shape = new int[route.Count];
+                for (int path = 0; path < route.Count; path++) shape[path] = bestShape[path * lanes + wildSeed];
+                shapes[wildSeed] = shape;
+            }
+            found.Add(new EncounterMatch(press.Value, wildSeed, shape, (double)hits[wildSeed] / streams.Length));
+        }
+
+        if (protocol == TitleProtocol.Rta)
+        {
             foreach (TitleVariant one in asked)
             {
-                PressFrame? press = TitleSeedTable.Find(titleSeed, cycles, protocol, one);
-                if (press is null) continue;
-
-                if (shape is null)
-                {
-                    shape = new int[route.Count];
-                    for (int path = 0; path < route.Count; path++) shape[path] = bestShape[path * lanes + wildSeed];
-                }
-                found.Add(new EncounterMatch(press.Value, wildSeed, shape, (double)hits[wildSeed] / streams.Length));
+                cancellationToken.ThrowIfCancellationRequested();
+                foreach (int titleSeed in TitleSeedTable.ReachableSeeds(one, cycles)) Look(titleSeed, one);
+            }
+        }
+        else
+        {
+            for (int titleSeed = 0; titleSeed < lanes; titleSeed++)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                foreach (TitleVariant one in asked) Look(titleSeed, one);
             }
         }
 
         found.Sort(Cheapest);
+
+        var bySound = new Dictionary<(TitleVariant, int, int, int, int), EncounterMatch>();
+        found.RemoveAll(match =>
+        {
+            PressFrame press = match.Press;
+            var key = (press.Variant with { Sound = TitleSoundMode.Mono }, press.Offset, press.Pass, press.Seed, press.Window);
+            if (!bySound.TryGetValue(key, out EncounterMatch? first))
+            {
+                bySound[key] = match;
+                return false;
+            }
+            if (first.Press.Variant.Sound == press.Variant.Sound) return false;
+            first.EitherSound = true;
+            return true;
+        });
+
+        var byFrame = new Dictionary<(TitleGame, TitleSaves, TitleButtonMode, int, int, int), int>();
+        var keep = new List<EncounterMatch>(found.Count);
+        foreach (EncounterMatch match in found)
+        {
+            PressFrame press = match.Press;
+            var key = (press.Variant.Game, press.Variant.Saves, press.Variant.Buttons, press.ResetFrame, press.Pass, press.Seed);
+            if (!byFrame.TryGetValue(key, out int at))
+            {
+                byFrame[key] = keep.Count;
+                keep.Add(match);
+                continue;
+            }
+            if (Simpler(match, keep[at])) keep[at] = match;
+        }
+        found = keep;
 
         int total = found.Count;
         if (found.Count > limit) found.RemoveRange(limit, found.Count - limit);
@@ -228,6 +281,39 @@ public static class EncounterSearch
             mode.Shape ?? shape, (double)mode.Streams / streams.Length);
     }
 
+    private static bool Simpler(EncounterMatch left, EncounterMatch right)
+    {
+        int order = Narrowest(right.Press).CompareTo(Narrowest(left.Press));
+        if (order == 0) order = right.Press.Window.CompareTo(left.Press.Window);
+        if (order == 0) order = Inputs(left.Press).CompareTo(Inputs(right.Press));
+        if (order == 0) order = string.CompareOrdinal(left.Press.Variant.Name, right.Press.Variant.Name);
+        return order < 0;
+    }
+
+    private static int Narrowest(PressFrame press)
+    {
+        int narrowest = Math.Max(press.Window, 1);
+        if (TitleRecipes.Find(press.Variant) is TitleRecipe recipe)
+        {
+            foreach (int window in recipe.Windows) narrowest = Math.Min(narrowest, window);
+        }
+        else if (press.Variant.IntroSkipped)
+        {
+            narrowest = Math.Min(narrowest, Math.Max(press.IntroWindow, 1));
+        }
+        return narrowest;
+    }
+
+    private static int Inputs(PressFrame press)
+    {
+        if (TitleRecipes.Find(press.Variant) is TitleRecipe recipe)
+        {
+            return recipe.Steps.Count + recipe.EntrySteps(press.Offset < TitleSeedTable.AnimationEndsOf(press.Variant.Game)).Count;
+        }
+        int inputs = (press.Variant.IntroSkipped ? 1 : 0) + (press.Variant.LoopSkipped ? 1 : 0);
+        return inputs + TitleCombos.Of(press).Count;
+    }
+
     private static int Cheapest(EncounterMatch left, EncounterMatch right)
     {
         int order = right.Press.Measured.CompareTo(left.Press.Measured);
@@ -251,7 +337,69 @@ public static class EncounterSearch
         order = left.Press.Variant.Intro.CompareTo(right.Press.Variant.Intro);
         if (order != 0) return order;
 
-        return left.Press.Variant.Sound.CompareTo(right.Press.Variant.Sound);
+        order = left.Press.Variant.Sound.CompareTo(right.Press.Variant.Sound);
+        if (order != 0) return order;
+
+        order = left.Press.Variant.Buttons.CompareTo(right.Press.Variant.Buttons);
+        if (order != 0) return order;
+
+        order = left.Press.Variant.Loop.CompareTo(right.Press.Variant.Loop);
+        if (order != 0) return order;
+
+        order = left.Press.Variant.Saves.CompareTo(right.Press.Variant.Saves);
+        if (order != 0) return order;
+
+        order = string.CompareOrdinal(left.Press.Variant.ComboKey, right.Press.Variant.ComboKey);
+        if (order != 0) return order;
+
+        return left.Press.Seed.CompareTo(right.Press.Seed);
+    }
+
+    public static IReadOnlyList<EncounterPathTiles> TilesOf(IReadOnlyList<EncounterPath> route, int titleSeed, int samples = DefaultSamples)
+    {
+        var result = new List<EncounterPathTiles>(route.Count);
+        if (route.Count == 0) return result;
+
+        int wildSeed = EncounterModel.WildSeedOf(titleSeed);
+        uint[] streams = MainStreams(samples);
+        var tiles = new SortedDictionary<int, int>[route.Count];
+        var totals = new Dictionary<int, int>[route.Count];
+        for (int path = 0; path < route.Count; path++)
+        {
+            tiles[path] = new SortedDictionary<int, int>();
+            totals[path] = new Dictionary<int, int>();
+        }
+
+        var counts = new int[route.Count];
+        foreach (uint stream in streams)
+        {
+            Array.Clear(counts);
+            foreach ((int path, int tile) in EncounterModel.Simulate((uint)wildSeed, stream, route))
+            {
+                counts[path]++;
+                tiles[path][tile] = tiles[path].TryGetValue(tile, out int seen) ? seen + 1 : 1;
+            }
+            for (int path = 0; path < route.Count; path++)
+            {
+                totals[path][counts[path]] = totals[path].TryGetValue(counts[path], out int seen) ? seen + 1 : 1;
+            }
+        }
+
+        for (int path = 0; path < route.Count; path++)
+        {
+            int modeCount = 0, modeStreams = -1;
+            foreach ((int count, int seen) in totals[path])
+            {
+                if (seen > modeStreams || (seen == modeStreams && count < modeCount))
+                {
+                    modeCount = count;
+                    modeStreams = seen;
+                }
+            }
+            result.Add(new EncounterPathTiles(modeCount, (double)modeStreams / streams.Length,
+                tiles[path].Select(pair => new EncounterTileShare(pair.Key, (double)pair.Value / streams.Length)).ToList()));
+        }
+        return result;
     }
 
     private sealed class Tally

@@ -5,13 +5,14 @@ namespace FRLG.StarterTool.Core.Settings;
 
 public static class SettingsMigrations
 {
-    public const int CurrentVersion = 4;
+    public const int CurrentVersion = 5;
 
     private static readonly Dictionary<int, Action<JsonObject>> Steps = new()
     {
         [1] = HotkeysToChords,
         [2] = EncounterDelayToMilliseconds,
-        [3] = HideConstraintsToViewSwitches
+        [3] = HideConstraintsToViewSwitches,
+        [4] = PresetsToLibrary
     };
 
     public static int VersionOf(JsonObject root)
@@ -118,5 +119,9 @@ public static class SettingsMigrations
         {
             return null;
         }
+    }
+
+    private static void PresetsToLibrary(JsonObject root)
+    {
     }
 }

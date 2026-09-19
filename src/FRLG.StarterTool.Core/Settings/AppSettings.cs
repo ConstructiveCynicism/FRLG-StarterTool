@@ -50,6 +50,15 @@ public enum ClipboardFormat
     Row
 }
 
+public enum VideoSourceKind
+{
+    None,
+
+    Window,
+
+    Device
+}
+
 public enum StatStripSide
 {
     Bottom,
@@ -132,6 +141,10 @@ public sealed class AppSettings
 
     public string EncounterButtons { get; set; } = "help";
 
+    public string EncounterSaves { get; set; } = "multi";
+
+    public int EncounterMaxSeconds { get; set; }
+
     public string EncounterGame { get; set; } = "fr";
 
     public string EncounterCombo { get; set; } = "any";
@@ -157,6 +170,16 @@ public sealed class AppSettings
     public int EncounterTitleFrame { get; set; }
 
     public int EncounterTitleWindow { get; set; } = 1;
+
+    public string EncounterIntroExtra { get; set; } = "";
+
+    public string EncounterTitleExtra { get; set; } = "";
+
+    public int EncounterPickedSeed { get; set; } = -1;
+
+    public int EncounterPickedOffset { get; set; }
+
+    public int EncounterPickedPass { get; set; }
 
     public List<EncounterRoutePreset> EncounterRoutes { get; set; } = new();
 
@@ -205,6 +228,8 @@ public sealed class AppSettings
     public double ClockDrift { get; set; } = 1.0;
 
     public bool AtomicClockSync { get; set; } = true;
+
+    public bool HighPriority { get; set; } = true;
 
     public int ZoomPercent { get; set; } = 100;
 
@@ -263,6 +288,22 @@ public sealed class AppSettings
 
     public const int MaxStatServerPostRunSeconds = 60;
 
+    public bool VideoEnabled { get; set; }
+
+    public VideoSourceKind VideoSourceKind { get; set; }
+
+    public string VideoSourceId { get; set; } = "";
+
+    public int VideoCropX { get; set; }
+
+    public int VideoCropY { get; set; }
+
+    public int VideoCropWidth { get; set; }
+
+    public int VideoCropHeight { get; set; }
+
+    public bool VideoDownscale { get; set; } = true;
+
     public string Fps { get; set; } = "59.7275";
     public string Offset { get; set; } = "0";
 
@@ -300,6 +341,9 @@ public sealed class AppSettings
 
     public string MinFrame { get; set; } = "0";
     public string MaxFrame { get; set; } = "10000";
+
+    public string PcFrame { get; set; } = "";
+
     public int SpeciesId { get; set; } = SettingsArrays.DefaultSpeciesId;
 
     public int Level { get; set; } = 5;
@@ -328,6 +372,7 @@ public sealed class AppSettings
         SpeciesId = SpeciesId,
         MinFrame = MinFrame,
         MaxFrame = MaxFrame,
+        PcFrame = PcFrame,
         Natures = Natures,
         IvMinus = IvMinus,
         IvNeutral = IvNeutral,
@@ -341,6 +386,7 @@ public sealed class AppSettings
         SpeciesId = copy.SpeciesId;
         MinFrame = copy.MinFrame;
         MaxFrame = copy.MaxFrame;
+        PcFrame = copy.PcFrame;
         Natures = copy.Natures;
         IvMinus = copy.IvMinus;
         IvNeutral = copy.IvNeutral;
@@ -421,7 +467,11 @@ public sealed class AppSettings
 
         EncounterCycles = Math.Clamp(EncounterCycles, 0, 65535);
         EncounterProtocol = EncounterProtocol == "sweep" ? "sweep" : "rta";
-        EncounterButtons = EncounterButtons is "la" ? EncounterButtons : "help";
+        EncounterButtons = EncounterButtons is "la" or "either" ? EncounterButtons : "help";
+        EncounterSaves = EncounterSaves is "single" or "either" ? EncounterSaves : "multi";
+        EncounterMaxSeconds = Math.Clamp(EncounterMaxSeconds, 0, 100000);
+        EncounterIntroExtra = Encounters.ManipPress.FormatList(Encounters.ManipPress.ParseList("Intro", EncounterIntroExtra));
+        EncounterTitleExtra = Encounters.ManipPress.FormatList(Encounters.ManipPress.ParseList("Title", EncounterTitleExtra));
         EncounterGame = EncounterGame is "lg" ? EncounterGame : "fr";
         EncounterCombo = Encounters.TitleCombo.Parse(EncounterCombo)?.Key ?? "any";
         EncounterSound = EncounterSound is "stereo" or "any" ? EncounterSound : "mono";
@@ -436,6 +486,9 @@ public sealed class AppSettings
         EncounterTitleFrame = Math.Clamp(EncounterTitleFrame, 0, 100000);
         EncounterIntroWindow = Math.Clamp(EncounterIntroWindow, 1, 60);
         EncounterTitleWindow = Math.Clamp(EncounterTitleWindow, 1, 60);
+        if (EncounterPickedSeed < -1 || EncounterPickedSeed > 0xFFFF) EncounterPickedSeed = -1;
+        EncounterPickedOffset = Math.Max(EncounterPickedOffset, 0);
+        EncounterPickedPass = Math.Max(EncounterPickedPass, 0);
         NormalizeEncounterRoutes();
 
         Fps ??= "59.7275";
@@ -469,12 +522,20 @@ public sealed class AppSettings
         StatServerPostRunSeconds = Math.Clamp(
             StatServerPostRunSeconds, MinStatServerPostRunSeconds, MaxStatServerPostRunSeconds);
 
+        if (!Enum.IsDefined(VideoSourceKind)) VideoSourceKind = VideoSourceKind.None;
+        VideoSourceId ??= "";
+        VideoCropX = Math.Max(VideoCropX, 0);
+        VideoCropY = Math.Max(VideoCropY, 0);
+        VideoCropWidth = Math.Max(VideoCropWidth, 0);
+        VideoCropHeight = Math.Max(VideoCropHeight, 0);
+
         if (!Timing.DriftMonitor.IsPlausible(ClockDrift)) ClockDrift = 1.0;
 
         NormalizeTips();
 
         MinFrame ??= "0";
         MaxFrame ??= "10000";
+        PcFrame = (PcFrame ?? "").Trim();
         if (SpeciesId < 1 || SpeciesId > PokemonSpecies.Gen3DexSize) SpeciesId = SettingsArrays.DefaultSpeciesId;
         if (Level != 5 && Level != 6) Level = 5;
 

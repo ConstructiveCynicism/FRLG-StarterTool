@@ -81,6 +81,14 @@ internal sealed class EncounterRun
 
     public double LastPressMs => CuedPressMs(LastTargetMs);
 
+    public Target? TitleTarget => Targets.FirstOrDefault(target => target.Press.Name == "Title");
+
+    public double DueMs(Target target) => CuedPressMs(target.TargetMs);
+
+    public double EarlyWindowMs => VariableOffsetCalculator.EarlyLandingWindowMs(_info);
+
+    public double LateWindowMs => VariableOffsetCalculator.LandingWindowMs(_info);
+
     private double CueMs(double targetMs, double offsetMs)
         => CuedPressMs(targetMs)
            + VariableOffsetCalculator.TidLagFrames / _info.Fps * 1000.0
