@@ -5,12 +5,14 @@ public sealed class ThemedTabStrip : Control
     private sealed class Tab
     {
         public required string Key;
-        public required string Caption;
+        public string Caption = "";
         public bool Visible = true;
         public Rectangle Bounds;
     }
 
     private const int Pad = 12;
+
+    private const int MinPad = 3;
 
     private const float DesignerFontPoints = 9F;
 
@@ -36,6 +38,14 @@ public sealed class ThemedTabStrip : Control
         if (Find(key) is not { } tab || tab.Visible == visible) return;
 
         tab.Visible = visible;
+        Invalidate();
+    }
+
+    public void SetCaption(string key, string caption)
+    {
+        if (Find(key) is not { } tab || tab.Caption == caption) return;
+
+        tab.Caption = caption;
         Invalidate();
     }
 
@@ -70,6 +80,24 @@ public sealed class ThemedTabStrip : Control
         int x = 0;
         int bottom = Height - 1;
 
+        var widths = new Dictionary<Tab, int>();
+        foreach (Tab tab in _tabs)
+        {
+            if (!tab.Visible) continue;
+            widths[tab] = TextRenderer.MeasureText(
+                g, tab.Caption, captionFont, new Size(int.MaxValue, int.MaxValue), TextFormatFlags.NoPadding).Width;
+        }
+
+        int captionInk = widths.Values.Sum();
+        if (widths.Count > 0 && captionInk + 2 * pad * widths.Count > Width)
+        {
+            pad = Math.Max(MinPad, (Width - captionInk) / (2 * widths.Count));
+        }
+
+        float squeeze = widths.Count > 0 && captionInk + 2 * pad * widths.Count > Width
+            ? (Width - 2 * pad * widths.Count) / (float)captionInk
+            : 1F;
+
         foreach (Tab tab in _tabs)
         {
             if (!tab.Visible)
@@ -78,8 +106,7 @@ public sealed class ThemedTabStrip : Control
                 continue;
             }
 
-            int width = TextRenderer.MeasureText(
-                g, tab.Caption, captionFont, new Size(int.MaxValue, int.MaxValue), TextFormatFlags.NoPadding).Width + 2 * pad;
+            int width = (int)(widths[tab] * squeeze) + 2 * pad;
             tab.Bounds = new Rectangle(x, 0, width, Height);
             x += width;
         }
@@ -121,7 +148,8 @@ public sealed class ThemedTabStrip : Control
 
             Color ink = isSelected ? Theme.SectionCaption : isHot ? Theme.Text : Theme.DimText;
             TextRenderer.DrawText(g, tab.Caption, isSelected ? captionFont : Font, face, ink,
-                TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter | TextFormatFlags.NoPadding);
+                TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter | TextFormatFlags.NoPadding
+                | TextFormatFlags.EndEllipsis);
         }
     }
 

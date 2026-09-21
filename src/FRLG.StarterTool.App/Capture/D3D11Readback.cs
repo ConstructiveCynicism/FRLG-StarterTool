@@ -340,6 +340,10 @@ internal sealed unsafe class D3D11Readback : IDisposable
                     }
                 }
             }
+            catch (Exception)
+            {
+                bytes = null;
+            }
             finally
             {
                 lock (_lock)
@@ -400,7 +404,7 @@ internal sealed unsafe class D3D11Readback : IDisposable
             _disposed = true;
         }
         _signal.Release();
-        _worker.Join(500);
+        if (!_worker.Join(2000)) return;
 
         lock (_lock)
         {

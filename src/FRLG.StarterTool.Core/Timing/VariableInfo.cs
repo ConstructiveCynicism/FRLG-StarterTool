@@ -17,4 +17,6 @@ public struct VariableInfo
     public uint NumBeeps;
 
     public int AdvanceCorrection;
+
+    public bool NoInputLag;
 }

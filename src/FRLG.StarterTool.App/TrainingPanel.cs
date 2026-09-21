@@ -218,6 +218,14 @@ public sealed class TrainingPanel : Panel
         UpdateReadouts(complete: false);
     }
 
+    public void Clear()
+    {
+        Cancel();
+        _session = null;
+        _list.Items.Clear();
+        UpdateReadouts(complete: false);
+    }
+
     private void StartOrResetSession()
     {
         if (_running) Cancel();

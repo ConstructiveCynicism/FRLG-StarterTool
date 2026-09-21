@@ -10,6 +10,8 @@ public static class VariableOffsetCalculator
 
     public const int TidLagFrames = 3;
 
+    public static int InputLagFrames(in VariableInfo info) => info.NoInputLag ? 0 : TidLagFrames;
+
     public static TimerError Parse(
         string? frameText,
         string? fpsText,
@@ -137,11 +139,11 @@ public static class VariableOffsetCalculator
         => EffectiveFrame(info) / info.Fps + (info.Offset + info.DelayOffset + adjustedMs) / 1000.0;
 
     public static double LandingTargetMs(in VariableInfo info, double adjustedMs = 0.0)
-        => (EffectiveFrame(info) - TidLagFrames) / info.Fps * 1000.0 + adjustedMs + info.DelayOffset;
+        => (EffectiveFrame(info) - InputLagFrames(info)) / info.Fps * 1000.0 + adjustedMs + info.DelayOffset;
 
     public static int FrameAtTime(in VariableInfo info, double elapsedMs)
     {
-        double frame = Math.Floor((elapsedMs - info.DelayOffset) / 1000.0 * info.Fps + 0.5) + TidLagFrames;
+        double frame = Math.Floor((elapsedMs - info.DelayOffset) / 1000.0 * info.Fps + 0.5) + InputLagFrames(info);
         return frame < 0.0 ? 0 : (int)frame;
     }
 

@@ -16,21 +16,23 @@ public partial class MainForm
     {
         foreach (Control control in parent.Controls)
         {
-            if (control is TextBox box)
-            {
-                box.Enter += (_, _) => _numberFieldFocused = true;
-                box.Leave += (_, _) => _numberFieldFocused = false;
-
-                box.KeyUp += (_, e) =>
-                {
-                    if (e.KeyCode != Keys.Enter) return;
-
-                    if (box.Focused) ReleaseNumberField(box);
-                };
-            }
+            if (control is TextBox box) WatchNumberField(box);
 
             WatchNumberFields(control);
         }
+    }
+
+    internal void WatchNumberField(TextBox box)
+    {
+        box.Enter += (_, _) => _numberFieldFocused = true;
+        box.Leave += (_, _) => _numberFieldFocused = false;
+
+        box.KeyUp += (_, e) =>
+        {
+            if (e.KeyCode != Keys.Enter) return;
+
+            if (box.Focused) ReleaseNumberField(box);
+        };
     }
 
     public static bool IsNumberKey(Keys key) =>
@@ -63,14 +65,25 @@ public partial class MainForm
 
     public void ScrollResults(HotkeyAction action)
     {
-        if (_selectedTab != TabKey.Manip) return;
-
-        MoveResultSelection(action switch
+        int delta = action switch
         {
             HotkeyAction.ListUp => -1,
             HotkeyAction.ListDown => 1,
             _ => 0
-        });
+        };
+
+        switch (_selectedTab)
+        {
+            case TabKey.Manip:
+                MoveResultSelection(delta);
+                break;
+            case TabKey.GenericFixed:
+                FixedPanel.MoveSelection(delta);
+                break;
+            case TabKey.GenericIgt:
+                IgtPanel.MoveSelection(delta);
+                break;
+        }
     }
 
     public void HandleGlobalNumpad(Keys rawKey, bool extended)
@@ -78,10 +91,20 @@ public partial class MainForm
         if (!StarterTool.Settings.GlobalNumpadInput) return;
         if (ReferenceEquals(ActiveForm, this)) return;
 
-        if (_selectedTab == TabKey.Training) return;
+        if (_selectedTab is TabKey.Training or TabKey.GenericTraining
+            or TabKey.GenericFixed or TabKey.GenericIgt)
+        {
+            return;
+        }
 
         Keys key = TranslateNumpad(rawKey, extended);
         if (key == Keys.None) return;
+
+        if (_selectedTab == TabKey.GenericVariable)
+        {
+            if (StarterTool.IsTimerRunning) HandleFrameNumpad(key);
+            return;
+        }
 
         bool navigating = ReferenceEquals(ActiveControl, ListViewResults) && _selectedTab == TabKey.Manip;
         if (navigating && HandleResultsNumpad(key)) return;
@@ -138,6 +161,28 @@ public partial class MainForm
 
             case Keys.Return:
                 RunSearch();
+                break;
+        }
+    }
+
+    private void HandleFrameNumpad(Keys key)
+    {
+        if (!TextBoxFrame.Enabled) return;
+        if (!ReferenceEquals(ActiveControl, TextBoxFrame)) TakeCaret(TextBoxFrame);
+
+        if (key is >= Keys.NumPad0 and <= Keys.NumPad9)
+        {
+            TextBoxFrame.SelectedText = ((char)('0' + (key - Keys.NumPad0))).ToString();
+            return;
+        }
+
+        switch (key)
+        {
+            case Keys.Decimal:
+                TextBoxFrame.Clear();
+                break;
+            case Keys.Return:
+                StarterTool.VariableOffset.Arm();
                 break;
         }
     }

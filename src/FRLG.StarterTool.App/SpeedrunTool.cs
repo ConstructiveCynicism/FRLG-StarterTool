@@ -15,6 +15,11 @@ public static class StarterTool
 
     internal static readonly Capture.CaptureSession Capture = new();
     public static VariableOffsetTimer VariableOffset = null!;
+
+    public static FixedOffsetTimer FixedOffset = null!;
+
+    public static IgtTimer Igt = null!;
+
     public static AppSettings Settings = null!;
 
     public static StatServer StatServer = null!;
@@ -52,7 +57,26 @@ public static class StarterTool
 
     private static readonly int[] LastKeyEvent = new int[256];
 
-    public static BaseTimer CurrentTab => VariableOffset;
+    public static BaseTimer CurrentTab => _currentTab ?? VariableOffset;
+
+    private static BaseTimer? _currentTab;
+
+    public static void SetTimerMode(TimerMode mode)
+    {
+        BaseTimer next = mode switch
+        {
+            TimerMode.Fixed => FixedOffset,
+            TimerMode.Igt => Igt,
+            _ => VariableOffset
+        };
+
+        BaseTimer previous = CurrentTab;
+        _currentTab = next;
+        VariableOffset.SetGeneric(mode != TimerMode.Frlg);
+
+        if (!ReferenceEquals(previous, next)) previous.OnSelected(false);
+        next.OnSelected(true);
+    }
 
     public static void Init(MainForm mainForm)
     {
@@ -89,6 +113,10 @@ public static class StarterTool
         Beeps.Configure(Settings.AudioOutput, Settings.AudioPeriodMs);
         VariableOffset = new VariableOffsetTimer(mainForm);
         VariableOffset.OnInit();
+        FixedOffset = new FixedOffsetTimer(mainForm);
+        FixedOffset.OnInit();
+        Igt = new IgtTimer(mainForm);
+        Igt.OnInit();
         mainForm.ApplySettings(Settings);
         mainForm.RefreshCapture();
 
@@ -182,6 +210,7 @@ public static class StarterTool
         try
         {
             VariableOffset?.CaptureSettings(Settings);
+            FixedOffset?.CaptureSettings(Settings);
             MainForm?.CaptureSettings(Settings);
         }
         catch (ObjectDisposedException)
@@ -412,7 +441,7 @@ public static class StarterTool
             {
                 Post(() =>
                 {
-                    if (VariableOffset.TryRecordLanding(eventTime, lagMs)) return;
+                    if (CurrentTab.TryRecordLanding(eventTime, lagMs)) return;
 
                     if (Context.MarkNextAnchor(eventTime)) return;
 
@@ -525,7 +554,13 @@ public static class StarterTool
         || ContextDirection(press) != null || ContextFocus(press) != 0
         || Settings.NpcUndo.IsPressed(press) || Settings.NpcComplete.IsPressed(press)
         || Settings.NpcMiss.IsPressed(press)
-        || ListAction(press) != null;
+        || ListAction(press) != null
+        || Settings.IgtPlay.IsPressed(press) || Settings.IgtUndo.IsPressed(press)
+        || Settings.IgtAdd2.IsPressed(press) || Settings.IgtSub2.IsPressed(press)
+        || Settings.IgtAdd3.IsPressed(press) || Settings.IgtSub3.IsPressed(press)
+        || Settings.IgtAdd4.IsPressed(press) || Settings.IgtSub4.IsPressed(press)
+        || Settings.IgtAdd5.IsPressed(press) || Settings.IgtSub5.IsPressed(press)
+        || Settings.IgtAdd6.IsPressed(press) || Settings.IgtSub6.IsPressed(press);
 
     private static HotkeyAction? ListAction(InputPress press)
     {

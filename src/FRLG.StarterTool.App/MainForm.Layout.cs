@@ -29,7 +29,10 @@ public partial class MainForm
 
         ZoomLayout.Apply(this, _zoomBaseline, _zoom, ContextPanel);
 
+        CaptureTimerRowTops();
         PlaceTimer();
+        FixedPanel.Relayout();
+        IgtPanel.Relayout();
         RelayoutContextSection();
         RelayoutRangeCards();
 

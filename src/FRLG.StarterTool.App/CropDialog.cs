@@ -176,27 +176,38 @@ public sealed class CropDialog : Form
             Invalidate();
         }
 
-        private unsafe void Resample()
+        private void Resample()
         {
             _sampled?.Dispose();
             _sampled = null;
             if (!_showGamePixels || _frame == null) return;
+            try
+            {
+                _sampled = Sampled(_frame);
+            }
+            catch (Exception e)
+            {
+                Failed(e);
+            }
+        }
 
+        private unsafe Bitmap? Sampled(Bitmap frame)
+        {
             Rectangle clip = Crop.Width > 0 && Crop.Height > 0
-                ? Rectangle.Intersect(Crop, new Rectangle(Point.Empty, _frame.Size))
-                : new Rectangle(Point.Empty, _frame.Size);
-            if (clip.IsEmpty) return;
+                ? Rectangle.Intersect(Crop, new Rectangle(Point.Empty, frame.Size))
+                : new Rectangle(Point.Empty, frame.Size);
+            if (clip.IsEmpty) return null;
 
-            BitmapData data = _frame.LockBits(new Rectangle(Point.Empty, _frame.Size), ImageLockMode.ReadOnly, PixelFormat.Format32bppRgb);
+            BitmapData data = frame.LockBits(new Rectangle(Point.Empty, frame.Size), ImageLockMode.ReadOnly, PixelFormat.Format32bppRgb);
             var sampled = new byte[GamePixels.Bytes];
             try
             {
-                var source = new ReadOnlySpan<byte>((void*)data.Scan0, data.Stride * _frame.Height);
+                var source = new ReadOnlySpan<byte>((void*)data.Scan0, data.Stride * frame.Height);
                 GamePixels.Sample(source, data.Stride, clip.X, clip.Y, clip.Width, clip.Height, sampled);
             }
             finally
             {
-                _frame.UnlockBits(data);
+                frame.UnlockBits(data);
             }
 
             var bitmap = new Bitmap(GamePixels.Width, GamePixels.Height, PixelFormat.Format32bppRgb);
@@ -212,7 +223,16 @@ public sealed class CropDialog : Form
             {
                 bitmap.UnlockBits(target);
             }
-            _sampled = bitmap;
+            return bitmap;
+        }
+
+        private bool _failureLogged;
+
+        private void Failed(Exception e)
+        {
+            if (_failureLogged) return;
+            _failureLogged = true;
+            ContextSession.Log("capture: crop preview failed - " + e);
         }
 
         private RectangleF ImageBounds()
@@ -270,6 +290,21 @@ public sealed class CropDialog : Form
         {
             Graphics g = e.Graphics;
             g.Clear(Theme.ListBack);
+            try
+            {
+                PaintPicture(g);
+            }
+            catch (Exception error)
+            {
+                Failed(error);
+                g.Clear(Theme.ListBack);
+                TextRenderer.DrawText(g, "Could not show the picture: " + error.Message, Font, ClientRectangle, Theme.DimText,
+                    TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter | TextFormatFlags.WordBreak);
+            }
+        }
+
+        private void PaintPicture(Graphics g)
+        {
             if (_frame == null)
             {
                 TextRenderer.DrawText(g, "No picture from the source yet.", Font, ClientRectangle, Theme.DimText,

@@ -1,4 +1,6 @@
-# Features
+### v2.3.0
+- Added generic Flowtimer based timers, requested for Gen 3
+- Added video capture support for active OBS recordings (use .mkv files and default file naming)
 
 ### v2.2.0
 - More encounter manip seeds (not close to done, only partial for Fire Red, no new ones for Leaf Green)

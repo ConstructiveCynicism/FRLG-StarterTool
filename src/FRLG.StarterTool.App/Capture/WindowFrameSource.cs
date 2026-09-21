@@ -162,15 +162,15 @@ internal sealed class WindowFrameSource : IFrameSource
                 StarterTool.Post(() => ContextSession.Log("capture: " + DisplayName + " - " + why + ", reconnecting"));
             }
 
-            IntPtr hwnd = Find();
-            if (hwnd == IntPtr.Zero)
-            {
-                Error = "Window not found";
-                return;
-            }
-
             try
             {
+                IntPtr hwnd = Find();
+                if (hwnd == IntPtr.Zero)
+                {
+                    Error = "Window not found";
+                    return;
+                }
+
                 if (!GraphicsCaptureSession.IsSupported())
                 {
                     Error = "Window capture is not supported on this Windows";
@@ -185,6 +185,11 @@ internal sealed class WindowFrameSource : IFrameSource
                     StarterTool.Post(() => ContextSession.Log("capture: window capture on " + adapter));
                 }
                 GraphicsCaptureItem item = CreateItem(hwnd);
+                if (item.Size.Width <= 0 || item.Size.Height <= 0)
+                {
+                    Error = "Window is minimized";
+                    return;
+                }
                 _item = item;
                 item.Closed += (_, _) => Close(item, "Window closed - looking for it again");
                 _poolSize = _item.Size;
@@ -192,7 +197,10 @@ internal sealed class WindowFrameSource : IFrameSource
                     _device, DirectXPixelFormat.B8G8R8A8UIntNormalized, PoolBuffers, _poolSize);
                 _pool.FrameArrived += OnFrameArrived;
                 _session = _pool.CreateCaptureSession(_item);
-                _session.IsCursorCaptureEnabled = false;
+                if (global::Windows.Foundation.Metadata.ApiInformation.IsPropertyPresent("Windows.Graphics.Capture.GraphicsCaptureSession", "IsCursorCaptureEnabled"))
+                {
+                    _session.IsCursorCaptureEnabled = false;
+                }
                 if (global::Windows.Foundation.Metadata.ApiInformation.IsPropertyPresent("Windows.Graphics.Capture.GraphicsCaptureSession", "IsBorderRequired"))
                 {
                     try
@@ -213,7 +221,9 @@ internal sealed class WindowFrameSource : IFrameSource
             catch (Exception e)
             {
                 CloseLocked();
-                Error = "Window capture failed: " + e.Message;
+                string error = "Window capture failed: " + e.Message;
+                if (error != Error) StarterTool.Post(() => ContextSession.Log("capture: " + DisplayName + " - " + e));
+                Error = error;
             }
         }
     }
@@ -240,12 +250,18 @@ internal sealed class WindowFrameSource : IFrameSource
 
     private void OnFrameArrived(Direct3D11CaptureFramePool pool, object args)
     {
-        while (pool.TryGetNextFrame() is { } frame)
+        try
         {
-            using (frame)
+            while (pool.TryGetNextFrame() is { } frame)
             {
-                Deliver(frame);
+                using (frame)
+                {
+                    Deliver(frame);
+                }
             }
+        }
+        catch (Exception)
+        {
         }
     }
 
@@ -258,10 +274,12 @@ internal sealed class WindowFrameSource : IFrameSource
         double stampMs = Win32.SystemRelativeToMs(frame.SystemRelativeTime);
         SizeInt32 content = frame.ContentSize;
 
-        var raw = new RawWindowFrame(frame, readback, content.Width, content.Height);
+        SizeInt32 texture = _poolSize;
+        var raw = new RawWindowFrame(frame, readback,
+            Math.Min(content.Width, texture.Width), Math.Min(content.Height, texture.Height));
         FrameArrived?.Invoke(stampMs, raw);
 
-        if (content.Width != _poolSize.Width || content.Height != _poolSize.Height)
+        if ((content.Width != texture.Width || content.Height != texture.Height) && content.Width > 0 && content.Height > 0)
         {
             lock (_lock)
             {

@@ -101,7 +101,7 @@ public partial class MainForm : Form
         ContextPanel.CueChanged += (_, _) => ShowContextSession();
         ButtonTraining.Click += (_, _) => ToggleTraining();
         TrainingPanel.StateChanged += (_, _) => RefreshTrainingButton();
-        TrainingPanel.CloseRequested += (_, _) => SelectTab(TabKey.Manip);
+        TrainingPanel.CloseRequested += (_, _) => SelectTab(TrainingReturnTab());
         InitializeFilters();
 
         TextBoxTrainerId.KeyPress += TextBoxTrainerId_KeyPress;
@@ -246,6 +246,9 @@ public partial class MainForm : Form
 
         ApplyTimeFormat();
 
+        FixedPanel.ApplySettings(settings);
+        IgtPanel.ApplySettings(settings);
+
         ApplyTabSettings(settings);
 
         MenuItemAlwaysOnTop.Checked = settings.AlwaysOnTop;
@@ -288,6 +291,8 @@ public partial class MainForm : Form
         settings.StatBoxOutlineColor = StatBoxPanel.ToHex(StatBoxPanel.OutlineColor);
         settings.StatBoxFrameColor = StatBoxPanel.ToHex(StatBoxPanel.FrameColor);
         settings.TrainingRounds = TrainingPanel.SaveRounds();
+        FixedPanel.CaptureSettings(settings);
+        IgtPanel.CaptureSettings(settings);
         settings.SavestateLoadPath = SavestatePanel.LoadFolder;
         settings.SavestateSavePath = SavestatePanel.SaveFolder;
         settings.RomPatchRomPath = RomPatchPanel.RomPath;
@@ -323,13 +328,26 @@ public partial class MainForm : Form
         if (TrainingPanel.IsRunning)
         {
             TrainingPanel.Cancel();
-            SelectTab(TabKey.Manip);
+            SelectTab(TrainingReturnTab());
             return;
         }
 
-        if (!MenuItemViewTraining.Checked) MenuItemViewTraining.Checked = true;
-        SelectTab(TabKey.Training);
+        bool generic = TimerMode != TimerMode.Frlg;
+        TabKey drill = generic ? TabKey.GenericTraining : TabKey.Training;
+        if (_selectedTab != drill) _trainingReturnTab = generic ? _selectedTab : TabKey.Manip;
+
+        if (!ItemOf(drill).Checked) ItemOf(drill).Checked = true;
+        SelectTab(drill);
         TrainingPanel.StartSession();
+    }
+
+    private TabKey TrainingReturnTab()
+    {
+        if (_selectedTab != TabKey.GenericTraining) return TabKey.Manip;
+
+        return ModeOf(_trainingReturnTab) is TimerMode.Frlg or TimerMode.GenericTraining
+            ? TabKey.GenericVariable
+            : _trainingReturnTab;
     }
 
     private void RefreshTrainingButton()
@@ -468,6 +486,37 @@ public partial class MainForm : Form
         {
             if (ReferenceEquals(ActiveControl, TextBoxTrainerId)) HandCaretToResults();
         });
+    }
+
+    public void FocusFrameBox()
+    {
+        if (TextBoxFrame.CanFocus) TakeCaret(TextBoxFrame);
+    }
+
+    public void ShowGenericLanding(
+        int landedFrame, int targetFrame, double deltaMs, double hitChance,
+        int adjustmentFrames, double compensationMs, double fps)
+    {
+        Label readout = ActiveLandingLabel;
+        readout.ForeColor = hitChance > 0.5 ? Theme.LandingHitText
+            : hitChance > 0.0 ? Theme.LandingMaybeText
+            : Theme.LandingMissText;
+
+        string target = VariableOffsetCalculator.FormatFrameWithAdjustment(
+            (uint)Math.Max(targetFrame, 0), adjustmentFrames);
+        readout.Text =
+            $"Likely Frame {landedFrame}, Target {target}"
+            + $"  ({deltaMs:+0;-0;0}ms)  Hit Chance {FormatChance(hitChance)}"
+            + CompensationSuffix(compensationMs, compact: true);
+
+        if (TrainingPanel.RecordLanding(landedFrame, targetFrame, deltaMs, hitChance)) return;
+
+        if (_selectedTab == TabKey.GenericVariable)
+        {
+            LandingLog.Add(
+                target, landedFrame.ToString(CultureInfo.InvariantCulture),
+                deltaMs / 1000.0 * fps, deltaMs, hitChance);
+        }
     }
 
     public void FocusTrainerId()

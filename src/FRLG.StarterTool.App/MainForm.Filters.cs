@@ -270,14 +270,14 @@ public partial class MainForm
         }
     }
 
-    private string? BrowseOpen(string title, string filter)
+    internal string? BrowseOpen(string title, string filter)
         => StarterTool.Modal(() =>
         {
             using var dialog = new OpenFileDialog { Title = title, Filter = filter, CheckFileExists = true };
             return dialog.ShowDialog(this) == DialogResult.OK ? dialog.FileName : null;
         });
 
-    private string? BrowseSave(string title, string filter, string name)
+    internal string? BrowseSave(string title, string filter, string name)
         => StarterTool.Modal(() =>
         {
             using var dialog = new SaveFileDialog
@@ -292,18 +292,18 @@ public partial class MainForm
 
     public static string PresetFileName(string name) => PresetFile.Stem(name) + ".json";
 
-    private void Fail(string message, string title)
+    internal void Fail(string message, string title)
         => StarterTool.Modal(() => MessageBox.Show(
             this, message, title, MessageBoxButtons.OK, MessageBoxIcon.Warning));
 
-    private string? PromptForName(string title, string prompt, string initialValue)
+    internal string? PromptForName(string title, string prompt, string initialValue)
         => StarterTool.Modal(() =>
         {
             using var dialog = new TextPromptDialog(title, prompt, initialValue);
             return dialog.ShowDialog(this) == DialogResult.OK ? dialog.Value : null;
         });
 
-    private bool Confirm(string message, string title)
+    internal bool Confirm(string message, string title)
         => StarterTool.Modal(() => MessageBox.Show(
             this, message, title, MessageBoxButtons.YesNo, MessageBoxIcon.Question)) == DialogResult.Yes;
 }

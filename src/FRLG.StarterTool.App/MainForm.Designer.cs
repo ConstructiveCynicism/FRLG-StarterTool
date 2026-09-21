@@ -46,6 +46,12 @@ partial class MainForm
     public ToolStripMenuItem MenuItemViewSavestate;
     public ToolStripMenuItem MenuItemViewTroubleshooter;
 
+    public ToolStripMenuItem MenuItemViewGenericFixed;
+
+    public ToolStripMenuItem MenuItemViewGenericVariable;
+    public ToolStripMenuItem MenuItemViewGenericIgt;
+    public ToolStripMenuItem MenuItemViewGenericTraining;
+
     public ThemedTabStrip TabStrip;
 
     public Panel PageManip;
@@ -55,6 +61,20 @@ partial class MainForm
     public Panel PageEncounter;
     public Panel PageSavestate;
     public Panel PageTroubleshoot;
+
+    public Panel PageGenericFixed;
+
+    public Panel PageGenericVariable;
+    public Panel PageGenericIgt;
+    public Panel PageGenericTraining;
+
+    public FixedOffsetPanel FixedPanel;
+
+    public IgtPanel IgtPanel;
+
+    public ThemedGroupBox GroupBoxLandingLog;
+
+    public LandingLogPanel LandingLog;
 
     public ToolStripMenuItem MenuFilters;
 
@@ -159,6 +179,14 @@ partial class MainForm
     public TextBox[] TextBoxStats = new TextBox[6];
 
     public ThemedGroupBox GroupBoxTimer;
+
+    public Label LabelTimerFrame;
+
+    public Label LabelTimerFps;
+    public Label LabelTimerDelay;
+    public Label LabelTimerInterval;
+    public Label LabelTimerBeeps;
+    public Label LabelTimerRoute;
     public TimerClock LabelTimer;
     public Button ButtonStart;
     public Button ButtonStop;
@@ -254,13 +282,36 @@ partial class MainForm
         MenuItemViewEncounter = new ToolStripMenuItem("Encounter Route") { CheckOnClick = true, Checked = true };
         MenuItemViewSavestate = new ToolStripMenuItem("Savestate Editor") { CheckOnClick = true, Checked = false };
         MenuItemViewTroubleshooter = new ToolStripMenuItem("NPC Troubleshooter") { CheckOnClick = true, Checked = false };
+        MenuItemViewGenericFixed = new ToolStripMenuItem("Fixed Offset") { CheckOnClick = true, Checked = false };
+        MenuItemViewGenericVariable = new ToolStripMenuItem("Variable Offset") { CheckOnClick = true, Checked = false };
+        MenuItemViewGenericIgt = new ToolStripMenuItem("IGT Tracking") { CheckOnClick = true, Checked = false };
+        MenuItemViewGenericTraining = new ToolStripMenuItem("Offset Trainer") { CheckOnClick = true, Checked = false };
+
+        var menuViewFrlg = new ToolStripMenuItem("Fire Red/Leaf Green");
+        menuViewFrlg.DropDownItems.Add(MenuItemViewManip);
+        menuViewFrlg.DropDownItems.Add(MenuItemViewConstraints);
+        menuViewFrlg.DropDownItems.Add(MenuItemViewTraining);
+        menuViewFrlg.DropDownItems.Add(MenuItemViewEncounter);
+        menuViewFrlg.DropDownItems.Add(MenuItemViewSavestate);
+        menuViewFrlg.DropDownItems.Add(MenuItemViewTroubleshooter);
+
+        var menuViewGeneric = new ToolStripMenuItem("Generic");
+        menuViewGeneric.DropDownItems.Add(MenuItemViewGenericFixed);
+        menuViewGeneric.DropDownItems.Add(MenuItemViewGenericVariable);
+        menuViewGeneric.DropDownItems.Add(MenuItemViewGenericIgt);
+        menuViewGeneric.DropDownItems.Add(MenuItemViewGenericTraining);
+
+        foreach (ToolStripMenuItem group in new[] { menuViewFrlg, menuViewGeneric })
+        {
+            group.DropDown.Closing += (_, e) =>
+            {
+                if (e.CloseReason == ToolStripDropDownCloseReason.ItemClicked) e.Cancel = true;
+            };
+        }
+
         var menuView = new ToolStripMenuItem("View");
-        menuView.DropDownItems.Add(MenuItemViewManip);
-        menuView.DropDownItems.Add(MenuItemViewConstraints);
-        menuView.DropDownItems.Add(MenuItemViewTraining);
-        menuView.DropDownItems.Add(MenuItemViewEncounter);
-        menuView.DropDownItems.Add(MenuItemViewSavestate);
-        menuView.DropDownItems.Add(MenuItemViewTroubleshooter);
+        menuView.DropDownItems.Add(menuViewFrlg);
+        menuView.DropDownItems.Add(menuViewGeneric);
 
         var menuAbout = new ToolStripMenuItem("About");
         menuAbout.Click += (_, _) => StarterTool.Modal(() => MessageBox.Show(this,
@@ -271,8 +322,11 @@ partial class MainForm
             + "  • Starter Program — stringflow\r\n\r\n"
             + "Copyright for any code borrowed is retained by their respective owners.\r\n\r\n"
             + "Pin icon from Google Material Symbols, licensed under Apache License 2.0.\r\n\r\n"
+            + "This program includes FFmpeg (ffmpeg.org), licensed under the GNU General Public License version 3, "
+            + "and is distributed as a whole under that license: gnu.org/licenses/gpl-3.0.html. "
+            + "It comes with ABSOLUTELY NO WARRANTY. FFmpeg's source: ffmpeg.org/download.html (release 7.1).\r\n\r\n"
             + $"Settings: {SettingsStore.DefaultPath}\r\n\r\n"
-            + "MIT License\r\n\r\n"
+            + "The tool's own code - MIT License\r\n\r\n"
             + "Copyright (c) 2026 ConstructiveCynicism\r\n\r\n"
             + "Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the “Software”), to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject to the following conditions:\r\n\r\n"
             + "The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.\r\n\r\n"
@@ -405,7 +459,7 @@ partial class MainForm
 
         GroupBoxTimer = new ThemedGroupBox
         {
-            Text = "Timer",
+            Text = "FRLG Timer",
             Location = new Point(6, timerTop),
             Size = new Size(LeftColumnWidth, 300)
         };
@@ -433,7 +487,8 @@ partial class MainForm
         const int RowFieldWidth = LeftInnerRight - RowFieldX;
 
         int timerRow = ButtonStart.Bottom + RowGap;
-        GroupBoxTimer.Controls.Add(MakeLabel("Frame", RowCaptionX, timerRow, RowCaptionWidth));
+        LabelTimerFrame = MakeLabel("Frame", RowCaptionX, timerRow, RowCaptionWidth);
+        GroupBoxTimer.Controls.Add(LabelTimerFrame);
 
         int nudgeSize = _fieldHeight;
         int plusX = LeftInnerRight - nudgeSize;
@@ -448,7 +503,8 @@ partial class MainForm
         GroupBoxTimer.Controls.Add(ButtonPlus);
 
         timerRow += RowPitch;
-        GroupBoxTimer.Controls.Add(MakeLabel("FPS", RowCaptionX, timerRow, RowCaptionWidth));
+        LabelTimerFps = MakeLabel("FPS", RowCaptionX, timerRow, RowCaptionWidth);
+        GroupBoxTimer.Controls.Add(LabelTimerFps);
         ComboBoxFps = MakeCombo(RowFieldX, timerRow, RowFieldWidth);
         GroupBoxTimer.Controls.Add(ComboBoxFps);
 
@@ -466,22 +522,26 @@ partial class MainForm
         GroupBoxTimer.Controls.Add(TextBoxVisualOffset);
 
         timerRow += RowPitch;
-        GroupBoxTimer.Controls.Add(MakeLabel("Delay", RowCaptionX, timerRow, RowCaptionWidth));
+        LabelTimerDelay = MakeLabel("Delay", RowCaptionX, timerRow, RowCaptionWidth);
+        GroupBoxTimer.Controls.Add(LabelTimerDelay);
         TextBoxDelayOffset = MakeTextBox(RowFieldX, timerRow, RowFieldWidth, "0");
         GroupBoxTimer.Controls.Add(TextBoxDelayOffset);
 
         timerRow += RowPitch;
-        GroupBoxTimer.Controls.Add(MakeLabel("Interval", RowCaptionX, timerRow, RowCaptionWidth));
+        LabelTimerInterval = MakeLabel("Interval", RowCaptionX, timerRow, RowCaptionWidth);
+        GroupBoxTimer.Controls.Add(LabelTimerInterval);
         TextBoxInterval = MakeTextBox(RowFieldX, timerRow, RowFieldWidth, "1000");
         GroupBoxTimer.Controls.Add(TextBoxInterval);
 
         timerRow += RowPitch;
-        GroupBoxTimer.Controls.Add(MakeLabel("Beeps", RowCaptionX, timerRow, RowCaptionWidth));
+        LabelTimerBeeps = MakeLabel("Beeps", RowCaptionX, timerRow, RowCaptionWidth);
+        GroupBoxTimer.Controls.Add(LabelTimerBeeps);
         TextBoxBeeps = MakeTextBox(RowFieldX, timerRow, RowFieldWidth, "4");
         GroupBoxTimer.Controls.Add(TextBoxBeeps);
 
         timerRow += RowPitch;
-        GroupBoxTimer.Controls.Add(MakeLabel("Route", RowCaptionX, timerRow, RowCaptionWidth));
+        LabelTimerRoute = MakeLabel("Route", RowCaptionX, timerRow, RowCaptionWidth);
+        GroupBoxTimer.Controls.Add(LabelTimerRoute);
         ComboBoxEncounterRoute = MakeCombo(RowFieldX, timerRow, RowFieldWidth);
         ComboBoxEncounterRoute.Items.Add("None");
         ComboBoxEncounterRoute.SelectedIndex = 0;
@@ -841,6 +901,43 @@ partial class MainForm
         PageTraining.Controls.Add(GroupBoxTraining);
         PageTraining.Height = GroupBoxTraining.Bottom + 6;
 
+        FixedPanel = new FixedOffsetPanel
+        {
+            Location = new Point(RightColumnLeft, SectionTop),
+            Size = new Size(FixedOffsetPanel.PanelWidth, FixedOffsetPanel.PanelHeight)
+        };
+        PageGenericFixed = MakePage();
+        PageGenericFixed.Controls.Add(FixedPanel);
+        PageGenericFixed.Height = Math.Max(FixedPanel.Bottom, GroupBoxTraining.Bottom) + 6;
+
+        LandingLog = new LandingLogPanel
+        {
+            Location = new Point((RightColumnWidth - LandingLogPanel.PanelWidth) / 2, 18),
+            Size = new Size(LandingLogPanel.PanelWidth, LandingLogPanel.PanelHeight)
+        };
+        GroupBoxLandingLog = new ThemedGroupBox
+        {
+            Text = "Landings",
+            Location = new Point(RightColumnLeft, SectionTop),
+            Size = new Size(RightColumnWidth, Math.Max(LandingLog.Bottom + BoxBottomPad, GroupBoxTraining.Height))
+        };
+        GroupBoxLandingLog.Controls.Add(LandingLog);
+        PageGenericVariable = MakePage();
+        PageGenericVariable.Controls.Add(GroupBoxLandingLog);
+        PageGenericVariable.Height = GroupBoxLandingLog.Bottom + 6;
+
+        IgtPanel = new IgtPanel
+        {
+            Location = new Point(RightColumnLeft, SectionTop),
+            Size = new Size(IgtPanel.PanelWidth, IgtPanel.PanelHeight)
+        };
+        PageGenericIgt = MakePage();
+        PageGenericIgt.Controls.Add(IgtPanel);
+        PageGenericIgt.Height = Math.Max(IgtPanel.Bottom, GroupBoxTraining.Bottom) + 6;
+
+        PageGenericTraining = MakePage();
+        PageGenericTraining.Height = PageTraining.Height;
+
         EncounterPanel = new EncounterPanel();
         EncounterPanel.Location = new Point((PageBoxWidth - EncounterPanel.Width) / 2, 18);
         GroupBoxEncounter = new ThemedGroupBox
@@ -910,6 +1007,10 @@ partial class MainForm
         Controls.Add(PageEncounter);
         Controls.Add(PageSavestate);
         Controls.Add(PageTroubleshoot);
+        Controls.Add(PageGenericFixed);
+        Controls.Add(PageGenericVariable);
+        Controls.Add(PageGenericIgt);
+        Controls.Add(PageGenericTraining);
         Controls.Add(MenuStripMain);
         MainMenuStrip = MenuStripMain;
         Icon = Assets.AppIcon;

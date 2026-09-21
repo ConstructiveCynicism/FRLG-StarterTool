@@ -1,4 +1,16 @@
-MIT License
+# Licensing
+
+**The released program is distributed under the GNU General Public License, version 3**
+(`COPYING.GPL-3.0.txt`). It contains FFmpeg - the libraries that read an OBS recording for the
+title-press capture - in a build licensed under GPL-3.0, and a program that includes GPL code is
+conveyed under the GPL as a whole. See `THIRD-PARTY-NOTICES.md` for FFmpeg's notice and where its
+source is.
+
+**The tool's own source code remains under the MIT License below**, which the GPL permits being
+combined with. Anyone may take this repository's code under MIT terms; a build that still includes
+the GPL FFmpeg libraries can only be passed on under GPL-3.0.
+
+## MIT License
 
 Copyright (c) 2026 ConstructiveCynicism
 

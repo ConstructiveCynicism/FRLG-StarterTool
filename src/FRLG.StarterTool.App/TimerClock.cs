@@ -15,6 +15,8 @@ public sealed class TimerClock : Control
     private bool _final;
 
     private double[] _schedule = Array.Empty<double>();
+
+    private bool[]? _finals;
     private double _intervalMs;
     private double _startTimeMs;
 
@@ -38,9 +40,10 @@ public sealed class TimerClock : Control
         SetStyle(ControlStyles.Selectable, false);
     }
 
-    public void SetSchedule(double[] scheduleMs, double intervalMs, double startTimeMs)
+    public void SetSchedule(double[] scheduleMs, double intervalMs, double startTimeMs, bool[]? finals = null)
     {
         _schedule = scheduleMs;
+        _finals = finals is { } marks && marks.Length == scheduleMs.Length ? marks : null;
         _intervalMs = intervalMs;
         _startTimeMs = startTimeMs;
 
@@ -67,6 +70,7 @@ public sealed class TimerClock : Control
     public void ClearFlash()
     {
         _schedule = Array.Empty<double>();
+        _finals = null;
         _intervalMs = 0.0;
 
         if (!double.IsNaN(_alertAtMs))
@@ -117,7 +121,7 @@ public sealed class TimerClock : Control
             }
         }
 
-        SetFlash(intensity, beat >= 0 && beat == _schedule.Length - 1);
+        SetFlash(intensity, beat >= 0 && (_finals != null ? _finals[beat] : beat == _schedule.Length - 1));
 
         if (beatDone && double.IsNaN(_alertAtMs)) _animation.Stop();
     }

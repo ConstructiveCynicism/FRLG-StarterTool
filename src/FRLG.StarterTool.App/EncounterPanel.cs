@@ -738,7 +738,7 @@ public sealed class EncounterPanel : Panel
         set => WriteIntroBox(IntroFrame, IntroWindow, LoopFrame, LoopWindow, value);
     }
 
-    private static string[] Places(string text) => (text ?? "").Split(',');
+    private static string[] Places(string text) => (text ?? "").Split(ManipPress.Separators);
 
     private static (int Frame, int Window) PressAt(TextBox box, int place)
     {

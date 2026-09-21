@@ -22,10 +22,12 @@ public readonly record struct ManipPress(string Name, int Frame, int Window)
         return new ManipPress(name, first, Math.Min(last - first + 1, MaxWindow));
     }
 
+    public static readonly char[] Separators = { ',', '/' };
+
     public static List<ManipPress> ParseList(string name, string? text, int firstNumber = 2)
     {
         var presses = new List<ManipPress>();
-        foreach (string item in (text ?? "").Split(','))
+        foreach (string item in (text ?? "").Split(Separators))
         {
             if (Parse($"{name} {firstNumber + presses.Count}", item) is ManipPress press) presses.Add(press);
         }

@@ -9,7 +9,24 @@ public enum TabKey
     Training,
     Encounter,
     Savestate,
-    Troubleshoot
+    Troubleshoot,
+    GenericFixed,
+    GenericVariable,
+    GenericIgt,
+    GenericTraining
+}
+
+public enum TimerMode
+{
+    Frlg,
+
+    GenericVariable,
+
+    GenericTraining,
+
+    Fixed,
+
+    Igt
 }
 
 public partial class MainForm
@@ -17,14 +34,30 @@ public partial class MainForm
     private static readonly TabKey[] TabOrder =
     {
         TabKey.Manip, TabKey.Constraints, TabKey.Training,
-        TabKey.Encounter, TabKey.Savestate, TabKey.Troubleshoot
+        TabKey.Encounter, TabKey.Savestate, TabKey.Troubleshoot,
+        TabKey.GenericFixed, TabKey.GenericVariable, TabKey.GenericIgt, TabKey.GenericTraining
     };
+
+    public static TimerMode ModeOf(TabKey key) => key switch
+    {
+        TabKey.GenericFixed => TimerMode.Fixed,
+        TabKey.GenericVariable => TimerMode.GenericVariable,
+        TabKey.GenericIgt => TimerMode.Igt,
+        TabKey.GenericTraining => TimerMode.GenericTraining,
+        _ => TimerMode.Frlg
+    };
+
+    public TimerMode TimerMode => ModeOf(_selectedTab);
+
+    public TabKey SelectedTab => _selectedTab;
 
     private TabKey _selectedTab = TabKey.Manip;
 
     private bool _syncingView;
 
-    public bool TrainingTabUp => _selectedTab == TabKey.Training;
+    public bool TrainingTabUp => _selectedTab is TabKey.Training or TabKey.GenericTraining;
+
+    private TabKey _trainingReturnTab = TabKey.Manip;
 
     private Point _timerHome;
 
@@ -32,21 +65,104 @@ public partial class MainForm
 
     private void PlaceTimer()
     {
-        bool training = _selectedTab == TabKey.Training;
-        Panel page = training ? PageTraining : PageManip;
-        Point at = training
-            ? new Point(Scaled(6), Scaled(SectionTop))
-            : new Point(Scaled(_timerHome.X), Scaled(_timerHome.Y));
+        TabKey tab = _selectedTab;
+        bool manip = tab == TabKey.Manip || TimerPageOf(tab) == null;
+        bool training = tab is TabKey.Training or TabKey.GenericTraining;
+        Panel page = TimerPageOf(tab) ?? PageManip;
+        Point at = manip
+            ? new Point(Scaled(_timerHome.X), Scaled(_timerHome.Y))
+            : new Point(Scaled(6), Scaled(SectionTop));
 
-        int height = training ? GroupBoxTraining.Height : Scaled(_timerManipHeight);
+        TimerMode mode = ModeOf(tab);
+        int contentBottom = LayoutTimerRows(mode);
+        GroupBoxTimer.Text = mode == TimerMode.Frlg ? "FRLG Timer" : "Timer";
+
+        if (training && !ReferenceEquals(GroupBoxTraining.Parent, page)) page.Controls.Add(GroupBoxTraining);
+
+        int height = tab switch
+        {
+            TabKey.Training or TabKey.GenericTraining => GroupBoxTraining.Height,
+            TabKey.GenericFixed => Math.Max(FixedPanel.Height, contentBottom),
+            TabKey.GenericVariable => Math.Max(GroupBoxLandingLog.Height, contentBottom),
+            TabKey.GenericIgt => Math.Max(IgtPanel.Height, contentBottom),
+            _ => Scaled(_timerManipHeight)
+        };
 
         if (!ReferenceEquals(GroupBoxTimer.Parent, page)) page.Controls.Add(GroupBoxTimer);
         if (GroupBoxTimer.Location != at) GroupBoxTimer.Location = at;
         if (GroupBoxTimer.Height != height) GroupBoxTimer.Height = height;
     }
 
-    private Label ActiveLandingLabel =>
-        _selectedTab == TabKey.Training ? LabelTrainingLanding : LabelLanding;
+    private Panel? TimerPageOf(TabKey key) => key switch
+    {
+        TabKey.Manip => PageManip,
+        TabKey.Training => PageTraining,
+        TabKey.GenericFixed => PageGenericFixed,
+        TabKey.GenericVariable => PageGenericVariable,
+        TabKey.GenericIgt => PageGenericIgt,
+        TabKey.GenericTraining => PageGenericTraining,
+        _ => null
+    };
+
+    private sealed record TimerRow(Control[] Controls, int DesignerY);
+
+    private TimerRow[] _timerRows = Array.Empty<TimerRow>();
+
+    private readonly Dictionary<Control, int> _timerRowTops = new();
+
+    private const int RowFrame = 0, RowFps = 1, RowAudio = 2, RowVisual = 3, RowDelay = 4,
+        RowInterval = 5, RowBeeps = 6, RowRoute = 7, RowTraining = 8;
+
+    private void CaptureTimerRowTops()
+    {
+        foreach (TimerRow row in _timerRows)
+        {
+            foreach (Control control in row.Controls) _timerRowTops[control] = control.Top;
+        }
+    }
+
+    private static bool ShowsTimerRow(TimerMode mode, int row) => mode switch
+    {
+        TimerMode.Frlg => true,
+        TimerMode.GenericVariable or TimerMode.GenericTraining => row != RowRoute,
+        TimerMode.Fixed => row is RowFrame or RowFps or RowAudio or RowVisual or RowDelay or RowTraining,
+        _ => false
+    };
+
+    private int LayoutTimerRows(TimerMode mode)
+    {
+        LabelTimerFrame.Text = mode == TimerMode.Fixed ? "Adjust" : "Frame";
+
+        int slot = 0;
+        int bottom = ButtonStart.Bottom;
+        foreach ((TimerRow row, int index) in _timerRows.Select((row, index) => (row, index)))
+        {
+            bool shown = ShowsTimerRow(mode, index);
+            int shift = shown ? Scaled(_timerRows[slot].DesignerY) - Scaled(row.DesignerY) : 0;
+
+            foreach (Control control in row.Controls)
+            {
+                control.Visible = shown;
+                if (!shown) continue;
+
+                int top = _timerRowTops[control] + shift;
+                if (control.Top != top) control.Top = top;
+                bottom = Math.Max(bottom, control.Bottom);
+            }
+
+            if (shown) slot++;
+        }
+
+        return bottom + Scaled(BoxBottomPad);
+    }
+
+    private Label ActiveLandingLabel => _selectedTab switch
+    {
+        TabKey.Training or TabKey.GenericTraining => LabelTrainingLanding,
+        TabKey.GenericVariable => LandingLog.Readout,
+        TabKey.GenericFixed => FixedPanel.Readout,
+        _ => LabelLanding
+    };
 
     public void ShowManipTab() => SelectTab(TabKey.Manip);
 
@@ -63,7 +179,11 @@ public partial class MainForm
         TabKey.Training => PageTraining,
         TabKey.Encounter => PageEncounter,
         TabKey.Savestate => PageSavestate,
-        _ => PageTroubleshoot
+        TabKey.Troubleshoot => PageTroubleshoot,
+        TabKey.GenericFixed => PageGenericFixed,
+        TabKey.GenericVariable => PageGenericVariable,
+        TabKey.GenericIgt => PageGenericIgt,
+        _ => PageGenericTraining
     };
 
     private ToolStripMenuItem ItemOf(TabKey key) => key switch
@@ -73,17 +193,25 @@ public partial class MainForm
         TabKey.Training => MenuItemViewTraining,
         TabKey.Encounter => MenuItemViewEncounter,
         TabKey.Savestate => MenuItemViewSavestate,
-        _ => MenuItemViewTroubleshooter
+        TabKey.Troubleshoot => MenuItemViewTroubleshooter,
+        TabKey.GenericFixed => MenuItemViewGenericFixed,
+        TabKey.GenericVariable => MenuItemViewGenericVariable,
+        TabKey.GenericIgt => MenuItemViewGenericIgt,
+        _ => MenuItemViewGenericTraining
     };
 
-    private static string CaptionOf(TabKey key) => key switch
+    private string CaptionOf(TabKey key) => key switch
     {
         TabKey.Manip => "Manip",
         TabKey.Constraints => "Constraints",
-        TabKey.Training => "Offset Trainer",
+        TabKey.Training => MenuItemViewGenericTraining.Checked ? "FRLG Trainer" : "Offset Trainer",
         TabKey.Encounter => "Encounter Route",
         TabKey.Savestate => "Savestate Editor",
-        _ => "NPC Troubleshooter"
+        TabKey.Troubleshoot => "NPC Troubleshooter",
+        TabKey.GenericFixed => "Fixed Offset",
+        TabKey.GenericVariable => "Variable Offset",
+        TabKey.GenericIgt => "IGT Tracking",
+        _ => "Offset Trainer"
     };
 
     private static string KeyOf(TabKey key) => key.ToString().ToLowerInvariant();
@@ -116,6 +244,20 @@ public partial class MainForm
 
         _timerHome = GroupBoxTimer.Location;
         _timerManipHeight = GroupBoxTimer.Height;
+
+        _timerRows = new[]
+        {
+            new TimerRow(new Control[] { LabelTimerFrame, TextBoxFrame, ButtonMinus, ButtonPlus }, TextBoxFrame.Top),
+            new TimerRow(new Control[] { LabelTimerFps, ComboBoxFps }, LabelTimerFps.Top),
+            new TimerRow(new Control[] { CheckBoxBeepEnabled, TextBoxOffset }, TextBoxOffset.Top),
+            new TimerRow(new Control[] { CheckBoxFlashEnabled, TextBoxVisualOffset }, TextBoxVisualOffset.Top),
+            new TimerRow(new Control[] { LabelTimerDelay, TextBoxDelayOffset }, TextBoxDelayOffset.Top),
+            new TimerRow(new Control[] { LabelTimerInterval, TextBoxInterval }, TextBoxInterval.Top),
+            new TimerRow(new Control[] { LabelTimerBeeps, TextBoxBeeps }, TextBoxBeeps.Top),
+            new TimerRow(new Control[] { LabelTimerRoute, ComboBoxEncounterRoute }, LabelTimerRoute.Top),
+            new TimerRow(new Control[] { ButtonTraining }, ButtonTraining.Top)
+        };
+        CaptureTimerRowTops();
         PageManip.Visible = true;
         TabStrip.SelectedKey = KeyOf(TabKey.Manip);
     }
@@ -131,19 +273,26 @@ public partial class MainForm
 
         if (old != key)
         {
-            if (old == TabKey.Training)
+            if (old is TabKey.Training or TabKey.GenericTraining)
             {
                 TrainingPanel.Cancel();
+                if (ModeOf(old) != ModeOf(key) && key is TabKey.Training or TabKey.GenericTraining)
+                {
+                    TrainingPanel.Clear();
+                }
                 LabelTrainingLanding.Text = "";
             }
 
             if (old == TabKey.Encounter) EncounterPanel.Cancel();
+
+            if (ModeOf(old) != ModeOf(key) && StarterTool.IsTimerRunning) StarterTool.StopTimer(false);
         }
 
         if (ActiveControl != null && oldPage.Contains(ActiveControl)) ActiveControl = null;
 
         SuspendLayout();
         _selectedTab = key;
+        if (ModeOf(old) != ModeOf(key)) StarterTool.SetTimerMode(ModeOf(key));
         PlaceTimer();
         page.Visible = true;
         if (!ReferenceEquals(oldPage, page)) oldPage.Visible = false;
@@ -198,6 +347,7 @@ public partial class MainForm
         }
 
         TabStrip.SetVisible(KeyOf(key), visible);
+        TabStrip.SetCaption(KeyOf(TabKey.Training), CaptionOf(TabKey.Training));
         if (!visible && _selectedTab == key) SelectTab(NearestVisible(key));
 
         ApplyClientHeight();
@@ -205,12 +355,29 @@ public partial class MainForm
 
     private void ApplyTabSettings(AppSettings settings)
     {
-        MenuItemViewManip.Checked = settings.ViewManip;
-        MenuItemViewConstraints.Checked = settings.ViewConstraints;
-        MenuItemViewTraining.Checked = settings.ViewTraining;
-        MenuItemViewEncounter.Checked = settings.ViewEncounter;
-        MenuItemViewSavestate.Checked = settings.ViewSavestate;
-        MenuItemViewTroubleshooter.Checked = settings.ViewTroubleshooter;
+        var wanted = new (ToolStripMenuItem Item, bool Visible)[]
+        {
+            (MenuItemViewManip, settings.ViewManip),
+            (MenuItemViewConstraints, settings.ViewConstraints),
+            (MenuItemViewTraining, settings.ViewTraining),
+            (MenuItemViewEncounter, settings.ViewEncounter),
+            (MenuItemViewSavestate, settings.ViewSavestate),
+            (MenuItemViewTroubleshooter, settings.ViewTroubleshooter),
+            (MenuItemViewGenericFixed, settings.ViewGenericFixed),
+            (MenuItemViewGenericVariable, settings.ViewGenericVariable),
+            (MenuItemViewGenericIgt, settings.ViewGenericIgt),
+            (MenuItemViewGenericTraining, settings.ViewGenericTraining)
+        };
+
+        foreach ((ToolStripMenuItem item, bool visible) in wanted)
+        {
+            if (visible) item.Checked = true;
+        }
+
+        foreach ((ToolStripMenuItem item, bool visible) in wanted)
+        {
+            if (!visible) item.Checked = false;
+        }
 
         SelectTab(ParseTab(settings.SelectedTab));
     }
@@ -223,6 +390,10 @@ public partial class MainForm
         settings.ViewEncounter = MenuItemViewEncounter.Checked;
         settings.ViewSavestate = MenuItemViewSavestate.Checked;
         settings.ViewTroubleshooter = MenuItemViewTroubleshooter.Checked;
+        settings.ViewGenericFixed = MenuItemViewGenericFixed.Checked;
+        settings.ViewGenericVariable = MenuItemViewGenericVariable.Checked;
+        settings.ViewGenericIgt = MenuItemViewGenericIgt.Checked;
+        settings.ViewGenericTraining = MenuItemViewGenericTraining.Checked;
         settings.SelectedTab = KeyOf(_selectedTab);
     }
 

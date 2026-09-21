@@ -235,7 +235,13 @@ public sealed class SettingsForm : Form
             cueWindowBox.Enabled = cuedPress.Checked;
         };
 
-        int y = cueWindowBox.Bottom + Scaled(SectionGap);
+        Label igtHeader = AddSectionHeader("IGT Tracking", cueWindowBox.Bottom + Scaled(SectionGap));
+        TableLayoutPanel igtTable = AddHotkeyTable(
+            HotkeyExtensions.IgtActions, igtHeader.Bottom + Scaled(6), out _);
+        AlignColumns(table, igtTable);
+        AlignColumns(table, contextTable);
+
+        int y = igtTable.Bottom + Scaled(SectionGap);
         Label timingHeader = AddSectionHeader("Timing", y);
         y = timingHeader.Bottom + Scaled(RowGap);
 
@@ -850,6 +856,11 @@ public sealed class SettingsForm : Form
                 int index = sourceBox.Items.Add(source);
                 if (source.Kind == _settings.VideoSourceKind && source.Id == _settings.VideoSourceId) selected = index;
             }
+            if (_settings.VideoSourceKind == VideoSourceKind.Recording && _settings.VideoSourceId.Length > 0)
+            {
+                selected = sourceBox.Items.Add(CaptureSourceInfo.Recording(_settings.VideoSourceId));
+            }
+            sourceBox.Items.Add(CaptureSourceInfo.PickRecordingFolder);
             if (selected == 0 && _settings.VideoSourceKind != VideoSourceKind.None && _settings.VideoSourceId.Length > 0)
             {
                 selected = sourceBox.Items.Add(new CaptureSourceInfo(
@@ -867,7 +878,22 @@ public sealed class SettingsForm : Form
         sourceBox.SelectedIndexChanged += (_, _) =>
         {
             if (fillingSources) return;
-            if (sourceBox.SelectedItem is CaptureSourceInfo source)
+            if (ReferenceEquals(sourceBox.SelectedItem, CaptureSourceInfo.PickRecordingFolder))
+            {
+                using var browse = new FolderBrowserDialog
+                {
+                    Description = "The folder OBS records into (Settings, Output, Recording Path). The format must be mkv.",
+                    UseDescriptionForTitle = true,
+                    InitialDirectory = _settings.VideoSourceKind == VideoSourceKind.Recording ? _settings.VideoSourceId : "",
+                };
+                if (browse.ShowDialog(this) == DialogResult.OK)
+                {
+                    _settings.VideoSourceKind = VideoSourceKind.Recording;
+                    _settings.VideoSourceId = browse.SelectedPath;
+                }
+                FillSources();
+            }
+            else if (sourceBox.SelectedItem is CaptureSourceInfo source)
             {
                 _settings.VideoSourceKind = source.Kind;
                 _settings.VideoSourceId = source.Id;
@@ -895,22 +921,32 @@ public sealed class SettingsForm : Form
             }
 
             bool route = StarterTool.MainForm.SelectedEncounterRoute.Length > 0;
-            using var dialog = new CropDialog(new Rectangle(
-                _settings.VideoCropX, _settings.VideoCropY, _settings.VideoCropWidth, _settings.VideoCropHeight),
-                _settings.VideoDownscale);
-            StarterTool.Capture.SetPreview(dialog.ShowFrame, _settings, route);
-            DialogResult answer;
+            Rectangle crop;
             try
             {
-                answer = dialog.ShowDialog(this);
+                using var dialog = new CropDialog(new Rectangle(
+                    _settings.VideoCropX, _settings.VideoCropY, _settings.VideoCropWidth, _settings.VideoCropHeight),
+                    _settings.VideoDownscale);
+                DialogResult answer;
+                try
+                {
+                    StarterTool.Capture.SetPreview(dialog.ShowFrame, _settings, route);
+                    answer = dialog.ShowDialog(this);
+                }
+                finally
+                {
+                    StarterTool.Capture.SetPreview(null, _settings, route);
+                }
+                if (answer != DialogResult.OK) return;
+                crop = dialog.Crop;
             }
-            finally
+            catch (Exception e)
             {
-                StarterTool.Capture.SetPreview(null, _settings, route);
+                ContextSession.Log("capture: crop dialog failed - " + e);
+                videoStatus.Text = "Crop failed: " + e.Message;
+                return;
             }
-            if (answer != DialogResult.OK) return;
 
-            Rectangle crop = dialog.Crop;
             _settings.VideoCropX = crop.X;
             _settings.VideoCropY = crop.Y;
             _settings.VideoCropWidth = crop.Width;

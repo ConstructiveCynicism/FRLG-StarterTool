@@ -30,6 +30,10 @@ internal sealed record CaptureSourceInfo(VideoSourceKind Kind, string Id, string
 {
     public override string ToString() => Label;
 
+    public static readonly CaptureSourceInfo PickRecordingFolder = new(VideoSourceKind.Recording, "", "Recording: pick OBS's folder…");
+
+    public static CaptureSourceInfo Recording(string folder) => new(VideoSourceKind.Recording, folder, "Recording: newest .mkv in " + folder);
+
     public static List<CaptureSourceInfo> List()
     {
         var sources = new List<CaptureSourceInfo>();
@@ -55,6 +59,7 @@ internal sealed record CaptureSourceInfo(VideoSourceKind Kind, string Id, string
         VideoSourceKind.Device when id.Length > 0 => DirectShowFilterSource.Filters().Contains(id)
             ? new DirectShowFilterSource(id)
             : new DeviceFrameSource(id),
+        VideoSourceKind.Recording when id.Length > 0 => new RecordingFrameSource(id),
         _ => null,
     };
 }

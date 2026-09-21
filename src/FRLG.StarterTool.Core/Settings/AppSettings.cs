@@ -40,7 +40,22 @@ public enum HotkeyAction
 
     NpcComplete,
 
-    NpcMiss
+    NpcMiss,
+
+    IgtPlay,
+
+    IgtUndo,
+
+    IgtAdd2,
+    IgtSub2,
+    IgtAdd3,
+    IgtSub3,
+    IgtAdd4,
+    IgtSub4,
+    IgtAdd5,
+    IgtSub5,
+    IgtAdd6,
+    IgtSub6
 }
 
 public enum ClipboardFormat
@@ -56,7 +71,9 @@ public enum VideoSourceKind
 
     Window,
 
-    Device
+    Device,
+
+    Recording
 }
 
 public enum StatStripSide
@@ -114,6 +131,19 @@ public sealed class AppSettings
     public Hotkey NpcComplete { get; set; } = new();
 
     public Hotkey NpcMiss { get; set; } = new();
+
+    public Hotkey IgtPlay { get; set; } = new();
+    public Hotkey IgtUndo { get; set; } = new();
+    public Hotkey IgtAdd2 { get; set; } = new();
+    public Hotkey IgtSub2 { get; set; } = new();
+    public Hotkey IgtAdd3 { get; set; } = new();
+    public Hotkey IgtSub3 { get; set; } = new();
+    public Hotkey IgtAdd4 { get; set; } = new();
+    public Hotkey IgtSub4 { get; set; } = new();
+    public Hotkey IgtAdd5 { get; set; } = new();
+    public Hotkey IgtSub5 { get; set; } = new();
+    public Hotkey IgtAdd6 { get; set; } = new();
+    public Hotkey IgtSub6 { get; set; } = new();
 
     public double NpcContextWindowMs { get; set; }
 
@@ -218,6 +248,14 @@ public sealed class AppSettings
     public bool ViewSavestate { get; set; } = false;
 
     public bool ViewTroubleshooter { get; set; } = false;
+
+    public bool ViewGenericFixed { get; set; } = false;
+
+    public bool ViewGenericVariable { get; set; } = false;
+
+    public bool ViewGenericIgt { get; set; } = false;
+
+    public bool ViewGenericTraining { get; set; } = false;
 
     public string SelectedTab { get; set; } = "manip";
 
@@ -327,6 +365,34 @@ public sealed class AppSettings
 
     public int TrainingRounds { get; set; } = 10;
 
+    public string GenericFps { get; set; } = "60";
+
+    public string GenericOffset { get; set; } = "0";
+    public string GenericVisualOffset { get; set; } = "0";
+    public string GenericDelayOffset { get; set; } = "0";
+    public string GenericInterval { get; set; } = "500";
+    public string GenericNumBeeps { get; set; } = "5";
+    public bool GenericBeepEnabled { get; set; } = true;
+    public bool GenericFlashEnabled { get; set; } = true;
+
+    public TimerSet FixedTimers { get; set; } = new();
+
+    public string FixedActiveSet { get; set; } = "";
+
+    public int FixedSelectedTimer { get; set; }
+
+    public List<int> FixedCheckedTimers { get; set; } = new();
+
+    public bool FixedAdjustAll { get; set; } = true;
+
+    public int FixedAdjustFrames { get; set; }
+
+    public string IgtGame { get; set; } = "";
+
+    public string IgtFps { get; set; } = "59.7275";
+    public List<IgtTimerEntry> IgtTimers { get; set; } = new();
+    public int IgtSelectedTimer { get; set; }
+
     public bool ShowRunTips { get; set; } = true;
 
     public bool TipTrainerUsed { get; set; }
@@ -416,6 +482,18 @@ public sealed class AppSettings
         HotkeyAction.NpcUndo => NpcUndo,
         HotkeyAction.NpcComplete => NpcComplete,
         HotkeyAction.NpcMiss => NpcMiss,
+        HotkeyAction.IgtPlay => IgtPlay,
+        HotkeyAction.IgtUndo => IgtUndo,
+        HotkeyAction.IgtAdd2 => IgtAdd2,
+        HotkeyAction.IgtSub2 => IgtSub2,
+        HotkeyAction.IgtAdd3 => IgtAdd3,
+        HotkeyAction.IgtSub3 => IgtSub3,
+        HotkeyAction.IgtAdd4 => IgtAdd4,
+        HotkeyAction.IgtSub4 => IgtSub4,
+        HotkeyAction.IgtAdd5 => IgtAdd5,
+        HotkeyAction.IgtSub5 => IgtSub5,
+        HotkeyAction.IgtAdd6 => IgtAdd6,
+        HotkeyAction.IgtSub6 => IgtSub6,
         _ => throw new ArgumentOutOfRangeException(nameof(action), action, "Unknown hotkey action")
     };
 
@@ -456,6 +534,18 @@ public sealed class AppSettings
         (NpcUndo ??= new Hotkey()).Normalize();
         (NpcComplete ??= new Hotkey()).Normalize();
         (NpcMiss ??= new Hotkey()).Normalize();
+        (IgtPlay ??= new Hotkey()).Normalize();
+        (IgtUndo ??= new Hotkey()).Normalize();
+        (IgtAdd2 ??= new Hotkey()).Normalize();
+        (IgtSub2 ??= new Hotkey()).Normalize();
+        (IgtAdd3 ??= new Hotkey()).Normalize();
+        (IgtSub3 ??= new Hotkey()).Normalize();
+        (IgtAdd4 ??= new Hotkey()).Normalize();
+        (IgtSub4 ??= new Hotkey()).Normalize();
+        (IgtAdd5 ??= new Hotkey()).Normalize();
+        (IgtSub5 ??= new Hotkey()).Normalize();
+        (IgtAdd6 ??= new Hotkey()).Normalize();
+        (IgtSub6 ??= new Hotkey()).Normalize();
 
         if (!Enum.IsDefined(KeyMethod)) KeyMethod = KeyMethod.OnPress;
         if (!Enum.IsDefined(ClipboardFormat)) ClipboardFormat = ClipboardFormat.Column;
@@ -505,6 +595,28 @@ public sealed class AppSettings
         if (string.IsNullOrWhiteSpace(StatBoxOutlineColor)) StatBoxOutlineColor = DefaultStatBoxOutlineColor;
         if (string.IsNullOrWhiteSpace(StatBoxFrameColor)) StatBoxFrameColor = DefaultStatBoxFrameColor;
         TrainingRounds = Math.Clamp(TrainingRounds, 1, 999);
+
+        GenericFps ??= "60";
+        GenericOffset = StripWhitespace(GenericOffset, "0");
+        GenericVisualOffset = StripWhitespace(GenericVisualOffset, "0");
+        GenericDelayOffset = StripWhitespace(GenericDelayOffset, "0");
+        GenericInterval = StripWhitespace(GenericInterval, "500");
+        GenericNumBeeps = StripWhitespace(GenericNumBeeps, "5");
+        (FixedTimers ??= new TimerSet()).Normalize();
+        if (FixedTimers.Timers.Count == 0) FixedTimers.Timers.Add(new FixedTimerEntry());
+        FixedActiveSet ??= "";
+        FixedSelectedTimer = Math.Clamp(FixedSelectedTimer, 0, FixedTimers.Timers.Count - 1);
+        FixedCheckedTimers ??= new List<int>();
+        FixedCheckedTimers.RemoveAll(index => index < 0 || index >= FixedTimers.Timers.Count);
+        if (FixedCheckedTimers.Count == 0) FixedCheckedTimers.Add(FixedSelectedTimer);
+        FixedAdjustFrames = Math.Clamp(FixedAdjustFrames, -10000, 10000);
+        IgtGame ??= "";
+        IgtFps ??= "59.7275";
+        IgtTimers ??= new List<IgtTimerEntry>();
+        IgtTimers.RemoveAll(timer => timer == null);
+        foreach (IgtTimerEntry timer in IgtTimers) timer.Normalize();
+        if (IgtTimers.Count == 0) IgtTimers.Add(new IgtTimerEntry());
+        IgtSelectedTimer = Math.Clamp(IgtSelectedTimer, 0, IgtTimers.Count - 1);
 
         ZoomPercent = Math.Clamp(ZoomPercent == 0 ? 100 : ZoomPercent, 75, 125);
 

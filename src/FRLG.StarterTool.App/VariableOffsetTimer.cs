@@ -22,6 +22,14 @@ public sealed class VariableOffsetTimer : BaseTimer
 
     private readonly MainForm _form;
 
+    public bool Generic { get; private set; }
+
+    private bool _genericLanded;
+
+    private bool _swappingProfile;
+
+    private bool Active => ReferenceEquals(StarterTool.CurrentTab, this);
+
     public VariableInfo Info;
 
     public bool Submitted;
@@ -94,8 +102,8 @@ public sealed class VariableOffsetTimer : BaseTimer
 
         _form.ButtonStart.Click += (_, _) => StarterTool.StartTimer();
         _form.ButtonStop.Click += (_, _) => StarterTool.StopTimer(false);
-        _form.ButtonPlus.Click += (_, _) => Nudge(1);
-        _form.ButtonMinus.Click += (_, _) => Nudge(-1);
+        _form.ButtonPlus.Click += (_, _) => StarterTool.CurrentTab.Nudge(1);
+        _form.ButtonMinus.Click += (_, _) => StarterTool.CurrentTab.Nudge(-1);
 
         _form.TextBoxFrame.KeyDown += (_, e) =>
         {
@@ -103,7 +111,7 @@ public sealed class VariableOffsetTimer : BaseTimer
 
             if (StarterTool.TakeIdleStart(e.KeyCode)) return;
 
-            Arm();
+            if (Active) Arm();
             e.SuppressKeyPress = true;
         };
 
@@ -119,6 +127,8 @@ public sealed class VariableOffsetTimer : BaseTimer
 
         _form.TextBoxFrame.TextChanged += (_, _) =>
         {
+            if (!Active) return;
+
             if (!_writingFrameBox) Adjusted = ReadFrameBoxAdjustment();
 
             OnDataChange();
@@ -266,12 +276,76 @@ public sealed class VariableOffsetTimer : BaseTimer
         return frames;
     }
 
+    public void SetGeneric(bool generic)
+    {
+        if (generic == Generic) return;
+
+        AppSettings settings = StarterTool.Settings;
+        CaptureSettings(settings);
+        Generic = generic;
+
+        _swappingProfile = true;
+        try
+        {
+            string fps = generic ? settings.GenericFps : settings.Fps;
+            int fpsIndex = Array.IndexOf(FpsPresets, fps);
+            _form.ComboBoxFps.SelectedIndex = fpsIndex >= 0 ? fpsIndex : generic ? Array.IndexOf(FpsPresets, "60") : 0;
+            _form.TextBoxOffset.Text = generic ? settings.GenericOffset : settings.Offset;
+            _form.TextBoxVisualOffset.Text = generic ? settings.GenericVisualOffset : settings.VisualOffset;
+            _form.TextBoxDelayOffset.Text = generic ? settings.GenericDelayOffset : settings.DelayOffset;
+            _form.TextBoxInterval.Text = generic ? settings.GenericInterval : settings.Interval;
+            _form.TextBoxBeeps.Text = generic ? settings.GenericNumBeeps : settings.NumBeeps;
+            _form.CheckBoxBeepEnabled.Checked = generic ? settings.GenericBeepEnabled : settings.BeepEnabled;
+            _form.CheckBoxFlashEnabled.Checked = generic ? settings.GenericFlashEnabled : settings.FlashEnabled;
+        }
+        finally
+        {
+            _swappingProfile = false;
+        }
+    }
+
+    public override void OnSelected(bool selected)
+    {
+        if (!selected) return;
+
+        _form.TextBoxFrame.Enabled = false;
+        _form.TextBoxFrame.Text = "";
+        _form.LabelTimer.Text = TimeText.Format(0.0, StarterTool.TimeFormat);
+        OnDataChange();
+    }
+
+    private bool RecordGenericLanding(double elapsedMs, double deltaMs, double pressLagMs)
+    {
+        double chance = VariableOffsetCalculator.HitChance(deltaMs, _landingInfo.Fps);
+        int landedFrame = VariableOffsetCalculator.LandedFrame(_landingInfo, elapsedMs, _landingAdjustedMs);
+
+        ContextSession.Log(string.Format(CultureInfo.InvariantCulture,
+            "generic landing on {0}: pressed at {1:F1} ms ({2:+0.0;-0.0;0.0} ms off), likely frame {3}, "
+            + "hit chance {4:P0} - start lag {5:F1} ms, press lag {6:F1} ms",
+            VariableOffsetCalculator.FormatFrameWithAdjustment(
+                (uint)Math.Max(_landingTargetFrame, 0),
+                VariableOffsetCalculator.FramesAdjusted(_landingAdjustedMs, _landingInfo.Fps)),
+            elapsedMs, deltaMs, landedFrame, chance, _landingStartLagMs, pressLagMs));
+
+        _genericLanded = true;
+        _form.ShowGenericLanding(
+            landedFrame,
+            _landingTargetFrame,
+            deltaMs,
+            chance,
+            VariableOffsetCalculator.FramesAdjusted(_landingAdjustedMs, _landingInfo.Fps),
+            _landingStartLagMs - pressLagMs,
+            _landingInfo.Fps);
+        return true;
+    }
+
     public override void OnTimerStart()
     {
         CurrentOffset = double.MaxValue;
         CurrentTime = 0.0;
         Submitted = false;
         _hasLandingTarget = false;
+        _genericLanded = false;
         _landingWindowClose?.Stop();
         _countdownStartMs = double.MaxValue;
         _driftCheckMs = double.MaxValue;
@@ -291,7 +365,7 @@ public sealed class VariableOffsetTimer : BaseTimer
 
         _form.TextBoxFrame.Enabled = true;
 
-        _form.UnlockTrainerId();
+        if (!Generic) _form.UnlockTrainerId();
 
         _form.ShowTimingStatus("Timer started", StarterTool.TimerStartLagMs);
 
@@ -306,6 +380,12 @@ public sealed class VariableOffsetTimer : BaseTimer
 
         OnDataChange();
         RequestArm();
+
+        if (Generic)
+        {
+            _form.FocusFrameBox();
+            return;
+        }
 
         _form.FocusTrainerId();
     }
@@ -368,7 +448,7 @@ public sealed class VariableOffsetTimer : BaseTimer
 
             _form.TrainingPanel.RoundEnded();
 
-            if (!_form.HasLanding && !_form.TrainingTabUp && !encounterStopped)
+            if (!_form.HasLanding && !_form.TrainingTabUp && !encounterStopped && !_genericLanded)
             {
                 _form.ShowTimingStatus("Timer stopped", StarterTool.TimerStopLagMs);
             }
@@ -391,7 +471,7 @@ public sealed class VariableOffsetTimer : BaseTimer
         }
     }
 
-    public bool TryRecordLanding(double pressTimeMs, double pressLagMs = 0.0)
+    public override bool TryRecordLanding(double pressTimeMs, double pressLagMs = 0.0)
     {
         if (_encounter != null) return RecordEncounterPress(pressTimeMs, pressLagMs);
 
@@ -406,6 +486,13 @@ public sealed class VariableOffsetTimer : BaseTimer
         if (Math.Abs(deltaMs) > window) return false;
 
         _hasLandingTarget = false;
+
+        if (Generic)
+        {
+            _landingWindowClose?.Stop();
+            return RecordGenericLanding(elapsedMs, deltaMs, pressLagMs);
+        }
+
         _landingWindowClose?.Stop();
 
         int countdownFrame = CountdownFrameAt(elapsedMs);
@@ -473,7 +560,8 @@ public sealed class VariableOffsetTimer : BaseTimer
             : null;
 
     public bool StartsEncounterRun =>
-        (!_encounterDone || RestartsEncounterRun)
+        Active && !Generic
+        && (!_encounterDone || RestartsEncounterRun)
         && !_form.TrainingPanel.IsRunning
         && EncounterRoute is { } route
         && route.Presses().Count > 0
@@ -627,14 +715,28 @@ public sealed class VariableOffsetTimer : BaseTimer
 
     public void CaptureSettings(AppSettings settings)
     {
-        settings.Fps = _form.ComboBoxFps.SelectedItem as string ?? settings.Fps;
-        settings.Offset = _form.TextBoxOffset.Text;
-        settings.VisualOffset = _form.TextBoxVisualOffset.Text;
-        settings.DelayOffset = _form.TextBoxDelayOffset.Text;
-        settings.Interval = _form.TextBoxInterval.Text;
-        settings.NumBeeps = _form.TextBoxBeeps.Text;
-        settings.BeepEnabled = _form.CheckBoxBeepEnabled.Checked;
-        settings.FlashEnabled = _form.CheckBoxFlashEnabled.Checked;
+        if (Generic)
+        {
+            settings.GenericFps = _form.ComboBoxFps.SelectedItem as string ?? settings.GenericFps;
+            settings.GenericOffset = _form.TextBoxOffset.Text;
+            settings.GenericVisualOffset = _form.TextBoxVisualOffset.Text;
+            settings.GenericDelayOffset = _form.TextBoxDelayOffset.Text;
+            settings.GenericInterval = _form.TextBoxInterval.Text;
+            settings.GenericNumBeeps = _form.TextBoxBeeps.Text;
+            settings.GenericBeepEnabled = _form.CheckBoxBeepEnabled.Checked;
+            settings.GenericFlashEnabled = _form.CheckBoxFlashEnabled.Checked;
+        }
+        else
+        {
+            settings.Fps = _form.ComboBoxFps.SelectedItem as string ?? settings.Fps;
+            settings.Offset = _form.TextBoxOffset.Text;
+            settings.VisualOffset = _form.TextBoxVisualOffset.Text;
+            settings.DelayOffset = _form.TextBoxDelayOffset.Text;
+            settings.Interval = _form.TextBoxInterval.Text;
+            settings.NumBeeps = _form.TextBoxBeeps.Text;
+            settings.BeepEnabled = _form.CheckBoxBeepEnabled.Checked;
+            settings.FlashEnabled = _form.CheckBoxFlashEnabled.Checked;
+        }
         settings.Volume = StarterTool.Beeps.Volume;
         settings.BeepSound = StarterTool.Beeps.Sound;
     }
@@ -702,6 +804,8 @@ public sealed class VariableOffsetTimer : BaseTimer
 
     public void OnDataChange()
     {
+        if (!Active) return;
+
         _form.RefreshTimeColumn();
 
         TimerError error = ParseInputs(out Info);
@@ -718,7 +822,7 @@ public sealed class VariableOffsetTimer : BaseTimer
 
     private void RequestArm()
     {
-        if (_armDebounce == null) return;
+        if (_armDebounce == null || !Active || _swappingProfile) return;
 
         _armDebounce.Stop();
         _armDebounce.Start();
@@ -728,7 +832,7 @@ public sealed class VariableOffsetTimer : BaseTimer
     {
         _armDebounce?.Stop();
 
-        if (!StarterTool.IsTimerRunning) return;
+        if (!StarterTool.IsTimerRunning || !Active) return;
 
         if (_encounter != null) return;
 
@@ -869,7 +973,7 @@ public sealed class VariableOffsetTimer : BaseTimer
             Info.AdvanceCorrection,
             VariableOffsetCalculator.EffectiveFrame(Info),
             _landingTargetMs,
-            VariableOffsetCalculator.TidLagFrames,
+            VariableOffsetCalculator.InputLagFrames(Info),
             CurrentOffset * 1000.0,
             Info.Offset,
             Info.DelayOffset,
@@ -954,9 +1058,9 @@ public sealed class VariableOffsetTimer : BaseTimer
 
     private void ClearFlash() => _form.LabelTimer.ClearFlash();
 
-    public void Nudge(int direction) => ChangeAudio(direction * FrameStepMultiplier);
+    public override void Nudge(int direction) => ChangeAudio(direction * FrameStepMultiplier);
 
-    private static int FrameStepMultiplier
+    internal static int FrameStepMultiplier
     {
         get
         {
@@ -991,7 +1095,8 @@ public sealed class VariableOffsetTimer : BaseTimer
 
         if (error == TimerError.NoError)
         {
-            info.AdvanceCorrection = StarterTool.Context.Correction((int)info.Frame) ?? 0;
+            info.NoInputLag = Generic;
+            if (!Generic) info.AdvanceCorrection = StarterTool.Context.Correction((int)info.Frame) ?? 0;
         }
 
         return error;
@@ -1010,15 +1115,20 @@ public sealed class VariableOffsetTimer : BaseTimer
         Arm();
     }
 
-    private TimerError ParseScheduleInputs(out VariableInfo info) => VariableOffsetCalculator.Parse(
-        "0",
-        _form.ComboBoxFps.SelectedItem as string,
-        _form.TextBoxOffset.Text,
-        _form.TextBoxVisualOffset.Text,
-        _form.TextBoxDelayOffset.Text,
-        _form.TextBoxInterval.Text,
-        _form.TextBoxBeeps.Text,
-        out info);
+    private TimerError ParseScheduleInputs(out VariableInfo info)
+    {
+        TimerError error = VariableOffsetCalculator.Parse(
+            "0",
+            _form.ComboBoxFps.SelectedItem as string,
+            _form.TextBoxOffset.Text,
+            _form.TextBoxVisualOffset.Text,
+            _form.TextBoxDelayOffset.Text,
+            _form.TextBoxInterval.Text,
+            _form.TextBoxBeeps.Text,
+            out info);
+        info.NoInputLag = Generic;
+        return error;
+    }
 
     private sealed class CueRun
     {

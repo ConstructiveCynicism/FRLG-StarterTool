@@ -32,8 +32,24 @@ public static class HotkeyExtensions
         (HotkeyAction.NpcMiss, "Miss")
     };
 
+    public static readonly (HotkeyAction Action, string Label)[] IgtActions =
+    {
+        (HotkeyAction.IgtPlay, "Play"),
+        (HotkeyAction.IgtUndo, "Undo"),
+        (HotkeyAction.IgtAdd2, "Delayer 2 +"),
+        (HotkeyAction.IgtSub2, "Delayer 2 −"),
+        (HotkeyAction.IgtAdd3, "Delayer 3 +"),
+        (HotkeyAction.IgtSub3, "Delayer 3 −"),
+        (HotkeyAction.IgtAdd4, "Delayer 4 +"),
+        (HotkeyAction.IgtSub4, "Delayer 4 −"),
+        (HotkeyAction.IgtAdd5, "Delayer 5 +"),
+        (HotkeyAction.IgtSub5, "Delayer 5 −"),
+        (HotkeyAction.IgtAdd6, "Delayer 6 +"),
+        (HotkeyAction.IgtSub6, "Delayer 6 −")
+    };
+
     public static IEnumerable<(HotkeyAction Action, string Label)> AllActions =>
-        Actions.Concat(ContextActions);
+        Actions.Concat(ContextActions).Concat(IgtActions);
 
     public static bool IsHeld(this Hotkey hotkey)
         => hotkey.IsBound

@@ -1,3 +1,4 @@
+using FRLG.StarterTool.App.Capture;
 using FRLG.StarterTool.Core.Settings;
 
 namespace FRLG.StarterTool.App;
@@ -37,7 +38,8 @@ public partial class MainForm
         string route = SelectedEncounterRoute;
         bool countdown = StarterTool.VariableOffset.EncounterRunLive;
         bool next = route.Length > 0 && !StarterTool.IsTimerRunning && StarterTool.VariableOffset.StartsEncounterRun;
-        bool show = route.Length > 0 && (next || countdown) && !CaptureView.Visible;
+        bool loading = !countdown && !StarterTool.IsTimerRunning && StarterTool.Capture.Pending;
+        bool show = route.Length > 0 && (next || countdown || loading) && !CaptureView.Visible;
 
         if (show != ManipView.Visible)
         {
@@ -73,11 +75,18 @@ public partial class MainForm
         }
 
         double now = Win32.GetTime();
+        bool recording = StarterTool.Settings.VideoSourceKind == VideoSourceKind.Recording;
         bool disconnected = live
             && ((StarterTool.Capture.SourceError != null && now - _liveSinceMs > OpeningGraceMs)
-                || now - _lastLivePictureMs > DisconnectedAfterMs);
-        ManipView.SetCaption(
-            route + (countdown ? " - frozen during manip" : disconnected ? " - disconnected" : live ? " - live" : ""),
+                || (!recording && now - _lastLivePictureMs > DisconnectedAfterMs));
+        bool inactive = recording && StarterTool.Settings.VideoEnabled
+            && StarterTool.Capture.SourceError == RecordingFrameSource.InactiveError;
+        if (inactive && !loading)
+        {
+            ManipView.SetCaption(route + " - " + RecordingFrameSource.InactiveError, true);
+        }
+        else ManipView.SetCaption(
+            route + (countdown ? " - frozen during manip" : loading ? " - loading capture…" : disconnected ? " - disconnected" : !live ? "" : recording ? " - recording" : " - live"),
             disconnected);
         ManipView.SetMessage(
             !StarterTool.Settings.VideoEnabled ? "Title-Press Capture is off (Settings, Video)"

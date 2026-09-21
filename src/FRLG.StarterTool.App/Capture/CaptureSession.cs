@@ -23,6 +23,10 @@ internal sealed class CaptureSession : IDisposable
 
     private const double CalibrationTimeoutMs = 15000.0;
 
+    private const double AlignSearchMs = 1500.0;
+
+    private const double RecordingLagMs = 10000.0;
+
     private double MinIntervalMs => _frameMs / 2.0 - 1.0;
 
     private const double LiveIntervalMs = 1000.0;
@@ -53,6 +57,10 @@ internal sealed class CaptureSession : IDisposable
     private bool _pressed;
     private bool _calibrating;
     private bool _whiteSeen;
+    private bool _aligning;
+    private double _whiteMs;
+    private int _scanRun;
+    private double _lastKeptMs;
     private bool _armed;
     private Action<Bitmap>? _preview;
     private double _lastPreviewMs;
@@ -69,6 +77,11 @@ internal sealed class CaptureSession : IDisposable
     public event Action<CaptureResult>? Ready;
 
     public bool IsOpen => _source != null;
+
+    public bool Pending
+    {
+        get { lock (_lock) return _armed && _deliver != null; }
+    }
 
     public string? SourceError => _source?.Error;
 
@@ -141,6 +154,8 @@ internal sealed class CaptureSession : IDisposable
             _delayMs = delayMs;
             _calibrating = delayMs == 0;
             _whiteSeen = false;
+            _aligning = false;
+            _scanRun++;
             _armed = _source != null;
             _claimed = 0;
             _lost = 0;
@@ -154,7 +169,7 @@ internal sealed class CaptureSession : IDisposable
             return;
         }
 
-        if (_calibrating)
+        if (_calibrating || _source is RecordingFrameSource)
         {
             _ring.Disarm();
         }
@@ -173,6 +188,7 @@ internal sealed class CaptureSession : IDisposable
         lock (_lock)
         {
             _armed = false;
+            _scanRun++;
             _deliver?.Dispose();
             _deliver = null;
         }
@@ -206,6 +222,12 @@ internal sealed class CaptureSession : IDisposable
             _pressMs = stampMs;
             _pressed = pressed;
 
+            if (_source is RecordingFrameSource recording)
+            {
+                SettleRecording(recording, stampMs, delayMs);
+                return;
+            }
+
             double now = Win32.GetTime();
             double marginMs = FittedSpanMs(2 * PressMarginMs) / 2.0;
             double spanMs = FittedSpanMs(CalibrationSpanMs);
@@ -226,6 +248,93 @@ internal sealed class CaptureSession : IDisposable
             int dueIn = (int)Math.Clamp(Math.Ceiling(waitMs), 0, int.MaxValue);
             _deliver = new System.Threading.Timer(_ => Deliver(delayMs, whiteSeen: false), null, dueIn, Timeout.Infinite);
         }
+    }
+
+    private void SettleRecording(RecordingFrameSource recording, double stampMs, int delayMs)
+    {
+        _aligning = !_calibrating && _pressed && !recording.Aligned;
+
+        double fromMs, toMs;
+        if (_calibrating)
+        {
+            fromMs = stampMs + CalibrationSkipMs;
+            toMs = stampMs + CalibrationTimeoutMs;
+        }
+        else if (_aligning)
+        {
+            fromMs = Math.Max(stampMs + delayMs - AlignSearchMs, stampMs + CalibrationSkipMs);
+            toMs = stampMs + delayMs + AlignSearchMs;
+        }
+        else
+        {
+            double marginMs = FittedSpanMs(2 * PressMarginMs) / 2.0;
+            if (marginMs < PressMarginMs) _spanNote = string.Format(CultureInfo.InvariantCulture, "memory holds ±{0:F0} ms", marginMs);
+            fromMs = stampMs + delayMs - marginMs;
+            toMs = stampMs + delayMs + marginMs;
+        }
+
+        int run = _scanRun;
+        int dueIn = (int)Math.Clamp(Math.Ceiling(fromMs - Win32.GetTime()), 0, int.MaxValue);
+        _deliver = new System.Threading.Timer(_ =>
+        {
+            var thread = new Thread(() => ScanRecording(recording, run, fromMs, toMs, delayMs))
+            {
+                IsBackground = true,
+                Name = "Recording scan",
+                Priority = ThreadPriority.BelowNormal,
+            };
+            thread.Start();
+        }, null, dueIn, Timeout.Infinite);
+    }
+
+    private void ScanRecording(RecordingFrameSource recording, int run, double fromMs, double toMs, int delayMs)
+    {
+        bool fade;
+        lock (_lock)
+        {
+            if (!_armed || run != _scanRun) return;
+            fade = _calibrating || _aligning;
+        }
+        if (fade) _ring.KeepRolling(FittedSpanMs(CalibrationSpanMs), fromMs, MinIntervalMs);
+        else _ring.KeepWindow(fromMs, toMs, MinIntervalMs);
+
+        bool Live()
+        {
+            lock (_lock) return _armed && run == _scanRun;
+        }
+        bool FadeDone(double atMs)
+        {
+            lock (_lock) return _whiteSeen && atMs > _whiteMs + WhiteFade.PlateauMs + 100;
+        }
+
+        try
+        {
+            double nextMs = fromMs;
+            double reachedMs = double.NaN;
+            while (Live())
+            {
+                bool complete = recording.Holds(toMs + 100) || Win32.GetTime() > toMs + RecordingLagMs;
+                recording.Scan(nextMs, toMs, () => Live() && !FadeDone(Volatile.Read(ref _lastKeptMs)), out double lastMs);
+                if (!double.IsNaN(lastMs))
+                {
+                    reachedMs = lastMs;
+                    nextMs = lastMs + 0.5;
+                }
+                if (!Live()) return;
+                if (!double.IsNaN(reachedMs) && (FadeDone(reachedMs) || reachedMs >= toMs - _frameMs)) break;
+                if (complete) break;
+                Thread.Sleep(500);
+            }
+        }
+        catch (Exception e)
+        {
+            ContextSession.Log("capture: the recording could not be read - " + e.Message);
+        }
+
+        bool whiteSeen;
+        lock (_lock) whiteSeen = _whiteSeen;
+        _ring.Freeze();
+        Deliver(delayMs, whiteSeen);
     }
 
     private void OnFrame(double stampMs, IRawFrame raw)
@@ -249,6 +358,10 @@ internal sealed class CaptureSession : IDisposable
                         try
                         {
                             if (_live is { } show) show(ToBitmap(shown));
+                        }
+                        catch (Exception e)
+                        {
+                            ShowFailed(e);
                         }
                         finally
                         {
@@ -279,6 +392,10 @@ internal sealed class CaptureSession : IDisposable
                         {
                             if (_preview is { } show) show(ToBitmap(full));
                         }
+                        catch (Exception e)
+                        {
+                            ShowFailed(e);
+                        }
                         finally
                         {
                             _previewPool.Return(bytes);
@@ -296,6 +413,7 @@ internal sealed class CaptureSession : IDisposable
     private void Keep(double stampMs, byte[] bytes, Size size)
     {
         var frame = new CapturedFrame(Interlocked.Increment(ref _seq), stampMs, size.Width, size.Height, bytes);
+        Volatile.Write(ref _lastKeptMs, stampMs);
         if (!_ring.Add(frame))
         {
             _pool.Return(bytes);
@@ -308,7 +426,7 @@ internal sealed class CaptureSession : IDisposable
     {
         lock (_lock)
         {
-            if (!_armed || !_calibrating || !_pressed || _whiteSeen || frame.StampMs <= _pressMs) return;
+            if (!_armed || !(_calibrating || _aligning) || !_pressed || _whiteSeen || frame.StampMs <= _pressMs) return;
         }
         if (!WhiteFade.IsWhite(frame)) return;
 
@@ -316,6 +434,8 @@ internal sealed class CaptureSession : IDisposable
         {
             if (!_armed || _whiteSeen) return;
             _whiteSeen = true;
+            _whiteMs = frame.StampMs;
+            if (_source is RecordingFrameSource) return;
             int delayMs = _delayMs;
             _deliver?.Dispose();
             _deliver = new System.Threading.Timer(_ =>
@@ -346,6 +466,23 @@ internal sealed class CaptureSession : IDisposable
                     ? "Calibration: fade found"
                     : "Calibration: no fade";
                 if (target < 0) target = FrameRing.IndexAt(frames, _pressMs + delayMs);
+                else if (_source is RecordingFrameSource calibrated) calibrated.Align(0);
+            }
+            else if (_aligning)
+            {
+                int fadeAt = whiteSeen ? WhiteFade.LastBeforeComplete(frames, _pressMs) : -1;
+                if (fadeAt >= 0 && _source is RecordingFrameSource recording)
+                {
+                    double shiftMs = SlotMs(frames, fadeAt, _frameMs) - (_pressMs + delayMs);
+                    recording.Align(-shiftMs);
+                    for (int i = 0; i < frames.Count; i++) frames[i] = frames[i] with { StampMs = frames[i].StampMs - shiftMs };
+                    note = string.Format(CultureInfo.InvariantCulture, "Recording aligned on this fade ({0:+0;-0} ms)", -shiftMs);
+                }
+                else
+                {
+                    note = "Recording not aligned - no fade found";
+                }
+                target = FrameRing.IndexAt(frames, _pressMs + delayMs);
             }
             else
             {
@@ -394,11 +531,21 @@ internal sealed class CaptureSession : IDisposable
     public static double TargetSlotMs(CaptureResult result)
     {
         if (!result.Calibration || result.TargetIndex < 0) return result.PressMs + result.DelayMs;
+        return SlotMs(result.Frames, result.TargetIndex, result.FrameMs);
+    }
 
-        IReadOnlyList<CapturedFrame> frames = result.Frames;
-        double on = frames[result.TargetIndex].StampMs;
-        double off = result.TargetIndex + 1 < frames.Count ? frames[result.TargetIndex + 1].StampMs : on + result.FrameMs;
-        return Math.Min((on + off) / 2.0, on + result.FrameMs / 2.0);
+    private static double SlotMs(IReadOnlyList<CapturedFrame> frames, int index, double frameMs)
+    {
+        double on = frames[index].StampMs;
+        double off = index + 1 < frames.Count ? frames[index + 1].StampMs : on + frameMs;
+        return Math.Min((on + off) / 2.0, on + frameMs / 2.0);
+    }
+
+    private int _showFailures;
+
+    private void ShowFailed(Exception e)
+    {
+        if (Interlocked.Increment(ref _showFailures) == 1) ContextSession.Log("capture: could not show a frame - " + e);
     }
 
     public static Bitmap ToBitmap(CapturedFrame frame)
