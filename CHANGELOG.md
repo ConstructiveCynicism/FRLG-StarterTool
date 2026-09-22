@@ -1,3 +1,6 @@
+﻿### v2.3.1
+- Encounter Manip accuracy changes: 1/14 complete failure chance fixed, 1/2 as likely for duplicate fence guys
+
 ### v2.3.0
 - Added generic Flowtimer based timers, requested for Gen 3
 - Added video capture support for active OBS recordings (use .mkv files and default file naming)

@@ -35,7 +35,7 @@ public static class FrameSweep
 
     private const int MostHits = 12;
 
-    private const int StreamShiftRadius = 3;
+    private const int StreamShiftRadius = 1;
 
     public static SweepResult Lab(RunRecord run, IReadOnlyList<StripToken>? aide,
         IReadOnlyList<StripToken>? scientist, int radius = DefaultRadius,
@@ -61,7 +61,7 @@ public static class FrameSweep
 
         foreach (int observable in Windows(run))
         {
-            for (int shift = -StreamShiftRadius; shift <= StreamShiftRadius; shift++)
+            for (int shift = -StreamShiftRadius; shift <= 0; shift++)
             {
                 int reach = shift == 0 ? radius : StreamShiftRadius;
 

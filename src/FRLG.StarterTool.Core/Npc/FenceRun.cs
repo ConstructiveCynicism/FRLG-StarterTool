@@ -101,6 +101,8 @@ public static class FenceRun
 
     public const double PreReadPrior = 66.0 / 76.0;
 
+    public const bool RespawnReadsPost = true;
+
     public static IReadOnlyList<FenceCandidate> Build(int seed,
         IEnumerable<int> exitFrames, IEnumerable<int> oakFrames, int manualAdvances = 0,
         FenceGuyParity parity = FenceGuyParity.Post) =>
@@ -120,9 +122,7 @@ public static class FenceRun
             FenceGuyParity.Both => new[]
             {
                 (SpawnRead.PostVBlank, SpawnRead.PostVBlank),
-                (SpawnRead.PostVBlank, SpawnRead.PreVBlank),
                 (SpawnRead.PreVBlank, SpawnRead.PostVBlank),
-                (SpawnRead.PreVBlank, SpawnRead.PreVBlank),
             },
             _ => new[] { (SpawnRead.PostVBlank, SpawnRead.PostVBlank) },
         };

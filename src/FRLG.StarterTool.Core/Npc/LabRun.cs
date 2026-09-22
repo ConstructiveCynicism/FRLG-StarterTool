@@ -71,7 +71,7 @@ public static class LabRun
 {
     public const int HorizonFrames = 1200;
 
-    public const int StreamShiftRadius = 2;
+    public const int StreamShiftRadius = 1;
 
     public const int StreamShiftNarrowedParents = 1;
 
@@ -111,11 +111,7 @@ public static class LabRun
         var shifts = new List<int> { 0 };
         if (fence.Count <= StreamShiftNarrowedParents)
         {
-            for (int s = 1; s <= StreamShiftRadius; s++)
-            {
-                shifts.Add(s);
-                shifts.Add(-s);
-            }
+            for (int s = 1; s <= StreamShiftRadius; s++) shifts.Add(-s);
         }
 
         int perShift = fence.Count * perFence;

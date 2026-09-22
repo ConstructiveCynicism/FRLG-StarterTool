@@ -64,7 +64,7 @@ public static class TroubleshootSearch
 
     public const int MostOptions = 5;
 
-    public const int StreamShiftRadius = 3;
+    public const int StreamShiftRadius = 1;
 
     private static readonly SpawnRead[] Reads = { SpawnRead.PostVBlank, SpawnRead.PreVBlank };
 
@@ -171,9 +171,9 @@ public static class TroubleshootSearch
 
                     if (!shiftable || Math.Abs(lab - labCentre) > StreamShiftRadius) continue;
 
-                    for (int shift = -StreamShiftRadius; shift <= StreamShiftRadius; shift++)
+                    for (int shift = -StreamShiftRadius; shift < 0; shift++)
                     {
-                        if (shift != 0) pairs.Add((parent, lab, observable, shift));
+                        pairs.Add((parent, lab, observable, shift));
                     }
                 }
             }

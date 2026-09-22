@@ -527,7 +527,7 @@ public sealed class NpcGridPanel : Control
         LabText,
     }
 
-    public const int LabTextCueFrames = RouteTimeline.LeadWalkFatManFreezeFrames + 400;
+    public const int LabTextCueFrames = RouteTimeline.LeadWalkFatManFreezeFrames + 401;
 
     private CueKind Cue => _anchors switch
     {

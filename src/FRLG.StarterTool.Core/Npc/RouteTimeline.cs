@@ -34,7 +34,7 @@ public static class RouteTimeline
 
     public const int LeadWalkFatManRespawnFrames = 145;
 
-    public const int LeadWalkFatManFreezeFrames = 400;
+    public const int LeadWalkFatManFreezeFrames = 399;
 
     public const int LeadWalkFatManVisibleFrames = 201;
 
