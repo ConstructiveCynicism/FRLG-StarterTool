@@ -178,7 +178,7 @@ public sealed class VariableOffsetTimer : BaseTimer
 
     public void Alert()
     {
-        if (_form.CheckBoxBeepEnabled.Checked) StarterTool.Beeps.QueueBeeps(new[] { 0.0 }, 1);
+        if (_form.CheckBoxBeepEnabled.Checked) StarterTool.Beeps.QueueBeeps(Win32.GetTime(), new[] { 0.0 }, 1);
         if (_form.CheckBoxFlashEnabled.Checked) _form.LabelTimer.Alert(AlertFadeMs);
     }
 
@@ -601,11 +601,12 @@ public sealed class VariableOffsetTimer : BaseTimer
             StarterTool.Capture.Disarm();
         }
 
-        double elapsedMs = Win32.GetTime() - StarterTool.TimerStart;
+        double now = Win32.GetTime();
+        double elapsedMs = now - StarterTool.TimerStart;
         double[] beeps = _form.CheckBoxBeepEnabled.Checked
             ? _encounter.BeepSchedule(elapsedMs)
             : Array.Empty<double>();
-        StarterTool.Beeps.QueueBeeps(beeps);
+        StarterTool.Beeps.QueueBeeps(now, beeps);
 
         double[] flashes = _form.CheckBoxFlashEnabled.Checked
             ? _encounter.FlashSchedule()
@@ -792,8 +793,9 @@ public sealed class VariableOffsetTimer : BaseTimer
         }
 
         _encounterLastTargetTime = StarterTool.TimerStart + _encounter.LastPressMs;
-        double sinceStartMs = Win32.GetTime() - StarterTool.TimerStart;
-        StarterTool.Beeps.QueueBeeps(_form.CheckBoxBeepEnabled.Checked
+        double now = Win32.GetTime();
+        double sinceStartMs = now - StarterTool.TimerStart;
+        StarterTool.Beeps.QueueBeeps(now, _form.CheckBoxBeepEnabled.Checked
             ? _encounter.BeepSchedule(sinceStartMs)
             : Array.Empty<double>());
         _form.LabelTimer.SetSchedule(
@@ -842,7 +844,8 @@ public sealed class VariableOffsetTimer : BaseTimer
             return;
         }
 
-        double elapsedMs = Win32.GetTime() - StarterTool.TimerStart;
+        double now = Win32.GetTime();
+        double elapsedMs = now - StarterTool.TimerStart;
 
         bool full = VariableOffsetCalculator.CanSubmit(Info, CurrentTime);
         double finalBeepMs = VariableOffsetCalculator.BeepOffsetMs(Info, elapsedMs, Adjusted);
@@ -860,7 +863,7 @@ public sealed class VariableOffsetTimer : BaseTimer
             ? ArmRemaining(full, finalBeepMs, beepsPlayed)
             : Array.Empty<double>();
 
-        QueueAudio(schedule);
+        QueueAudio(now, schedule);
 
         double audioLagMs = Win32.GetTime() - (StarterTool.TimerStart + elapsedMs);
         _audioStartPending = schedule.Length > 0;
@@ -922,12 +925,12 @@ public sealed class VariableOffsetTimer : BaseTimer
         return times;
     }
 
-    private void QueueAudio(IReadOnlyList<double> countdown)
+    private void QueueAudio(double now, IReadOnlyList<double> countdown)
     {
-        double[] cue = CueSchedule();
+        double[] cue = CueSchedule(StarterTool.Settings.AudioScheduling == AudioScheduling.Legacy ? null : now);
         if (cue.Length == 0)
         {
-            StarterTool.Beeps.QueueBeeps(countdown);
+            StarterTool.Beeps.QueueBeeps(now, countdown);
             return;
         }
 
@@ -935,24 +938,25 @@ public sealed class VariableOffsetTimer : BaseTimer
         both.AddRange(cue);
         both.AddRange(countdown);
 
-        StarterTool.Beeps.QueueBeeps(both, cue.Length);
+        StarterTool.Beeps.QueueBeeps(now, both, cue.Length);
     }
 
     private void QueueCueOnly()
     {
-        double[] cue = CueSchedule();
+        double now = Win32.GetTime();
+        double[] cue = CueSchedule(StarterTool.Settings.AudioScheduling == AudioScheduling.Legacy ? null : now);
 
-        if (cue.Length > 0) StarterTool.Beeps.QueueBeeps(cue, cue.Length);
+        if (cue.Length > 0) StarterTool.Beeps.QueueBeeps(now, cue, cue.Length);
         else StarterTool.Beeps.ClearPending();
     }
 
-    private double[] CueSchedule()
+    private double[] CueSchedule(double? now)
     {
         if (!_form.CheckBoxBeepEnabled.Checked) return Array.Empty<double>();
         if (StarterTool.Context.CuePressMs is not { } cue) return Array.Empty<double>();
         if (ParseScheduleInputs(out VariableInfo info) != TimerError.NoError) return Array.Empty<double>();
 
-        double elapsedMs = Win32.GetTime() - StarterTool.TimerStart;
+        double elapsedMs = (now ?? Win32.GetTime()) - StarterTool.TimerStart;
         double finalBeepMs = cue + VariableOffsetCalculator.TidLagFrames / info.Fps * 1000.0
             + info.Offset - elapsedMs;
 

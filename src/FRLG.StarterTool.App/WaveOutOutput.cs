@@ -2,6 +2,7 @@ using System.Runtime.InteropServices;
 
 namespace FRLG.StarterTool.App;
 
+// waveOut cannot place beeps on the device clock because it has no position and QPC pairing.
 internal sealed class WaveOutOutput : IBeepOutput
 {
     private const int BytesPerFrame = BeepPlayer.NumChannels * BeepPlayer.BytesPerSample;

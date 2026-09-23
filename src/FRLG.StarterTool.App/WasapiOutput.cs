@@ -1,9 +1,10 @@
 using System.Globalization;
 using System.Runtime.InteropServices;
+using FRLG.StarterTool.Core.Audio;
 
 namespace FRLG.StarterTool.App;
 
-internal sealed class WasapiOutput : IBeepOutput
+internal sealed partial class WasapiOutput : IBeepOutput
 {
     private const int BytesPerFrame = BeepPlayer.NumChannels * BeepPlayer.BytesPerSample;
 
@@ -20,6 +21,37 @@ internal sealed class WasapiOutput : IBeepOutput
     private double _periodMs;
     private MixFormat _mix;
     private byte[]? _scratch;
+
+    private readonly bool _deviceClock;
+    private DeviceBeepMixer? _mixer;
+    private float[] _mixed = Array.Empty<float>();
+    private Schedule? _schedule;
+    private Schedule? _appliedSchedule;
+    private ScheduleTiming? _scheduleTiming;
+    private int _stopGeneration;
+    private long? _scheduleFirstFrame;
+
+    public double? ScheduleStartLatencyMs
+    {
+        get
+        {
+            ScheduleTiming? timing = Volatile.Read(ref _scheduleTiming);
+            return timing != null && ReferenceEquals(timing.Schedule, Volatile.Read(ref _schedule))
+                ? timing.LatencyMs : null;
+        }
+    }
+    public string DeviceName { get; private set; } = "";
+    public string FormatDescription => _mix.Describe();
+    public double EnginePeriodMs => _periodMs;
+
+    private sealed record Schedule(ScheduledBeep[] Beeps, double WrittenMs, int StopGeneration);
+    private sealed record ScheduleTiming(Schedule Schedule, double LatencyMs);
+
+    public void ScheduleBeeps(ScheduledBeep[] beeps, double writtenMs, bool finishStarted = true)
+    {
+        if (!finishStarted) Interlocked.Increment(ref _stopGeneration);
+        Volatile.Write(ref _schedule, new Schedule(beeps, writtenMs, Volatile.Read(ref _stopGeneration)));
+    }
 
     private byte[]? _pcm;
     private double _sourceFrame;
@@ -43,9 +75,10 @@ internal sealed class WasapiOutput : IBeepOutput
 
     public event Action? DeviceChanged;
 
-    private WasapiOutput(Action<string> log)
+    private WasapiOutput(Action<string> log, bool deviceClock)
     {
         _log = log;
+        _deviceClock = deviceClock;
     }
 
     public bool IsOpen => _feed != null && !_stopping;
@@ -54,9 +87,9 @@ internal sealed class WasapiOutput : IBeepOutput
 
     public bool NeedsReopen => _needsReopen;
 
-    public static WasapiOutput? Open(double periodMs, Action<string> log)
+    public static WasapiOutput? Open(double periodMs, Action<string> log, bool deviceClock = false)
     {
-        var output = new WasapiOutput(log);
+        var output = new WasapiOutput(log, deviceClock);
         try
         {
             if (output.Initialize(periodMs)) return output;
@@ -105,6 +138,7 @@ internal sealed class WasapiOutput : IBeepOutput
 
     private bool InitializeOn(IMMDevice device, double periodMs)
     {
+        DeviceName = ReadDeviceName(device);
         IntPtr ownFormat = AllocOwnFormat();
         IntPtr mixFormat = IntPtr.Zero;
         try
@@ -213,6 +247,14 @@ internal sealed class WasapiOutput : IBeepOutput
             && audioClock.GetFrequency(out _clockFrequency) >= 0 && _clockFrequency > 0)
         {
             _clock = audioClock;
+        }
+
+        if (_deviceClock && _clock == null) return false;
+        if (_deviceClock)
+        {
+            _mixer = new DeviceBeepMixer(_mix.SampleRate);
+            _mixed = new float[_bufferFrames * 2];
+            _scratch = new byte[_bufferFrames * _mix.BytesPerFrame];
         }
 
         _event = new AutoResetEvent(false);
@@ -337,6 +379,11 @@ internal sealed class WasapiOutput : IBeepOutput
 
     private void Fill()
     {
+        if (_deviceClock && _feed != null)
+        {
+            FillScheduled();
+            return;
+        }
         Check(_client.GetCurrentPadding(out uint padding));
         if (padding >= _targetFrames) return;
         uint frames = _targetFrames - padding;
@@ -371,6 +418,42 @@ internal sealed class WasapiOutput : IBeepOutput
         if (copyFrames > 0) _sourceFrame += copyFrames * _mix.SourceStep;
     }
 
+    private void FillScheduled()
+    {
+        Check(_clock!.GetFrequency(out ulong frequency));
+        Check(_clock.GetPosition(out ulong position, out ulong qpcPosition));
+        Check(_client.GetCurrentPadding(out uint padding));
+        double clockFrame = position * (double)_mix.SampleRate / frequency;
+        double clockMs = Win32.SystemRelativeToMs(TimeSpan.FromTicks((long)qpcPosition), out double drift);
+        double framesPerMs = _mix.SampleRate * drift / 1000.0;
+        // Written frames and IAudioClock positions share the stream's origin.
+        long firstFrame = _totalFedFrames;
+        Schedule? schedule = Volatile.Read(ref _schedule);
+        if (!ReferenceEquals(schedule, _appliedSchedule) && schedule != null)
+        {
+            _mixer!.Replace(schedule.Beeps, clockFrame, _appliedSchedule?.StopGeneration == schedule.StopGeneration);
+            _appliedSchedule = schedule;
+            _scheduleFirstFrame = null;
+        }
+        if (_scheduleFirstFrame is long anchor && clockFrame > anchor && schedule is { Beeps.Length: > 0 }
+            && !ReferenceEquals(_scheduleTiming?.Schedule, schedule))
+        {
+            Volatile.Write(ref _scheduleTiming, new ScheduleTiming(schedule,
+                DeviceBeepMixer.FrameTime(anchor, clockMs, clockFrame, framesPerMs) - schedule.WrittenMs));
+        }
+        if (padding >= _targetFrames) return;
+        if (schedule != null) _scheduleFirstFrame ??= firstFrame;
+        uint frames = _targetFrames - padding;
+        Span<float> mixed = _mixed.AsSpan(0, (int)frames * 2);
+        _mixer!.Mix(mixed, firstFrame, clockMs, clockFrame, framesPerMs,
+            late => _log($"audio: beep started {late:F3} ms late"));
+        _mix.Encode(mixed, _scratch!);
+        Check(_render.GetBuffer(frames, out IntPtr data));
+        Marshal.Copy(_scratch!, 0, data, (int)frames * _mix.BytesPerFrame);
+        Check(_render.ReleaseBuffer(frames, 0));
+        _totalFedFrames += frames;
+    }
+
     private (double clock, double pull) ClockAndPull()
     {
         double clock = double.NaN;
@@ -382,7 +465,8 @@ internal sealed class WasapiOutput : IBeepOutput
         return (clock, _totalFedFrames - padding);
     }
 
-    private bool Playing() => _pcm != null && _mix.FramesAvailable(_pcm, _sourceFrame, 1) > 0;
+    private bool Playing() => _deviceClock ? _mixer!.IsPlaying(_totalFedFrames)
+        : _pcm != null && _mix.FramesAvailable(_pcm, _sourceFrame, 1) > 0;
 
     private void Judge(double baseClock, double basePull)
     {
@@ -471,6 +555,11 @@ internal sealed class WasapiOutput : IBeepOutput
 
     public void Stop()
     {
+        if (_deviceClock)
+        {
+            ScheduleBeeps(Array.Empty<ScheduledBeep>(), Win32.GetTime(), false);
+            return;
+        }
         lock (_lock)
         {
             _pcm = null;
@@ -678,6 +767,21 @@ internal sealed class WasapiOutput : IBeepOutput
                 for (int c = 2; c < Channels; c++)
                 {
                     Array.Clear(dest, dst + c * outSample, outSample);
+                }
+            }
+        }
+
+        public void Encode(ReadOnlySpan<float> stereo, byte[] dest)
+        {
+            int sampleBytes = BitsPerSample / 8;
+            for (int frame = 0; frame < stereo.Length / 2; frame++)
+            {
+                int at = frame * BytesPerFrame;
+                float left = stereo[frame * 2], right = stereo[frame * 2 + 1];
+                for (int channel = 0; channel < Channels; channel++)
+                {
+                    float value = Channels == 1 ? (left + right) / 2 : channel == 0 ? left : channel == 1 ? right : 0;
+                    WriteSample(dest, at + channel * sampleBytes, (short)Math.Clamp(value * 32768, short.MinValue, short.MaxValue), sampleBytes);
                 }
             }
         }

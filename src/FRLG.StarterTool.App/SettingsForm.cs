@@ -34,6 +34,7 @@ public sealed class SettingsForm : Form
         "Beep Sound",
         "Volume",
         "Output",
+        "Scheduling",
         "Clipboard Format",
         "Time Format",
         "Nature and Frame",
@@ -369,12 +370,44 @@ public sealed class SettingsForm : Form
         outputBox.SelectedIndexChanged += (_, _) =>
         {
             _settings.AudioOutput = (AudioOutput)outputBox.SelectedIndex;
-            StarterTool.Beeps.Configure(_settings.AudioOutput, _settings.AudioPeriodMs);
+            StarterTool.Beeps.Configure(_settings.AudioOutput, _settings.AudioPeriodMs, _settings.AudioScheduling);
         };
         Controls.Add(outputLabel);
         Controls.Add(outputBox);
 
-        y = outputBox.Bottom + Scaled(SectionGap);
+        var schedulingBox = new ThemedComboBox
+        {
+            Location = new Point(comboX, outputBox.Bottom + Scaled(RowGap)),
+            Size = new Size(comboWidth, Scaled(23)),
+            DropDownStyle = ComboBoxStyle.DropDownList
+        };
+        schedulingBox.Items.AddRange(new object[] { "Device clock", "Legacy" });
+        schedulingBox.SelectedIndex = (int)_settings.AudioScheduling;
+        schedulingBox.SelectedIndexChanged += (_, _) =>
+        {
+            _settings.AudioScheduling = (AudioScheduling)schedulingBox.SelectedIndex;
+            StarterTool.Beeps.Configure(_settings.AudioOutput, _settings.AudioPeriodMs, _settings.AudioScheduling);
+        };
+        Controls.Add(new Label
+        {
+            Text = "Scheduling",
+            Location = new Point(Scaled(LeftMargin), schedulingBox.Top + Scaled(4)),
+            AutoSize = true
+        });
+        Controls.Add(schedulingBox);
+        var activeOutput = new Label
+        {
+            Text = "Active output: " + StarterTool.Beeps.OutputDescription,
+            Location = new Point(Scaled(LeftMargin), schedulingBox.Bottom + Scaled(RowGap)),
+            AutoSize = true
+        };
+        Controls.Add(activeOutput);
+        var audioStatusTimer = new System.Windows.Forms.Timer { Interval = 500 };
+        audioStatusTimer.Tick += (_, _) => activeOutput.Text = "Active output: " + StarterTool.Beeps.OutputDescription;
+        audioStatusTimer.Start();
+        Disposed += (_, _) => audioStatusTimer.Dispose();
+
+        y = activeOutput.Bottom + Scaled(SectionGap);
         Label inputHeader = AddSectionHeader("Input", y);
         y = inputHeader.Bottom + Scaled(RowGap);
 

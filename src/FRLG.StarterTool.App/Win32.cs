@@ -41,9 +41,8 @@ public static class Win32
     public const uint WM_QUIT = 0x0012;
 
     private static double _frequency = 1.0;
-    private static double _frequencyDrifted = 1.0;
-    private static long _originTicks;
-    private static double _originMs;
+    private sealed record ClockMapping(double OriginMs, long OriginTicks, double FrequencyDrifted, double Drift);
+    private static ClockMapping _clockMapping = new(0, 0, 1, 1);
     private static bool _highResolutionTimer;
     private static double _tickGranularityMs = 16.0;
 
@@ -97,7 +96,8 @@ public static class Win32
     {
         QueryPerformanceFrequency(out long freq);
         _frequency = freq / 1000.0;
-        _frequencyDrifted = _frequency * Drift;
+        ClockMapping mapping = Volatile.Read(ref _clockMapping);
+        Volatile.Write(ref _clockMapping, mapping with { FrequencyDrifted = _frequency * mapping.Drift });
 
         _highResolutionTimer = timeBeginPeriod(1) == 0;
 
@@ -181,27 +181,34 @@ public static class Win32
     public static double GetTime()
     {
         QueryPerformanceCounter(out long timeStamp);
-        return _originMs + (timeStamp - _originTicks) / _frequencyDrifted;
+        return QpcToMs(timeStamp);
     }
 
-    public static double QpcToMs(long timeStamp) => _originMs + (timeStamp - _originTicks) / _frequencyDrifted;
-
-    public static double SystemRelativeToMs(TimeSpan systemRelativeTime)
+    public static double QpcToMs(long timeStamp)
     {
-        long counts = (long)(systemRelativeTime.Ticks / 10_000.0 * _frequency);
-        return QpcToMs(counts);
+        ClockMapping mapping = Volatile.Read(ref _clockMapping);
+        return mapping.OriginMs + (timeStamp - mapping.OriginTicks) / mapping.FrequencyDrifted;
     }
 
-    public static double Drift { get; private set; } = 1.0;
+    public static double SystemRelativeToMs(TimeSpan systemRelativeTime) => SystemRelativeToMs(systemRelativeTime, out _);
+
+    public static double SystemRelativeToMs(TimeSpan systemRelativeTime, out double drift)
+    {
+        ClockMapping mapping = Volatile.Read(ref _clockMapping);
+        long counts = (long)(systemRelativeTime.Ticks / 10_000.0 * _frequency);
+        drift = mapping.Drift;
+        return mapping.OriginMs + (counts - mapping.OriginTicks) / mapping.FrequencyDrifted;
+    }
+
+    public static double Drift => Volatile.Read(ref _clockMapping).Drift;
 
     public static void SetDrift(double drift)
     {
         double next = Core.Timing.DriftMonitor.IsPlausible(drift) ? drift : 1.0;
         QueryPerformanceCounter(out long now);
-        _originMs += (now - _originTicks) / _frequencyDrifted;
-        _originTicks = now;
-        Drift = next;
-        _frequencyDrifted = _frequency * next;
+        ClockMapping mapping = Volatile.Read(ref _clockMapping);
+        double originMs = mapping.OriginMs + (now - mapping.OriginTicks) / mapping.FrequencyDrifted;
+        Volatile.Write(ref _clockMapping, new ClockMapping(originMs, now, _frequency * next, next));
     }
 
     public static double EventTime(double now, uint eventTick) => now - EventLagMs(eventTick);

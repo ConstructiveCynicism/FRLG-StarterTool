@@ -1,3 +1,5 @@
+using System.Runtime.InteropServices;
+using FRLG.StarterTool.Core.Audio;
 using FRLG.StarterTool.Core.Settings;
 
 namespace FRLG.StarterTool.App;
@@ -13,6 +15,13 @@ public sealed class BeepPlayer : IDisposable
     private IBeepOutput? _output;
     private AudioOutput _preferred = AudioOutput.Wasapi;
     private double _periodMs;
+    private AudioScheduling _scheduling = AudioScheduling.DeviceClock;
+    private ScheduledBeep[] _scheduledBeeps = Array.Empty<ScheduledBeep>();
+
+    private bool UsesDeviceClock => _scheduling == AudioScheduling.DeviceClock && _output is WasapiOutput;
+    internal WasapiOutput? Wasapi => _output as WasapiOutput;
+    internal short[] Clip => MemoryMarshal.Cast<byte, short>(_beep).ToArray();
+    internal double ClipDurationMs => BytesToMs(_beep.Length);
     private bool _reopenPending;
 
     private double _periodOverrideMs;
@@ -50,7 +59,8 @@ public sealed class BeepPlayer : IDisposable
         {
             lock (_lock)
             {
-                return _output is { IsOpen: true } ? _output.Description : "none";
+                return _output is { IsOpen: true }
+                    ? $"{_output.Description}, {(UsesDeviceClock ? "DeviceClock" : "Legacy")}" : "none";
             }
         }
     }
@@ -59,6 +69,7 @@ public sealed class BeepPlayer : IDisposable
     {
         lock (_lock)
         {
+            if (UsesDeviceClock) return ((WasapiOutput)_output!).ScheduleStartLatencyMs;
             if (_output == null || _bufferLength <= 0 || double.IsNaN(_writtenAtMs)) return null;
 
             int position = _output.PlayedBytes();
@@ -74,11 +85,12 @@ public sealed class BeepPlayer : IDisposable
         RenderBeep();
     }
 
-    public void Configure(AudioOutput output, double periodMs)
+    public void Configure(AudioOutput output, double periodMs, AudioScheduling scheduling = AudioScheduling.DeviceClock)
     {
         lock (_lock)
         {
-            bool changed = output != _preferred || periodMs != _periodMs;
+            bool changed = output != _preferred || periodMs != _periodMs || scheduling != _scheduling;
+            _scheduling = scheduling;
             _preferred = output;
             _periodMs = periodMs;
             if (changed) _periodOverrideMs = 0;
@@ -118,7 +130,28 @@ public sealed class BeepPlayer : IDisposable
         }
     }
 
-    public void QueueBeeps(IReadOnlyList<double> offsetsMs, int protectedCount = 0)
+    public void QueueBeeps(double callerReadMs, IReadOnlyList<double> offsetsMs, int protectedCount = 0)
+    {
+        lock (_lock)
+        {
+            if (_scheduling == AudioScheduling.DeviceClock) EnsureOpen();
+            if (!UsesDeviceClock)
+            {
+                QueueLegacy(offsetsMs, protectedCount);
+                return;
+            }
+
+            CancelDeferredWrite();
+            short[] clip = Clip;
+            _scheduledBeeps = offsetsMs.Select((offset, index) =>
+                new ScheduledBeep(callerReadMs + offset, clip, index < protectedCount)).ToArray();
+            _writtenAtMs = Win32.GetTime();
+            ((WasapiOutput)_output!).ScheduleBeeps(_scheduledBeeps, _writtenAtMs);
+            LastWriteLagMs = _writtenAtMs - callerReadMs;
+        }
+    }
+
+    private void QueueLegacy(IReadOnlyList<double> offsetsMs, int protectedCount = 0)
     {
         lock (_lock)
         {
@@ -195,6 +228,7 @@ public sealed class BeepPlayer : IDisposable
         lock (_lock)
         {
             CancelDeferredWrite();
+            _scheduledBeeps = Array.Empty<ScheduledBeep>();
             _lastBeepStartMs = double.MinValue;
             _beepStarts.Clear();
             _protectedStarts.Clear();
@@ -208,6 +242,13 @@ public sealed class BeepPlayer : IDisposable
         lock (_lock)
         {
             CancelDeferredWrite();
+
+            if (UsesDeviceClock)
+            {
+                _scheduledBeeps = Array.Empty<ScheduledBeep>();
+                ((WasapiOutput)_output!).ScheduleBeeps(_scheduledBeeps, Win32.GetTime());
+                return;
+            }
 
             if (MutePending()) return;
 
@@ -303,7 +344,7 @@ public sealed class BeepPlayer : IDisposable
         _writeTimer?.Change(Timeout.Infinite, Timeout.Infinite);
     }
 
-    public void Preview() => QueueBeeps(new[] { 0.0 });
+    public void Preview() => QueueBeeps(Win32.GetTime(), new[] { 0.0 });
 
     private void EnsureOpen()
     {
@@ -315,6 +356,10 @@ public sealed class BeepPlayer : IDisposable
     {
         _reopenPending = false;
 
+        double reopenMs = _scheduling == AudioScheduling.DeviceClock ? Win32.GetTime() : 0;
+        ScheduledBeep[] future = _scheduling == AudioScheduling.DeviceClock
+            ? _scheduledBeeps.Where(beep => beep.TargetMs > reopenMs).ToArray()
+            : Array.Empty<ScheduledBeep>();
         IBeepOutput? old = _output;
         _output = null;
         if (old != null)
@@ -332,7 +377,7 @@ public sealed class BeepPlayer : IDisposable
 
         IBeepOutput? output = null;
         bool wasapi = _preferred == AudioOutput.Wasapi && _periodOverrideMs >= 0;
-        if (wasapi) output = WasapiOutput.Open(_periodOverrideMs > 0 ? _periodOverrideMs : _periodMs, _log);
+        if (wasapi) output = WasapiOutput.Open(_periodOverrideMs > 0 ? _periodOverrideMs : _periodMs, _log, _scheduling == AudioScheduling.DeviceClock);
         if (output == null)
         {
             if (wasapi) _log("audio: falling back to waveOut");
@@ -347,6 +392,13 @@ public sealed class BeepPlayer : IDisposable
 
         output.DeviceChanged += OnDeviceChanged;
         _output = output;
+        _scheduledBeeps = future;
+        if (future.Length > 0)
+        {
+            double now = Win32.GetTime();
+            if (UsesDeviceClock) ((WasapiOutput)output).ScheduleBeeps(future, now, false);
+            else WriteSchedule(future.Select(beep => Math.Max(0, beep.TargetMs - now)).ToArray(), 0);
+        }
     }
 
     private void OnDeviceChanged()
@@ -360,7 +412,7 @@ public sealed class BeepPlayer : IDisposable
 
                 bool idle = _pendingOffsetsMs == null
                     && (_bufferLength <= 0 || Win32.GetTime() >= _lastBeepStartMs + BytesToMs(_beepBytes));
-                if (idle) Reopen();
+                if (UsesDeviceClock || idle) Reopen();
             }
         });
     }
@@ -370,7 +422,7 @@ public sealed class BeepPlayer : IDisposable
         _reopenPending = true;
         bool idle = _pendingOffsetsMs == null
             && (_bufferLength <= 0 || Win32.GetTime() >= _lastBeepStartMs + BytesToMs(_beepBytes));
-        if (idle) Reopen();
+        if (_scheduling == AudioScheduling.DeviceClock || idle) Reopen();
     }
 
     private void RenderBeep()

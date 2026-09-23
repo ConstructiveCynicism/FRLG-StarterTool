@@ -110,7 +110,7 @@ public static class StarterTool
         StatServer = new StatServer();
         StatServer.Start(Settings);
         Beeps = new BeepPlayer(ContextSession.Log);
-        Beeps.Configure(Settings.AudioOutput, Settings.AudioPeriodMs);
+        Beeps.Configure(Settings.AudioOutput, Settings.AudioPeriodMs, Settings.AudioScheduling);
         VariableOffset = new VariableOffsetTimer(mainForm);
         VariableOffset.OnInit();
         FixedOffset = new FixedOffsetTimer(mainForm);

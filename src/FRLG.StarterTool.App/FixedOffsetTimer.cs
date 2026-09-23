@@ -264,7 +264,8 @@ public sealed class FixedOffsetTimer : BaseTimer
     {
         foreach (Track track in _tracks) track.StandingFrames = _adjustFrames;
 
-        double elapsedMs = Win32.GetTime() - StarterTool.TimerStart;
+        double now = Win32.GetTime();
+        double elapsedMs = now - StarterTool.TimerStart;
         bool flash = _form.CheckBoxFlashEnabled.Checked;
 
         var beeps = new List<double>();
@@ -306,7 +307,7 @@ public sealed class FixedOffsetTimer : BaseTimer
         }
 
         beeps.Sort();
-        StarterTool.Beeps.QueueBeeps(_form.CheckBoxBeepEnabled.Checked ? beeps : new List<double>());
+        StarterTool.Beeps.QueueBeeps(now, _form.CheckBoxBeepEnabled.Checked ? beeps : new List<double>());
 
         plan.Sort((a, b) => a.Cue.TimeMs.CompareTo(b.Cue.TimeMs));
         _flashPlan = plan;

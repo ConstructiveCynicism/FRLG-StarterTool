@@ -100,10 +100,11 @@ public sealed class IgtTimer : BaseTimer
         if (!Active || !StarterTool.IsTimerRunning) return;
         if (ParseSelected(out IgtTimerInfo info) != TimerError.NoError) return;
 
-        double elapsedMs = Win32.GetTime() - StarterTool.TimerStart;
+        double now = Win32.GetTime();
+        double elapsedMs = now - StarterTool.TimerStart;
         double[] offsets = IgtCalculator.PlayOffsets(info, elapsedMs, _adjusted);
 
-        StarterTool.Beeps.QueueBeeps(IgtCalculator.BeepSchedule(info, offsets));
+        StarterTool.Beeps.QueueBeeps(now, IgtCalculator.BeepSchedule(info, offsets));
         _currentOffset = (offsets[^1] + elapsedMs) / 1000.0;
         _playing = true;
         EnableControls(play: true, undo: true);

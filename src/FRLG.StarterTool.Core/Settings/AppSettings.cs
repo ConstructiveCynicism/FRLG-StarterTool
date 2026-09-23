@@ -85,6 +85,13 @@ public enum StatStripSide
     Right
 }
 
+public enum AudioScheduling
+{
+    DeviceClock,
+
+    Legacy
+}
+
 public enum AudioOutput
 {
     Wasapi,
@@ -361,6 +368,8 @@ public sealed class AppSettings
 
     public AudioOutput AudioOutput { get; set; } = AudioOutput.Wasapi;
 
+    public AudioScheduling AudioScheduling { get; set; } = AudioScheduling.DeviceClock;
+
     public double AudioPeriodMs { get; set; }
 
     public int TrainingRounds { get; set; } = 10;
@@ -550,6 +559,7 @@ public sealed class AppSettings
         if (!Enum.IsDefined(KeyMethod)) KeyMethod = KeyMethod.OnPress;
         if (!Enum.IsDefined(ClipboardFormat)) ClipboardFormat = ClipboardFormat.Column;
         if (!Enum.IsDefined(StatServerStripSide)) StatServerStripSide = StatStripSide.Bottom;
+        if (!Enum.IsDefined(AudioScheduling)) AudioScheduling = AudioScheduling.DeviceClock;
         if (!Enum.IsDefined(AudioOutput)) AudioOutput = AudioOutput.Wasapi;
         if (double.IsNaN(AudioPeriodMs) || AudioPeriodMs < 0) AudioPeriodMs = 0;
         if (AudioPeriodMs > 100) AudioPeriodMs = 100;
