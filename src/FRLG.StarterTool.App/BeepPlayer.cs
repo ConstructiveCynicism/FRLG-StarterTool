@@ -18,7 +18,7 @@ public sealed class BeepPlayer : IDisposable
     private AudioScheduling _scheduling = AudioScheduling.DeviceClock;
     private ScheduledBeep[] _scheduledBeeps = Array.Empty<ScheduledBeep>();
 
-    private bool UsesDeviceClock => _scheduling == AudioScheduling.DeviceClock && _output is WasapiOutput;
+    private bool UsesDeviceClock => _scheduling == AudioScheduling.DeviceClock && _output is WasapiOutput { DeviceClockActive: true };
     internal WasapiOutput? Wasapi => _output as WasapiOutput;
     internal short[] Clip => MemoryMarshal.Cast<byte, short>(_beep).ToArray();
     internal double ClipDurationMs => BytesToMs(_beep.Length);

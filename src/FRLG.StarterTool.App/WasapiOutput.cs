@@ -22,7 +22,7 @@ internal sealed partial class WasapiOutput : IBeepOutput
     private MixFormat _mix;
     private byte[]? _scratch;
 
-    private readonly bool _deviceClock;
+    private bool _deviceClock;
     private DeviceBeepMixer? _mixer;
     private float[] _mixed = Array.Empty<float>();
     private Schedule? _schedule;
@@ -40,6 +40,7 @@ internal sealed partial class WasapiOutput : IBeepOutput
                 ? timing.LatencyMs : null;
         }
     }
+    public bool DeviceClockActive => _deviceClock;
     public string DeviceName { get; private set; } = "";
     public string FormatDescription => _mix.Describe();
     public double EnginePeriodMs => _periodMs;
@@ -243,13 +244,19 @@ internal sealed partial class WasapiOutput : IBeepOutput
         _render = (IAudioRenderClient)render;
 
         Guid clockIid = IID_IAudioClock;
-        if (client.GetService(ref clockIid, out object clock) >= 0 && clock is IAudioClock audioClock
+        // Set FRLG_DISABLE_AUDIOCLOCK=1 to test the path where the device offers no IAudioClock.
+        bool clockDisabled = Environment.GetEnvironmentVariable("FRLG_DISABLE_AUDIOCLOCK") == "1";
+        if (!clockDisabled && client.GetService(ref clockIid, out object clock) >= 0 && clock is IAudioClock audioClock
             && audioClock.GetFrequency(out _clockFrequency) >= 0 && _clockFrequency > 0)
         {
             _clock = audioClock;
         }
 
-        if (_deviceClock && _clock == null) return false;
+        if (_deviceClock && _clock == null)
+        {
+            _log("audio: WASAPI has no IAudioClock, using Legacy scheduling");
+            _deviceClock = false;
+        }
         if (_deviceClock)
         {
             _mixer = new DeviceBeepMixer(_mix.SampleRate);
