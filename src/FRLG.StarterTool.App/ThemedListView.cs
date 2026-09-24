@@ -110,6 +110,17 @@ public sealed class ThemedListView : ListView
         }
     }
 
+    public void CenterOn(int index)
+    {
+        int count = VirtualMode ? VirtualListSize : Items.Count;
+        if (index < 0 || index >= count) return;
+
+        int perPage = Win32.SendMessage(Handle, Win32.LVM_GETCOUNTPERPAGE, false, 0);
+        int half = Math.Max(perPage - 1, 0) / 2;
+        EnsureVisible(Math.Min(index + half, count - 1));
+        EnsureVisible(Math.Max(index - half, 0));
+    }
+
     public void RefreshHeader()
     {
         if (_header.Handle != IntPtr.Zero)

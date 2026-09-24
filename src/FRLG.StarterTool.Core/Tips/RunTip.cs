@@ -1,5 +1,6 @@
 using System.Globalization;
 
+using FRLG.StarterTool.Core.Timing;
 using FRLG.StarterTool.Core.Training;
 
 namespace FRLG.StarterTool.Core.Tips;
@@ -11,6 +12,8 @@ public static class RunTip
     public const int RecentWindow = 5;
 
     public const int MissStreakTip = 5;
+
+    public const int OffsetWindow = 20;
 
     public const int GoodRunHits = 3;
 
@@ -194,7 +197,8 @@ public static class RunTip
         {
             if (attempt.DeltaMs is not { } delta) continue;
 
-            tuner.Observe((delta - (attempt.OffsetMs - currentOffsetMs)) / 1000.0 * fps);
+            LandingCorrection.ObserveRobustly(
+                tuner, (delta - (attempt.OffsetMs - currentOffsetMs)) / 1000.0 * fps);
         }
 
         if (tuner.Observations == 0) return null;

@@ -32,6 +32,8 @@ public enum HotkeyAction
 
     NpcRight,
 
+    ReportPcVisit,
+
     NpcFocusPrev,
 
     NpcFocusNext,
@@ -132,6 +134,8 @@ public sealed class AppSettings
 
     public Hotkey NpcMiss { get; set; } = new();
 
+    public Hotkey ReportPcVisit { get; set; } = new();
+
     public Hotkey IgtPlay { get; set; } = new();
     public Hotkey IgtUndo { get; set; } = new();
     public Hotkey IgtAdd2 { get; set; } = new();
@@ -152,6 +156,10 @@ public sealed class AppSettings
     public int NpcCuedLabPressOffsetFrames { get; set; } = DefaultCuedLabPressOffsetFrames;
 
     public double NpcCuedPressWindowMs { get; set; } = DefaultCuedPressWindowMs;
+
+    public bool NpcAdapter { get; set; }
+
+    public bool NpcNameRival { get; set; } = true;
 
     public string SavestateLoadPath { get; set; } = "";
 
@@ -363,6 +371,8 @@ public sealed class AppSettings
 
     public double AudioPeriodMs { get; set; }
 
+    public bool AudioAlignStart { get; set; }
+
     public int TrainingRounds { get; set; } = 10;
 
     public string GenericFps { get; set; } = "60";
@@ -482,6 +492,7 @@ public sealed class AppSettings
         HotkeyAction.NpcUndo => NpcUndo,
         HotkeyAction.NpcComplete => NpcComplete,
         HotkeyAction.NpcMiss => NpcMiss,
+        HotkeyAction.ReportPcVisit => ReportPcVisit,
         HotkeyAction.IgtPlay => IgtPlay,
         HotkeyAction.IgtUndo => IgtUndo,
         HotkeyAction.IgtAdd2 => IgtAdd2,
@@ -534,6 +545,7 @@ public sealed class AppSettings
         (NpcUndo ??= new Hotkey()).Normalize();
         (NpcComplete ??= new Hotkey()).Normalize();
         (NpcMiss ??= new Hotkey()).Normalize();
+        (ReportPcVisit ??= new Hotkey()).Normalize();
         (IgtPlay ??= new Hotkey()).Normalize();
         (IgtUndo ??= new Hotkey()).Normalize();
         (IgtAdd2 ??= new Hotkey()).Normalize();

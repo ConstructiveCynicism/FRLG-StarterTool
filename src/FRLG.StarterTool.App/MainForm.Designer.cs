@@ -137,6 +137,8 @@ partial class MainForm
 
     public Label LabelLanding;
 
+    public TextBox TextBoxLandedFrame;
+
     public StatBoxPanel StatBoxIvs;
     public StatBoxPanel StatBoxStats;
 
@@ -643,15 +645,21 @@ partial class MainForm
         ListViewResults.Columns.Add("M/F", 31, HorizontalAlignment.Center);
         GroupBoxResults.Controls.Add(ListViewResults);
 
+        const int LandedFrameWidth = 58;
         LabelLanding = new Label
         {
             Location = new Point(6, 330),
-            Size = new Size(RightColumnInner, 36),
+            Size = new Size(RightColumnInner - LandedFrameWidth - 4, 36),
             TextAlign = ContentAlignment.MiddleCenter,
             Font = new Font(Font.FontFamily, 9F, FontStyle.Bold),
             Tag = Theme.KeepForeColor
         };
         GroupBoxResults.Controls.Add(LabelLanding);
+        TextBoxLandedFrame = MakeTextBox(
+            6 + RightColumnInner - LandedFrameWidth, 330 + (36 - _fieldHeight) / 2, LandedFrameWidth, "");
+        TextBoxLandedFrame.TextAlign = HorizontalAlignment.Center;
+        TextBoxLandedFrame.PlaceholderText = "Landed";
+        GroupBoxResults.Controls.Add(TextBoxLandedFrame);
 
         GroupBoxStatSearch = new ThemedGroupBox
         {
@@ -752,6 +760,7 @@ partial class MainForm
         GroupBoxResults.Height += shortfall;
         ListViewResults.Height += shortfall;
         LabelLanding.Top += shortfall;
+        TextBoxLandedFrame.Top += shortfall;
         GroupBoxStatSearch.Top += shortfall;
         GroupBoxCapture.Top += shortfall;
 

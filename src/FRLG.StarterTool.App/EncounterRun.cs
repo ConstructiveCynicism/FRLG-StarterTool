@@ -33,6 +33,10 @@ internal sealed class EncounterRun
 
         public bool Missed { get; private set; }
 
+        public int? Reported { get; private set; }
+
+        public double AimedFrame => Press.Frame + (Press.Span - 1) / 2.0;
+
         public bool Scored => DeltaMs != null;
 
         public bool Owed => !Scored && !Missed;
@@ -45,6 +49,13 @@ internal sealed class EncounterRun
         }
 
         internal void Miss() => Missed = true;
+
+        internal void Report(int frame) => Reported = frame;
+
+        public LandingReport? AsReport(int delayAtMs, int offsetAtMs) =>
+            Reported is { } reported
+                ? new LandingReport(AimedFrame, reported, LandedFrame, DeltaMs, delayAtMs, offsetAtMs)
+                : null;
     }
 
     private readonly VariableInfo _info;
@@ -174,6 +185,11 @@ internal sealed class EncounterRun
             string landed = target.Scored ? target.LandedFrame!.Value.ToString(CultureInfo.InvariantCulture)
                 : target.Missed ? "none"
                 : "";
+            if (target.Reported is { } reported)
+            {
+                landed = (landed.Length == 0 ? "" : landed + " ")
+                         + "→ " + reported.ToString(CultureInfo.InvariantCulture);
+            }
             string off = target.Scored ? $"{target.DeltaMs!.Value:+0;-0;0} ms" : "";
             string hit = target.Scored ? MainForm.FormatChance(target.Chance!.Value)
                 : target.Missed ? "missed"

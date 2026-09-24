@@ -43,6 +43,8 @@ public sealed class OverworldSim : INpcWorld
 
         Rng.VBlank();
 
+        Rng.MainLoop();
+
         AmbientCry?.Step(Rng);
 
         foreach (ObjectEventSim o in _objects)
@@ -53,6 +55,13 @@ public sealed class OverworldSim : INpcWorld
 
         Frame++;
         return Rng.Advances - before;
+    }
+
+    public int StepLagFrame()
+    {
+        Rng.VBlank();
+        Frame++;
+        return 1;
     }
 
     public List<NpcEvent> Run(int frames)

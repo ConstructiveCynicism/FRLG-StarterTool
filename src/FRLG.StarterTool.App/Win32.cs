@@ -16,6 +16,8 @@ public static class Win32
 
     public const int LVM_GETHEADER = 0x1000 + 31;
 
+    public const int LVM_GETCOUNTPERPAGE = 0x1000 + 40;
+
     public const int WM_NOTIFY = 0x004E;
 
     public const int HDN_BEGINTRACKA = -300 - 6;

@@ -13,6 +13,7 @@ public sealed class BeepPlayer : IDisposable
     private IBeepOutput? _output;
     private AudioOutput _preferred = AudioOutput.Wasapi;
     private double _periodMs;
+    private bool _alignStart;
     private bool _reopenPending;
 
     private double _periodOverrideMs;
@@ -44,6 +45,8 @@ public sealed class BeepPlayer : IDisposable
 
     public double LastWriteLagMs { get; private set; } = double.NaN;
 
+    public double LastStartShiftMs { get; private set; } = double.NaN;
+
     public string OutputDescription
     {
         get
@@ -71,16 +74,39 @@ public sealed class BeepPlayer : IDisposable
     public BeepPlayer(Action<string> log)
     {
         _log = log;
+        _openLog = LogOpen;
         RenderBeep();
     }
 
-    public void Configure(AudioOutput output, double periodMs)
+    public IReadOnlyList<string> OpenReport
+    {
+        get
+        {
+            lock (_lock)
+            {
+                return _openReport.ToArray();
+            }
+        }
+    }
+
+    private readonly List<string> _openReport = new();
+    private readonly Action<string> _openLog;
+    private bool _recordingOpen;
+
+    private void LogOpen(string line)
+    {
+        if (_recordingOpen) _openReport.Add(line);
+        _log(line);
+    }
+
+    public void Configure(AudioOutput output, double periodMs, bool alignStart)
     {
         lock (_lock)
         {
             bool changed = output != _preferred || periodMs != _periodMs;
             _preferred = output;
             _periodMs = periodMs;
+            _alignStart = alignStart;
             if (changed) _periodOverrideMs = 0;
             if (_output == null || changed) ScheduleReopen();
         }
@@ -149,14 +175,18 @@ public sealed class BeepPlayer : IDisposable
         int length = (int)Math.Ceiling(maxOffset / 1000.0 * SampleRate) * BytesPerFrame + _beep.Length;
         var pcm = new byte[length];
 
+        double shiftMs = StartShiftMs(offsetsMs);
+        LastStartShiftMs = shiftMs;
+
         double baseMs = Win32.GetTime();
+
         _lastBeepStartMs = baseMs + maxOffset;
 
         var starts = new List<int>(offsetsMs.Count);
         var protectedStarts = new List<int>(protectedCount);
         for (int i = 0; i < offsetsMs.Count; i++)
         {
-            int destOffset = (int)(offsetsMs[i] / 1000.0 * SampleRate) * BytesPerFrame;
+            int destOffset = (int)((offsetsMs[i] - shiftMs) / 1000.0 * SampleRate) * BytesPerFrame;
             if (destOffset < 0 || destOffset + _beep.Length > pcm.Length) continue;
             Array.Copy(_beep, 0, pcm, destOffset, _beep.Length);
             starts.Add(destOffset);
@@ -166,6 +196,18 @@ public sealed class BeepPlayer : IDisposable
         Queue(pcm, starts, protectedStarts);
 
         LastWriteLagMs = Win32.GetTime() - baseMs;
+    }
+
+    private double StartShiftMs(IReadOnlyList<double> offsetsMs)
+    {
+        if (!_alignStart || _output == null) return 0.0;
+
+        double delayMs = _output.StartDelayMs();
+        if (double.IsNaN(delayMs) || delayMs <= 0.0) return 0.0;
+
+        double earliest = offsetsMs.Min();
+        if (earliest <= 0.0) return 0.0;
+        return Math.Min(delayMs, earliest);
     }
 
     private void Queue(byte[] pcm, List<int> starts, List<int> protectedStarts)
@@ -331,18 +373,27 @@ public sealed class BeepPlayer : IDisposable
         _lastBeepStartMs = double.MinValue;
 
         IBeepOutput? output = null;
-        bool wasapi = _preferred == AudioOutput.Wasapi && _periodOverrideMs >= 0;
-        if (wasapi) output = WasapiOutput.Open(_periodOverrideMs > 0 ? _periodOverrideMs : _periodMs, _log);
-        if (output == null)
+        _openReport.Clear();
+        _recordingOpen = true;
+        try
         {
-            if (wasapi) _log("audio: falling back to waveOut");
-            output = WaveOutOutput.Open(_log);
-        }
+            bool wasapi = _preferred == AudioOutput.Wasapi && _periodOverrideMs >= 0;
+            if (wasapi) output = WasapiOutput.Open(_periodOverrideMs > 0 ? _periodOverrideMs : _periodMs, _openLog);
+            if (output == null)
+            {
+                if (wasapi) _openLog("audio: falling back to waveOut");
+                output = WaveOutOutput.Open(_openLog);
+            }
 
-        if (output == null)
+            if (output == null)
+            {
+                _openLog("audio: no output could be opened; the countdown will be silent until the next write");
+                return;
+            }
+        }
+        finally
         {
-            _log("audio: no output could be opened; the countdown will be silent until the next write");
-            return;
+            _recordingOpen = false;
         }
 
         output.DeviceChanged += OnDeviceChanged;

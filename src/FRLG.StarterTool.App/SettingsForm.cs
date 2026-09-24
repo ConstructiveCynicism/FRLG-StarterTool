@@ -235,7 +235,29 @@ public sealed class SettingsForm : Form
             cueWindowBox.Enabled = cuedPress.Checked;
         };
 
-        Label igtHeader = AddSectionHeader("IGT Tracking", cueWindowBox.Bottom + Scaled(SectionGap));
+        var adapter = new ThemedCheckBox
+        {
+            Text = "Wireless Adapter (2 advances a frame)",
+            Location = new Point(Scaled(LeftMargin), cueWindowBox.Bottom + Scaled(RowGap + 2)),
+            AutoSize = true,
+            Checked = _settings.NpcAdapter
+        };
+        adapter.CheckedChanged += (_, _) => _settings.NpcAdapter = adapter.Checked;
+        Controls.Add(adapter);
+
+        var nameRival = new ThemedCheckBox
+        {
+            Text = "Custom Rival Name",
+            Location = new Point(Scaled(LeftMargin + 16), adapter.Bottom + Scaled(4)),
+            AutoSize = true,
+            Enabled = adapter.Checked,
+            Checked = _settings.NpcNameRival
+        };
+        nameRival.CheckedChanged += (_, _) => _settings.NpcNameRival = nameRival.Checked;
+        adapter.CheckedChanged += (_, _) => nameRival.Enabled = adapter.Checked;
+        Controls.Add(nameRival);
+
+        Label igtHeader = AddSectionHeader("IGT Tracking", nameRival.Bottom + Scaled(SectionGap));
         TableLayoutPanel igtTable = AddHotkeyTable(
             HotkeyExtensions.IgtActions, igtHeader.Bottom + Scaled(6), out _);
         AlignColumns(table, igtTable);
@@ -369,12 +391,26 @@ public sealed class SettingsForm : Form
         outputBox.SelectedIndexChanged += (_, _) =>
         {
             _settings.AudioOutput = (AudioOutput)outputBox.SelectedIndex;
-            StarterTool.Beeps.Configure(_settings.AudioOutput, _settings.AudioPeriodMs);
+            StarterTool.Beeps.Configure(_settings.AudioOutput, _settings.AudioPeriodMs, _settings.AudioAlignStart);
         };
         Controls.Add(outputLabel);
         Controls.Add(outputBox);
 
-        y = outputBox.Bottom + Scaled(SectionGap);
+        var alignStart = new ThemedCheckBox
+        {
+            Text = "Place beeps on the device clock",
+            Location = new Point(Scaled(LeftMargin), outputBox.Bottom + Scaled(RowGap + 4)),
+            AutoSize = true,
+            Checked = _settings.AudioAlignStart
+        };
+        alignStart.CheckedChanged += (_, _) =>
+        {
+            _settings.AudioAlignStart = alignStart.Checked;
+            StarterTool.Beeps.Configure(_settings.AudioOutput, _settings.AudioPeriodMs, _settings.AudioAlignStart);
+        };
+        Controls.Add(alignStart);
+
+        y = alignStart.Bottom + Scaled(SectionGap);
         Label inputHeader = AddSectionHeader("Input", y);
         y = inputHeader.Bottom + Scaled(RowGap);
 

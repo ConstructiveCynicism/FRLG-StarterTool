@@ -157,8 +157,8 @@ public static class VariableOffsetCalculator
         return Math.Max(0.0, 1.0 - Math.Abs(deltaMs) / frameMs);
     }
 
-    public static int AlternateFrame(int landedFrame, double deltaMs, double fps)
-        => Math.Max(0, landedFrame + (Residual(deltaMs, fps) >= 0.0 ? 1 : -1));
+    public static int AlternateFrame(int landedFrame, double deltaMs, double fps, int step = 1)
+        => Math.Max(0, landedFrame + Math.Max(1, step) * (Residual(deltaMs, fps) >= 0.0 ? 1 : -1));
 
     public static double AlternateChance(double deltaMs, double fps) => Math.Abs(Residual(deltaMs, fps));
 

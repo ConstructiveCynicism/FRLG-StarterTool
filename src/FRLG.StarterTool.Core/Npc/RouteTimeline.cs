@@ -1,3 +1,5 @@
+using FRLG.StarterTool.Core.Encounters;
+
 namespace FRLG.StarterTool.Core.Npc;
 
 public enum RouteAnchor
@@ -7,6 +9,8 @@ public enum RouteAnchor
     CloseOakText,
 
     CloseLabText,
+
+    PressBall,
 }
 
 public static class RouteTimeline
@@ -17,7 +21,49 @@ public static class RouteTimeline
 
     public const int AnchorCorrectionFrames = 14;
 
+    public const int PressToReseedFrames = 24;
+
+    public const int PreExitLoadRolls = 10;
+
+    public const int AdapterWarpLagFrames = 9;
+
+    public const int AdapterWarpLagFramesLong = 10;
+
+    public const int AdapterPreExitLagFrames = 54;
+
+    public static int AdapterTrainerCardAdvances(TitleButtonMode buttons) =>
+        buttons == TitleButtonMode.Help ? -12 : -8;
+
+    public static (int Advances, double Prior)[] AdapterTrainerCardForks(TitleButtonMode buttons) =>
+        buttons == TitleButtonMode.Help
+            ? new[] { (-12, 1.0), (-13, 27.0 / 59.0), (-11, 9.0 / 59.0) }
+            : new[] { (-8, 1.0), (-7, 19.0 / 124.0), (-9, 7.0 / 124.0) };
+
+    public static int PcVisitAdvances(bool adapter) => adapter ? -40 : 3;
+
+    public const int RivalNameLagFrames = 9;
+
+    public static int RivalNameAdvances(bool adapter, bool named) =>
+        adapter && !named ? RivalNameLagFrames : 0;
+
+    public static int AnchorCorrection(bool adapter) =>
+        adapter ? PressToReseedFrames : AnchorCorrectionFrames;
+
+    public static int AdvancesPerFrame(bool adapter) => adapter ? 2 : 1;
+
+    public static int AdapterPlainFrame(int advances) =>
+        PressToReseedFrames
+        + (int)Math.Ceiling((advances - PreExitLoadRolls + AdapterPreExitLagFrames) / 2.0);
+
+    public static int AdapterPlainAdvances(int frame) =>
+        2 * (frame - PressToReseedFrames) - AdapterPreExitLagFrames + PreExitLoadRolls;
+
     public const int BallGenerationAdvances = 2;
+
+    public const int AdapterBallGenerationAdvances = 3;
+
+    public static int BallGeneration(bool adapter) =>
+        adapter ? AdapterBallGenerationAdvances : BallGenerationAdvances;
 
     public const int ExitHouseToPalletControlFrames =
         ExitHouseToFatManSpawnFrames + FatManSpawnToControlFrames;
@@ -64,9 +110,16 @@ public static class RouteTimeline
 
     public static readonly IReadOnlyList<NpcId> PalletObservable = new[] { NpcId.FatMan };
 
-    public static void RunPlayersHouse(GameRng rng, int framesInHouse = 0)
+    public static void RunPlayersHouse(GameRng rng, int framesInHouse = 0,
+        int warpLagFrames = AdapterWarpLagFrames)
     {
-        for (int i = 0; i < framesInHouse + ExitHouseToFatManSpawnFrames; i++)
+        int lag = rng.Adapter ? warpLagFrames : 0;
+        for (int i = 0; i < framesInHouse + ExitHouseToFatManSpawnFrames - lag; i++)
+        {
+            rng.QuietFrame();
+        }
+
+        for (int i = 0; i < lag; i++)
         {
             rng.VBlank();
         }
@@ -147,10 +200,12 @@ public static class RouteTimeline
             rng.Random();
         }
 
+        int lag = rng.Adapter ? AdapterWarpLagFrames - 1 : 0;
         int frozenBefore = Math.Min(LabLoadToReleaseFrames - 1, framesFrozen);
         for (int i = 0; i < frozenBefore; i++)
         {
-            sim.StepFrame(events);
+            if (i < lag) sim.StepLagFrame();
+            else sim.StepFrame(events);
         }
 
         if (framesFrozen > frozenBefore)

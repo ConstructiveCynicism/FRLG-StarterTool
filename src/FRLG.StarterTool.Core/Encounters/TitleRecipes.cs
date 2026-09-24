@@ -84,17 +84,21 @@ public sealed record TitleRecipe(TitleVariant Variant, string Key, string Skip, 
             }
             if (Has("ltap")) steps.Add(new RecipeStep(TapFrame, TapWindow, "Tap L - the copyright screen", false));
             if (gap is not null) steps.Add(new RecipeStep(GapFrame, Variant.Saves == TitleSaves.Single ? GapPressWindow : GapReleaseWindow, "Release it - nothing reads the pad here", true));
-            if (Variant.IntroSkipped) steps.Add(new RecipeStep(SkipFrame, SkipWindow, $"Hold {Name(Skip)} - skips the intro", true));
+            RecipeStep? release = null;
             if (HeldButton is string up && ReleaseFrame is int at and > 0)
             {
                 bool onSkip = Variant.IntroSkipped && at >= SkipFrame && at < SkipFrame + SkipWindow;
                 bool inFirstWindow = at == 478 && Variant.Intro == TitleIntro.Skip990;
-                steps.Add(onSkip
+                release = onSkip
                     ? new RecipeStep(SkipFrame, SkipWindow, $"Release {Name(up)} - with the skip, any frame of its window", true)
                     : inFirstWindow
                         ? new RecipeStep(TitleSeedTable.IntroSkipFrame, 4, $"Release {Name(up)} - inside the 477 window, nothing pressed there", true)
-                        : new RecipeStep(at, 1, $"Release {Name(up)}" + (Variant.IntroSkipped && at > SkipFrame ? " - after the skip's poll" : ""), true));
+                        : new RecipeStep(at, 1, $"Release {Name(up)}" + (Variant.IntroSkipped && at > SkipFrame ? " - after the skip's poll" : ""), true);
             }
+            bool skipFirst = release is null || !Variant.IntroSkipped || SkipFrame <= release.Value.Frame;
+            if (Variant.IntroSkipped && skipFirst) steps.Add(new RecipeStep(SkipFrame, SkipWindow, $"Hold {Name(Skip)} - skips the intro", true));
+            if (release is RecipeStep step) steps.Add(step);
+            if (Variant.IntroSkipped && !skipFirst) steps.Add(new RecipeStep(SkipFrame, SkipWindow, $"Hold {Name(Skip)} - skips the intro", true));
             if (SkipReleaseFrame is int rel and > 0) steps.Add(new RecipeStep(rel, 1, "Release Select - on the title screen (the sweep's frame)", true));
 
             if (Has("soft"))

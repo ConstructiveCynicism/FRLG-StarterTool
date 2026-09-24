@@ -110,7 +110,7 @@ public static class StarterTool
         StatServer = new StatServer();
         StatServer.Start(Settings);
         Beeps = new BeepPlayer(ContextSession.Log);
-        Beeps.Configure(Settings.AudioOutput, Settings.AudioPeriodMs);
+        Beeps.Configure(Settings.AudioOutput, Settings.AudioPeriodMs, Settings.AudioAlignStart);
         VariableOffset = new VariableOffsetTimer(mainForm);
         VariableOffset.OnInit();
         FixedOffset = new FixedOffsetTimer(mainForm);
@@ -506,6 +506,11 @@ public static class StarterTool
                 Post(() => Context.Miss());
             }
 
+            if (!typing && Settings.ReportPcVisit.IsPressed(press))
+            {
+                Post(() => Context.ReportPcVisit());
+            }
+
             HotkeyAction? listAction = typing ? null : ListAction(press);
             if (listAction != null)
             {
@@ -553,7 +558,7 @@ public static class StarterTool
         || Settings.Multiply2.IsPressed(press) || Settings.Multiply3.IsPressed(press)
         || ContextDirection(press) != null || ContextFocus(press) != 0
         || Settings.NpcUndo.IsPressed(press) || Settings.NpcComplete.IsPressed(press)
-        || Settings.NpcMiss.IsPressed(press)
+        || Settings.NpcMiss.IsPressed(press) || Settings.ReportPcVisit.IsPressed(press)
         || ListAction(press) != null
         || Settings.IgtPlay.IsPressed(press) || Settings.IgtUndo.IsPressed(press)
         || Settings.IgtAdd2.IsPressed(press) || Settings.IgtSub2.IsPressed(press)
@@ -619,6 +624,8 @@ public static class StarterTool
         ContextSession.Log(before == now
             ? $"priority: {now}"
             : $"priority: {now} (was {before}, put back)");
+
+        foreach (string line in Beeps.OpenReport) ContextSession.Log(line);
     }
 
     public static void StopTimer(bool timerExpired, double lagMs = 0.0, bool letCuesFinish = false)

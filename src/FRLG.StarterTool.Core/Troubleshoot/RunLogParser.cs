@@ -254,7 +254,7 @@ public static class RunLogParser
         new(@"^\d{2}:\d{2}:\d{2}\s+", RegexOptions.Compiled);
 
     private static readonly Regex FieldPattern =
-        new(@"^\s*seed (\d+), \+(-?\d+) manual, (\d+) candidates:", RegexOptions.Compiled);
+        new(@"^\s*seed (\d+), \+?(-?\d+) manual, (\d+) candidates:", RegexOptions.Compiled);
 
     private static readonly Regex FencePattern =
         new(@"^\s*exit (\d+) oak (\d+)\s+respawn (\d+)\s+visible (\d+)\s+advances (\d+)\s+\[(.*)\](?: \(parity [a-z]+/[a-z]+\))?\s*$",

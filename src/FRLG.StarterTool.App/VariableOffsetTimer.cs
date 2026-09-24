@@ -66,6 +66,8 @@ public sealed class VariableOffsetTimer : BaseTimer
 
     private EncounterRun? _encounter;
 
+    private EncounterRun? _encounterScored;
+
     private bool _encounterDone;
 
     private double _encounterLastTargetTime = double.NegativeInfinity;
@@ -501,6 +503,11 @@ public sealed class VariableOffsetTimer : BaseTimer
         double chance = FrameWindow.HitChance(deltaMs, _landingInfo.Fps,
             StarterTool.Settings?.NpcContextWindowMs ?? 0.0);
 
+        if (landedFrame is { } counted && !StarterTool.Context.Reachable(counted, _landingTargetFrame))
+        {
+            rawChance = chance = 0.0;
+        }
+
         LogLanding(elapsedMs, deltaMs, landedFrame, chance, pressLagMs);
 
         _form.ShowLanding(
@@ -587,6 +594,7 @@ public sealed class VariableOffsetTimer : BaseTimer
         if (_encounterDone) ContextSession.Log("encounter manip reset - Start inside the reset window runs it again");
         _encounterDone = false;
 
+        _encounterScored = null;
         _encounter = new EncounterRun(route, info);
         _encounterLastTargetTime = StarterTool.TimerStart + _encounter.LastPressMs;
 
@@ -639,6 +647,7 @@ public sealed class VariableOffsetTimer : BaseTimer
         }
 
         _encounter.Score(target, elapsedMs);
+        _form.ObserveEncounterAttempt(_encounter, target);
         if (ReferenceEquals(target, _encounter.TitleTarget))
         {
             StarterTool.Capture.Pressed(pressTimeMs);
@@ -709,8 +718,23 @@ public sealed class VariableOffsetTimer : BaseTimer
         _form.ShowEncounterLanding(_encounter.Rows(), _encounter.Status(), _encounter.WorstChance);
         ContextSession.Log("encounter manip closed - " + _encounter.Status());
 
+        _encounterScored = _encounter;
         _encounter = null;
         _encounterDone = true;
+    }
+
+    internal EncounterRun? EncounterReport => _encounter ?? _encounterScored;
+
+    public void RefreshEncounterRows()
+    {
+        if (EncounterReport is not { } run) return;
+
+        _form.ShowEncounterLanding(run.Rows(), run.Status(), run.Targets.Any(t => t.Scored || t.Missed) ? run.WorstChance : null);
+    }
+
+    public void ApplyDelayOffset(int delayMs)
+    {
+        _form.TextBoxDelayOffset.Text = delayMs.ToString(CultureInfo.InvariantCulture);
     }
 
     public void CaptureSettings(AppSettings settings)
@@ -991,14 +1015,21 @@ public sealed class VariableOffsetTimer : BaseTimer
         ContextSession.Log(line);
 
         IntPtr handle = StarterTool.MainFormHandle;
+
+        double shiftMs = StarterTool.Beeps.LastStartShiftMs;
+        string aligned = shiftMs > 0.0
+            ? string.Format(CultureInfo.InvariantCulture, ", aligned {0:F1} ms early", shiftMs)
+            : "";
+
         ContextSession.Log(string.Format(CultureInfo.InvariantCulture,
-            "audio: written {0:F1} ms after arm (buffer {1:F1} ms of it), timer resolution {2:F2} ms, window {3}{4}, output {5}",
+            "audio: written {0:F1} ms after arm (buffer {1:F1} ms of it), timer resolution {2:F2} ms, window {3}{4}, output {5}{6}",
             audioLagMs,
             StarterTool.Beeps.LastWriteLagMs,
             Win32.CurrentTimerResolutionMs(),
             Win32.IsForeground(handle) ? "foreground" : "background",
             Win32.IsMinimized(handle) ? ", minimised" : "",
-            StarterTool.Beeps.OutputDescription));
+            StarterTool.Beeps.OutputDescription,
+            aligned));
     }
 
     private void LogAudioStart()

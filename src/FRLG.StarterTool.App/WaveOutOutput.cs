@@ -97,6 +97,8 @@ internal sealed class WaveOutOutput : IBeepOutput
         }
     }
 
+    public double StartDelayMs() => double.NaN;
+
     public void Stop()
     {
         lock (_lock)

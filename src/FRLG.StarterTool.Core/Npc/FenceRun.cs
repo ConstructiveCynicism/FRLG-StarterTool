@@ -1,3 +1,4 @@
+using FRLG.StarterTool.Core.Encounters;
 using FRLG.StarterTool.Core.Timing;
 
 namespace FRLG.StarterTool.Core.Npc;
@@ -27,9 +28,13 @@ public readonly record struct FenceCandidate(
     HiddenMoves Hidden = default,
     SpawnRead SpawnReadSide = SpawnRead.PostVBlank,
     SpawnRead RespawnReadSide = SpawnRead.PostVBlank,
-    SpawnReadSides MergedReads = SpawnReadSides.None)
+    SpawnReadSides MergedReads = SpawnReadSides.None,
+    bool Adapter = false,
+    int WarpLag = RouteTimeline.AdapterWarpLagFrames,
+    int CardAdvances = 0,
+    int UndeclaredAdvances = 0)
 {
-    private int PressFrame => OakFrame + RouteTimeline.AnchorCorrectionFrames;
+    private int PressFrame => OakFrame + RouteTimeline.AnchorCorrection(Adapter);
 
     public int LeadWalkStartFrame => PressFrame + RouteTimeline.LeadWalkFatManRespawnFrames;
 
@@ -54,10 +59,25 @@ public readonly record struct FenceCandidate(
     public const int FullyVisibleFrame =
         RouteTimeline.LeadWalkFatManFullyVisibleFrames - RouteTimeline.LeadWalkFatManRespawnFrames;
 
-    public int MissedCorrection(int oakPressFrame) =>
-        oakPressFrame + RouteTimeline.OakTextToLabLoadFrames
-        - TotalAdvances - RouteTimeline.BallGenerationAdvances
-        + VariableOffsetCalculator.TidLagFrames;
+    public int MissedCorrection(int oakPressFrame, int targetAdvances = 0)
+    {
+        int rate = RouteTimeline.AdvancesPerFrame(Adapter);
+        int load = oakPressFrame + RouteTimeline.OakTextToLabLoadFrames;
+
+        int wanted = targetAdvances - RouteTimeline.BallGeneration(Adapter) - TotalAdvances;
+        int frames = rate == 1 ? wanted : (int)Math.Ceiling(wanted / (double)rate);
+
+        return load + frames + VariableOffsetCalculator.TidLagFrames - targetAdvances;
+    }
+
+    public int MissedAdvancesAt(int oakPressFrame, int countdownFrame)
+    {
+        int rate = RouteTimeline.AdvancesPerFrame(Adapter);
+        int load = oakPressFrame + RouteTimeline.OakTextToLabLoadFrames;
+        int frames = countdownFrame - VariableOffsetCalculator.TidLagFrames - load;
+
+        return TotalAdvances + frames * rate + RouteTimeline.BallGeneration(Adapter);
+    }
 
     public string ParityLabel => $"{Letter(SpawnReadSide)}/{Letter(RespawnReadSide)}";
 
@@ -80,9 +100,11 @@ public static class FenceRun
 {
     public static IReadOnlyList<FenceCandidate> Build(int seed, double exitElapsedMs,
         double oakElapsedMs, double fps, double contextMs, int manualAdvances = 0,
-        FenceGuyParity parity = FenceGuyParity.Post)
+        FenceGuyParity parity = FenceGuyParity.Post, bool adapter = false,
+        TitleButtonMode buttons = TitleButtonMode.Help,
+        IReadOnlyList<int>? undeclared = null)
     {
-        double shiftMs = RouteTimeline.AnchorCorrectionFrames * 1000.0 / fps;
+        double shiftMs = RouteTimeline.AnchorCorrection(adapter) * 1000.0 / fps;
         double window = contextMs + StartUncertaintyMs;
         double exitAt = exitElapsedMs - shiftMs;
         double oakAt = oakElapsedMs - shiftMs;
@@ -92,7 +114,7 @@ public static class FenceRun
             FrameWindow.Candidates(oakAt, fps, window),
             frame => FrameWindow.Weight(exitAt, fps, window, frame),
             frame => FrameWindow.Weight(oakAt, fps, window, frame),
-            manualAdvances, parity);
+            manualAdvances, parity, adapter, buttons, undeclared);
     }
 
     public const double StartUncertaintyMs = 100.0;
@@ -105,13 +127,18 @@ public static class FenceRun
 
     public static IReadOnlyList<FenceCandidate> Build(int seed,
         IEnumerable<int> exitFrames, IEnumerable<int> oakFrames, int manualAdvances = 0,
-        FenceGuyParity parity = FenceGuyParity.Post) =>
-        Build(seed, exitFrames, oakFrames, null, null, manualAdvances, parity);
+        FenceGuyParity parity = FenceGuyParity.Post, bool adapter = false,
+        TitleButtonMode buttons = TitleButtonMode.Help,
+        IReadOnlyList<int>? undeclared = null) =>
+        Build(seed, exitFrames, oakFrames, null, null, manualAdvances, parity, adapter, buttons,
+            undeclared);
 
     private static IReadOnlyList<FenceCandidate> Build(int seed,
         IEnumerable<int> exitFrames, IEnumerable<int> oakFrames,
         Func<int, double>? exitWeight, Func<int, double>? oakWeight, int manualAdvances,
-        FenceGuyParity parity = FenceGuyParity.Post)
+        FenceGuyParity parity = FenceGuyParity.Post, bool adapter = false,
+        TitleButtonMode buttons = TitleButtonMode.Help,
+        IReadOnlyList<int>? undeclared = null)
     {
         List<int> exit = exitFrames.ToList();
         List<int> oak = oakFrames.ToList();
@@ -127,14 +154,37 @@ public static class FenceRun
             _ => new[] { (SpawnRead.PostVBlank, SpawnRead.PostVBlank) },
         };
 
+        int[] lags = adapter
+            ? new[] { RouteTimeline.AdapterWarpLagFrames, RouteTimeline.AdapterWarpLagFramesLong }
+            : new[] { RouteTimeline.AdapterWarpLagFrames };
+        (int Advances, double Prior)[] cards = adapter
+            ? RouteTimeline.AdapterTrainerCardForks(buttons)
+            : new[] { (0, 1.0) };
+        int[] undeclaredForks = undeclared is { Count: > 0 }
+            ? new[] { 0 }.Concat(undeclared.Where(u => u != 0)).Distinct().ToArray()
+            : new[] { 0 };
+        (SpawnRead Spawn, SpawnRead Respawn)[] sidesOnly = sides;
+        var forks = undeclaredForks.SelectMany(extra =>
+            cards.SelectMany(card => lags.SelectMany(lag => sidesOnly.Select(side =>
+                (side.Spawn, side.Respawn, Lag: lag, Card: card.Advances, Prior: card.Prior,
+                    Undeclared: extra))))).ToArray();
+        sides = forks.Select(f => (f.Spawn, f.Respawn)).ToArray();
+
         int perSide = exit.Count * oak.Count;
         var all = new FenceCandidate[perSide * sides.Length];
         Parallel.For(0, all.Length, i =>
         {
-            (SpawnRead spawn, SpawnRead respawn) = sides[i / perSide];
+            var fork = forks[i / perSide];
             int pair = i % perSide;
-            all[i] = Simulate(seed, exit[pair / oak.Count], oak[pair % oak.Count], manualAdvances,
-                spawn, respawn);
+            all[i] = Simulate(seed, exit[pair / oak.Count], oak[pair % oak.Count],
+                manualAdvances + fork.Card + fork.Undeclared, fork.Spawn, fork.Respawn, adapter,
+                fork.Lag)
+                with
+            {
+                ManualAdvances = manualAdvances,
+                CardAdvances = fork.Card,
+                UndeclaredAdvances = fork.Undeclared,
+            };
         });
 
         var index = new Dictionary<string, int>();
@@ -147,7 +197,8 @@ public static class FenceRun
             (SpawnRead spawnSide, SpawnRead respawnSide) = sides[i / perSide];
             double prior =
                 (spawnSide == SpawnRead.PreVBlank ? PreReadPrior : 1.0)
-                * (respawnSide == SpawnRead.PreVBlank ? PreReadPrior : 1.0);
+                * (respawnSide == SpawnRead.PreVBlank ? PreReadPrior : 1.0)
+                * forks[i / perSide].Prior;
             double weight = prior * (exitWeight is null || oakWeight is null
                 ? 1.0
                 : Math.Pow(exitWeight(exit[pairIndex / oak.Count]) * oakWeight(oak[pairIndex % oak.Count]),
@@ -189,15 +240,15 @@ public static class FenceRun
 
     public static FenceCandidate Simulate(int seed, int exitFrame, int oakFrame,
         int manualAdvances = 0, SpawnRead spawnRead = SpawnRead.PostVBlank,
-        SpawnRead respawnRead = SpawnRead.PostVBlank)
+        SpawnRead respawnRead = SpawnRead.PostVBlank, bool adapter = false,
+        int warpLag = RouteTimeline.AdapterWarpLagFrames)
     {
-        var rng = new GameRng(seed);
-
-        for (int i = 0; i < Math.Max(0, exitFrame); i++) rng.VBlank();
+        var rng = new GameRng(seed, adapter);
+        RunToExitPress(rng, exitFrame, MissedPasses(manualAdvances, adapter));
 
         for (int i = 0; i < Math.Max(0, manualAdvances); i++) rng.Random();
 
-        RouteTimeline.RunPlayersHouse(rng);
+        RouteTimeline.RunPlayersHouse(rng, 0, warpLag);
 
         int walkFrames = Math.Max(0, oakFrame - exitFrame
             - RouteTimeline.ExitHouseToPalletControlFrames
@@ -246,17 +297,36 @@ public static class FenceRun
 
         return new FenceCandidate(exitFrame, oakFrame, eastward, seen, motion,
             eastwardRolls, leadWalkRolls, beforeLabLoad, rng.Advances, 1.0, manualAdvances, hidden,
-            spawnRead, respawnRead);
+            spawnRead, respawnRead, SpawnReadSides.None, adapter, warpLag);
     }
 
-    public static HiddenMoves SimulateEastward(int seed, int exitFrame, int manualAdvances = 0,
-        SpawnRead spawnRead = SpawnRead.PostVBlank)
+    internal static void RunToExitPress(GameRng rng, int exitFrame, int missedPasses = 0)
     {
-        var rng = new GameRng(seed);
+        int frames = Math.Max(0, exitFrame);
+        if (!rng.Adapter)
+        {
+            for (int i = 0; i < frames; i++) rng.VBlank();
+            return;
+        }
 
-        for (int i = 0; i < Math.Max(0, exitFrame); i++) rng.VBlank();
+        int lag = Math.Min(frames, RouteTimeline.AdapterPreExitLagFrames + Math.Max(0, missedPasses));
+        for (int i = 0; i < frames - lag; i++) rng.QuietFrame();
+        for (int i = 0; i < lag; i++) rng.VBlank();
+        for (int i = 0; i < RouteTimeline.PreExitLoadRolls; i++) rng.Random();
+    }
+
+    private static int MissedPasses(int manualAdvances, bool adapter) =>
+        adapter ? Math.Max(0, -manualAdvances) : 0;
+
+    public static HiddenMoves SimulateEastward(int seed, int exitFrame, int manualAdvances = 0,
+        SpawnRead spawnRead = SpawnRead.PostVBlank, bool adapter = false,
+        int warpLag = RouteTimeline.AdapterWarpLagFrames)
+    {
+        var rng = new GameRng(seed, adapter);
+
+        RunToExitPress(rng, exitFrame, MissedPasses(manualAdvances, adapter));
         for (int i = 0; i < Math.Max(0, manualAdvances); i++) rng.Random();
-        RouteTimeline.RunPlayersHouse(rng);
+        RouteTimeline.RunPlayersHouse(rng, 0, warpLag);
 
         var eastward = new List<NpcEvent>();
         RouteTimeline.RunPalletTown(rng,

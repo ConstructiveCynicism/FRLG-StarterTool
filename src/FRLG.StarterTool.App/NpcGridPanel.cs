@@ -25,7 +25,17 @@ public sealed class NpcGridPanel : Control
 
     public const int ControlStripHeight = 26;
 
-    private int StatusHeight => Font.Height * 2 + 2;
+    private int StatusHeight => Font.Height * (_advice == null ? 2 : 3) + 2;
+
+    private ContextAdvice? _advice;
+
+    public void SetAdvice(ContextAdvice? advice)
+    {
+        if (ReferenceEquals(_advice, advice) || (_advice != null && advice != null && _advice == advice)) return;
+
+        _advice = advice;
+        Invalidate();
+    }
 
     private const int LabRowHeight = 26;
 
@@ -284,7 +294,8 @@ public sealed class NpcGridPanel : Control
 
         Retime(fps, _boxes.Count == 0
             ? 0
-            : _boxes.Max(b => b.Representative.LabPressFrame + LastEventFrame(b.Representative)));
+            : _boxes.Max(b => b.Representative.LabPressFrame
+                + (_advice?.Live != null ? LabRun.AdapterMaxWindowFrames : LastEventFrame(b.Representative))));
     }
 
     private static int LastEventFrame(LabCandidate box)
@@ -364,6 +375,52 @@ public sealed class NpcGridPanel : Control
         if (_hidden.Count > 0) PaintHidden(g);
         else if (_labMode) PaintLab(g);
         else PaintCue(g);
+
+        if (_hidden.Count == 0) PaintAdvice(g);
+    }
+
+    private void PaintAdvice(Graphics g)
+    {
+        if (_advice is not { } advice) return;
+
+        bool column = !_labMode && Cue is CueKind.House or CueKind.Fence;
+        int x = column ? GridPixels + Gutter : 0;
+        var line = new Rectangle(x, Font.Height * 2 + 1, Math.Max(0, Width - x), Font.Height);
+
+        string pill = "";
+        Color pillBack = Theme.Accent;
+        if (_labMode && _focused >= 0 && _focused < _boxes.Count && advice.PressNow(
+                _frame - _boxes[_focused].Representative.LabPressFrame) is { } now
+            && _frame - _boxes[_focused].Representative.LabPressFrame <= LabRun.AdapterMaxWindowFrames)
+        {
+            bool gone = advice.StillReachable(
+                _frame - _boxes[_focused].Representative.LabPressFrame) == false;
+            pill = now ? "PRESS" : gone ? "GONE" : "WAIT";
+            pillBack = now ? Theme.LandingHitText : Theme.LandingMissText;
+        }
+
+        int pillWidth = 0;
+        if (pill.Length > 0)
+        {
+            Size text = TextRenderer.MeasureText(g, pill, BoldFont);
+            pillWidth = text.Width + 12;
+            var badge = new Rectangle(line.Right - pillWidth, line.Y, pillWidth, line.Height);
+            using (var fill = new SolidBrush(pillBack))
+            {
+                g.FillRectangle(fill, badge);
+            }
+
+            TextRenderer.DrawText(g, pill, BoldFont, badge, Theme.AccentText,
+                TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter
+                | TextFormatFlags.NoPadding);
+            pillWidth += 6;
+        }
+
+        TextRenderer.DrawText(g, advice.Text, BoldFont,
+            new Rectangle(line.X, line.Y, Math.Max(0, line.Width - pillWidth), line.Height),
+            advice.NeedWalking ? Theme.LandingMaybeText : Theme.SectionCaption,
+            TextFormatFlags.Left | TextFormatFlags.VerticalCenter | TextFormatFlags.NoPadding
+            | TextFormatFlags.EndEllipsis);
     }
 
     private const int HiddenRowHeight = Assets.NpcFrameHeight + 2;
@@ -499,7 +556,7 @@ public sealed class NpcGridPanel : Control
     {
         if (!hidden.Known) return "unknown";
 
-        string window = hidden.Partial ? " (to Oak only)" : "";
+        string window = (hidden.Partial ? " (to Oak only)" : "") + SpinNote(hidden);
         if (hidden.Total == 0) return "none predicted" + window;
 
         var parts = new List<string>(3);
@@ -509,6 +566,22 @@ public sealed class NpcGridPanel : Control
             + (hidden.SilentTurns == 1 ? "" : "s"));
 
         return string.Join(" · ", parts) + window;
+    }
+
+    private static string SpinNote(HiddenMoves hidden)
+    {
+        if (hidden.NextSpin == 0) return "";
+
+        string spin = hidden.NextSpin switch
+        {
+            1 => "1st spin",
+            2 => "2nd spin",
+            3 => "3rd spin",
+            int n => $"{n}th spin",
+        };
+        return RouteTimeline.LabObservable.Contains(hidden.Npc)
+            ? $" (Record {spin})"
+            : $" ({spin} possible)";
     }
 
     private Rectangle FenceReadout => new(

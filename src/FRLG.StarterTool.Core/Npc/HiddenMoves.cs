@@ -8,6 +8,8 @@ public readonly record struct HiddenMoves(NpcId Npc, int OffScreen, int Bonks, i
 
     public bool Partial { get; init; }
 
+    public int NextSpin { get; init; }
+
     public int Total => OffScreen + Bonks + SilentTurns;
 
     public static HiddenMoves Count(NpcId npc, IEnumerable<NpcEvent> events,
@@ -31,10 +33,12 @@ public readonly record struct HiddenMoves(NpcId Npc, int OffScreen, int Bonks, i
     {
         Known = Known && other.Known,
         Partial = Partial || other.Partial,
+        NextSpin = Math.Max(NextSpin, other.NextSpin),
     };
 
     public override string ToString() => Known
         ? $"{Npc.ShortName()} {OffScreen} off screen, {Bonks} bonks, {SilentTurns} silent"
             + (Partial ? " (partial)" : "")
+            + (NextSpin > 0 ? $" (spin {NextSpin} possible)" : "")
         : $"{Npc.ShortName()} unknown";
 }

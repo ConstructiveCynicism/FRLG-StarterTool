@@ -84,6 +84,7 @@ internal sealed class WasapiOutput : IBeepOutput
 
             try
             {
+                LogDevice(device);
                 if (!InitializeOn(device, periodMs)) return false;
             }
             finally
@@ -100,6 +101,31 @@ internal sealed class WasapiOutput : IBeepOutput
         finally
         {
             if (enumerator != null) Marshal.FinalReleaseComObject(enumerator);
+        }
+    }
+
+    private void LogDevice(IMMDevice device)
+    {
+        string? id = null;
+        if (device.GetId(out IntPtr idPtr) >= 0 && idPtr != IntPtr.Zero)
+        {
+            id = Marshal.PtrToStringUni(idPtr);
+            Marshal.FreeCoTaskMem(idPtr);
+        }
+
+        if (device.OpenPropertyStore(StgmRead, out IntPtr store) < 0 || store == IntPtr.Zero)
+        {
+            _log("audio: device properties unreadable");
+            return;
+        }
+
+        try
+        {
+            foreach (string line in AudioDeviceReport.Describe(store, id)) _log(line);
+        }
+        finally
+        {
+            Marshal.Release(store);
         }
     }
 
@@ -179,9 +205,11 @@ internal sealed class WasapiOutput : IBeepOutput
 
         double period = mix.FramesToMs(periodFrames);
         _defaultPeriodMs = mix.FramesToMs(defaultFrames);
+
+        string offered = minFrames >= defaultFrames ? ", the driver offers no smaller period" : "";
         return Finish(client, period, mix, periodFrames, string.Format(CultureInfo.InvariantCulture,
-            "audio: output wasapi shared, engine period {0:F2} ms (driver min {1:F2}, default {2:F2}), {3}",
-            period, mix.FramesToMs(minFrames), mix.FramesToMs(defaultFrames), formatNote));
+            "audio: output wasapi shared, engine period {0:F2} ms (driver min {1:F2}, default {2:F2}{4}), {3}",
+            period, mix.FramesToMs(minFrames), mix.FramesToMs(defaultFrames), formatNote, offered));
     }
 
     private bool Finish(IAudioClient client, double periodMs, MixFormat mix, uint periodFrames, string line)
@@ -469,6 +497,30 @@ internal sealed class WasapiOutput : IBeepOutput
         }
     }
 
+    public double StartDelayMs()
+    {
+        lock (_lock)
+        {
+            if (!IsOpen || _clock == null || _clockFrequency == 0) return double.NaN;
+            if (_clock.GetPosition(out ulong position, out ulong qpcPosition) < 0) return double.NaN;
+
+            double playedFrames = position * (double)_mix.SampleRate / _clockFrequency;
+            double aheadMs = (_totalFedFrames - playedFrames) * 1000.0 / _mix.SampleRate;
+
+            double staleMs = 0.0;
+            if (qpcPosition != 0)
+            {
+                staleMs = Win32.GetTime() - Win32.SystemRelativeToMs(TimeSpan.FromTicks((long)qpcPosition));
+            }
+
+            double delayMs = aheadMs - staleMs;
+
+            double limitMs = _mix.FramesToMs(_bufferFrames) + _periodMs * 2.0;
+            if (double.IsNaN(delayMs) || delayMs < 0.0 || delayMs > limitMs) return double.NaN;
+            return delayMs;
+        }
+    }
+
     public void Stop()
     {
         lock (_lock)
@@ -722,6 +774,8 @@ internal sealed class WasapiOutput : IBeepOutput
     private const uint ConvertFlags = 0x80000000  | 0x08000000 ;
 
     private const uint BufferFlagSilent = 0x2;
+
+    private const int StgmRead = 0;
 
     private const ushort WAVE_FORMAT_PCM = 1;
     private const ushort WAVE_FORMAT_IEEE_FLOAT = 3;

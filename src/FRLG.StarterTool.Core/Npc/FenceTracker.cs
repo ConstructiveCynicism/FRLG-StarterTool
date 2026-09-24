@@ -1,3 +1,5 @@
+using FRLG.StarterTool.Core.Encounters;
+
 namespace FRLG.StarterTool.Core.Npc;
 
 public readonly record struct FenceInput(Direction Direction, double ElapsedMs);
@@ -21,10 +23,13 @@ public sealed class FenceTracker
 
     public static FenceTracker Build(int seed, double exitElapsedMs, double oakElapsedMs,
         double fps, double contextMs, int manualAdvances = 0,
-        FenceGuyParity parity = FenceGuyParity.Post)
+        FenceGuyParity parity = FenceGuyParity.Post, bool adapter = false,
+        TitleButtonMode buttons = TitleButtonMode.Help,
+        IReadOnlyList<int>? undeclared = null)
     {
         return new FenceTracker(
-            FenceRun.Build(seed, exitElapsedMs, oakElapsedMs, fps, contextMs, manualAdvances, parity),
+            FenceRun.Build(seed, exitElapsedMs, oakElapsedMs, fps, contextMs, manualAdvances, parity,
+                adapter, buttons, undeclared),
             fps, contextMs);
     }
 
@@ -191,24 +196,14 @@ public sealed class FenceTracker
 
     private int MatchOffset(FenceCandidate candidate, out double score)
     {
-        int last = candidate.FirstRequiredEvent;
-
-        int best = -1;
-        double bestScore = double.NegativeInfinity;
-
-        for (int offset = 0; offset <= last; offset++)
+        if (!Consistent(candidate, 0))
         {
-            if (!Consistent(candidate, offset)) continue;
-
-            double candidateScore = Score(candidate, offset);
-            if (candidateScore <= bestScore) continue;
-
-            best = offset;
-            bestScore = candidateScore;
+            score = 0.0;
+            return -1;
         }
 
-        score = best < 0 ? 0.0 : bestScore;
-        return best;
+        score = Score(candidate, 0);
+        return 0;
     }
 
     private double Score(FenceCandidate candidate, int offset)

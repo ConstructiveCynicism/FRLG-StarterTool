@@ -20,6 +20,8 @@ public partial class MainForm : Form
 
     public bool HasLanding => _landingFrame != null || _landingTarget != null;
 
+    private (double DeltaMs, double Fps, int Step)? _landingReport;
+
     private double _landingChance;
 
     private int? _landingAlternate;
@@ -90,7 +92,11 @@ public partial class MainForm : Form
         };
         SavestatePanel.FilterSource = () => CaptureFilter();
         SavestatePanel.CloseRequested += (_, _) => SelectTab(TabKey.Manip);
-        StarterTool.Context.Changed += (_, _) => ShowContextSession();
+        StarterTool.Context.Changed += (_, _) =>
+        {
+            ShowContextSession();
+            RedrawTimeColumn();
+        };
         ButtonContextUndo.Click += (_, _) => StarterTool.Context.Undo();
         ButtonContextClear.Click += (_, _) => StarterTool.Context.Clear();
         ButtonContextLate.Click += (_, _) => StarterTool.Context.Next();
@@ -148,7 +154,18 @@ public partial class MainForm : Form
         ListViewResults.RetrieveVirtualItem += ListViewResults_RetrieveVirtualItem;
         ListViewResults.SelectedIndexChanged += ListViewResults_SelectedIndexChanged;
         ListViewResults.KeyDown += ListViewResults_KeyDown;
-        ListViewResults.DoubleClick += (_, _) => SearchAroundSelectedFrame();
+        ListViewResults.DoubleClick += (_, _) =>
+        {
+            if (!_encounterGrid) SearchAroundSelectedFrame();
+        };
+
+        TextBoxLandedFrame.KeyDown += (_, e) =>
+        {
+            if (e.KeyCode != Keys.Enter) return;
+
+            ReportLandedFrame();
+            e.SuppressKeyPress = true;
+        };
         ListViewResults.DrawColumnHeader += ListViewResults_DrawColumnHeader;
         ListViewResults.DrawItem += (_, _) => { };
         ListViewResults.DrawSubItem += ListViewResults_DrawSubItem;
@@ -364,16 +381,19 @@ public partial class MainForm : Form
         ContextSession session = StarterTool.Context;
         ContextPanel.SetStatus(session.Summary, session.Report);
 
+        ContextPanel.SetAdvice(session.Advice());
+
         if (session.Stage == ContextStage.Lab)
         {
             LabTracker? lab = session.Lab;
 
             ButtonContextClear.Visible = false;
             ButtonContextUndo.Visible = false;
-            ButtonContextAnchor.Visible = false;
             ButtonContextFinished.Visible = false;
+            ButtonContextAnchor.Visible = session.Adapter && session.NextAnchor == RouteAnchor.PressBall;
+            ButtonContextAnchor.Text = ButtonContextAnchor.Visible ? "Ball" : "Anchor";
 
-            ButtonContextLate.Visible = session.Hidden.Count == 0;
+            ButtonContextLate.Visible = session.Hidden.Count == 0 && !session.Adapter;
             ButtonContextLate.Text = lab?.Lateness switch
             {
                 LabLateness.Late => "Very Late!",
@@ -412,6 +432,7 @@ public partial class MainForm : Form
 
             bool fenceGuy = open && ContextPanel.ShowingFenceCue;
 
+            ButtonContextAnchor.Text = "Anchor";
             ButtonContextAnchor.Visible = open && !fenceGuy;
             ButtonContextFinished.Visible = fenceGuy;
             ButtonContextFinished.Text = tracker is { Complete: true } ? "Not Finished" : "Finished!";
@@ -724,6 +745,8 @@ public partial class MainForm : Form
 
         ShowResults(around, selected, takeFocus,
             levelStats: StarterTool.Settings?.AutoShowLevelStats ?? true);
+
+        ListViewResults.CenterOn(selected);
     }
 
     private void InitializeStatSearch()
@@ -914,7 +937,12 @@ public partial class MainForm : Form
         if (shift == _timeShiftFrames) return;
 
         _timeShiftFrames = shift;
-        if (_results.Count > 0) ListViewResults.RedrawItems(0, _results.Count - 1, true);
+        RedrawTimeColumn();
+    }
+
+    private void RedrawTimeColumn()
+    {
+        if (!_encounterGrid && _results.Count > 0) ListViewResults.RedrawItems(0, _results.Count - 1, true);
     }
 
     private void FitLastColumn()
@@ -975,6 +1003,15 @@ public partial class MainForm : Form
 
         _landingTarget = targetFrame;
 
+        _landingReport = fps > 0.0 ? (deltaMs, fps, StarterTool.Context.StreamStep) : null;
+
+        if (fps > 0.0 && StarterTool.VariableOffset is { } landingTimer)
+        {
+            CorrectionFor(
+                    StarterCorrectionKey, landingTimer.DelayOffsetMs, landingTimer.OffsetMs, fps)
+                .ObserveAttempt(deltaMs, landingTimer.OffsetMs);
+        }
+
         if (landedFrame is not { } landed)
         {
             _landingFrame = null;
@@ -991,8 +1028,7 @@ public partial class MainForm : Form
                 _reportingLanding = false;
             }
 
-            int target = _results.FindIndex(pkm => pkm.Frame == targetFrame);
-            if (target >= 0) ListViewResults.EnsureVisible(target);
+            ListViewResults.CenterOn(_results.FindIndex(pkm => pkm.Frame == targetFrame));
             ListViewResults.Invalidate();
             return;
         }
@@ -1000,10 +1036,11 @@ public partial class MainForm : Form
         _landingFrame = landed;
         _landingChance = gradedChance;
 
+        int step = StarterTool.Context.StreamStep;
         _landingAlternate = null;
         if (fps > 0.0 && VariableOffsetCalculator.AlternateChance(deltaMs, fps) > 0.0)
         {
-            int alternate = VariableOffsetCalculator.AlternateFrame(landed, deltaMs, fps);
+            int alternate = VariableOffsetCalculator.AlternateFrame(landed, deltaMs, fps, step);
             if (alternate != targetFrame) _landingAlternate = alternate;
         }
 
@@ -1014,9 +1051,10 @@ public partial class MainForm : Form
             double frames = deltaMs / frameMs;
             double pressMs = (landed + (frames - Math.Floor(frames + 0.5))) * frameMs;
 
-            foreach (int frame in FrameWindow.Candidates(pressMs, fps, StarterTool.Settings?.NpcContextWindowMs ?? 0.0))
+            foreach (int candidate in FrameWindow.Candidates(pressMs, fps, StarterTool.Settings?.NpcContextWindowMs ?? 0.0))
             {
-                if (frame == landed || frame == targetFrame || frame == _landingAlternate) continue;
+                int frame = landed + step * (candidate - landed);
+                if (frame < 0 || frame == landed || frame == targetFrame || frame == _landingAlternate) continue;
                 _landingContext.Add(frame);
             }
         }
@@ -1045,6 +1083,7 @@ public partial class MainForm : Form
             index = _results.FindIndex(pkm => pkm.Frame == landed);
         }
 
+        ListViewResults.CenterOn(_results.FindIndex(pkm => pkm.Frame == targetFrame));
         if (index >= 0) ListViewResults.EnsureVisible(index);
         ListViewResults.Invalidate();
     }
@@ -1158,6 +1197,7 @@ public partial class MainForm : Form
         _landingFrame = null;
         _landingTarget = null;
         _landingAlternate = null;
+        _landingReport = null;
         _landingContext.Clear();
         ActiveLandingLabel.Text = "";
         ListViewResults.Invalidate();
@@ -1241,7 +1281,9 @@ public partial class MainForm : Form
         else
         {
             item = new ListViewItem(pkm.Frame.ToString(CultureInfo.InvariantCulture));
-            item.SubItems.Add(FrameTime.Format(pkm.Frame + _timeShiftFrames, _resultFps, StarterTool.TimeFormat));
+            int correction = StarterTool.Context.CorrectionAt((int)pkm.Frame) ?? 0;
+            item.SubItems.Add(FrameTime.Format(
+                pkm.Frame + correction + _timeShiftFrames, _resultFps, StarterTool.TimeFormat));
         }
         var nature = pkm.Nature ?? new Nature(0);
         item.SubItems.Add(pkm.Nature?.Name ?? "");

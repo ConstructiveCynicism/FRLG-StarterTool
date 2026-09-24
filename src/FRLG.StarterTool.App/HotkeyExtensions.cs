@@ -29,7 +29,8 @@ public static class HotkeyExtensions
         (HotkeyAction.NpcFocusNext, "Select Next"),
         (HotkeyAction.NpcUndo, "Undo"),
         (HotkeyAction.NpcComplete, "Toggle"),
-        (HotkeyAction.NpcMiss, "Miss")
+        (HotkeyAction.NpcMiss, "Miss"),
+        (HotkeyAction.ReportPcVisit, "PC Potion")
     };
 
     public static readonly (HotkeyAction Action, string Label)[] IgtActions =

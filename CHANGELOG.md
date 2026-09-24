@@ -1,4 +1,8 @@
-﻿### v2.3.1
+﻿### v2.4.0
+- Experimental Adapter Manip (off by default)
+- Experimental Audio shift (off by default)
+
+### v2.3.1
 - Encounter Manip accuracy changes: 1/14 complete failure chance fixed, 1/2 as likely for duplicate fence guys
 
 ### v2.3.0

@@ -12,6 +12,8 @@ internal interface IBeepOutput : IDisposable
 
     bool Write(byte[] pcm);
 
+    double StartDelayMs();
+
     void Stop();
 
     int PlayedBytes();
