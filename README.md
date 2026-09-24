@@ -1,5 +1,3 @@
-
-
 # FRLG Starter Tool
 
 An improvement to the existing community resources for starter manip. This was made for my personal use and distributed for anyone else who finds it useful.
@@ -18,8 +16,8 @@ An improvement to the existing community resources for starter manip. This was m
 ## Offset Trainer
 The Offset Trainer can be used independently of the game, assuming that you start and stop the timer at the same time as the game inputs. I would recommend training the audio and visual offsets independently, to account for any audio delay and difference in audio cue reaction.
 
-## Other Games (Generic tabs)
-`View > Generic` adds four tabs that know nothing about FireRed/LeafGreen: FlowTimer's `Fixed Offset`, `Variable Offset` and `IGT Tracking`, and an `Offset Trainer`. They keep their own FPS and offsets, apart from the FRLG timer's, and score a press against the frame itself rather than three frames early. `Fixed Offset` imports FlowTimer's timer files.
+## Other Games 
+Basic flow timer features added.
 
 ## Squirtle Frame Prediction
 Because its not possible to know where in the frame the timer is started, the exact same input spacing can result in different frames. The predictor can tell you the odds of the input landing on each of the two possible frames. If the squirtle does not match either of the predicted frames, there were untracked additional frame advancements.
