@@ -34,6 +34,8 @@ public sealed class ContextSession
 
     private bool _armed;
 
+    private double? _lastAnchorMs;
+
     private bool _labCued;
 
     private bool _fenceUnfinished;
@@ -161,6 +163,8 @@ public sealed class ContextSession
 
     private const double CueTailMs = 250.0;
 
+    private const double AnchorLockoutMs = 500.0;
+
     public double? CuePressMs
     {
         get
@@ -198,6 +202,7 @@ public sealed class ContextSession
     public void Reset()
     {
         _exitMs = _oakMs = _labMs = _ballMs = null;
+        _lastAnchorMs = null;
         _adapter = false;
         _missOakFrame = 0;
         LastAnchor = null;
@@ -264,6 +269,15 @@ public sealed class ContextSession
         if (!_tracking || !_armed || _missed || !StarterTool.IsTimerRunning) return false;
 
         double elapsedMs = pressTimeMs - StarterTool.TimerStart;
+
+        if (_lastAnchorMs is { } lastAnchor && elapsedMs - lastAnchor < AnchorLockoutMs)
+        {
+            Log(string.Format(CultureInfo.InvariantCulture,
+                "anchor press ignored at {0:F1} ms - {1:F0} ms after the previous anchor",
+                elapsedMs, elapsedMs - lastAnchor));
+            return true;
+        }
+
         string? fenceNote = null;
 
         if (_labMs != null)
@@ -271,6 +285,7 @@ public sealed class ContextSession
             if (NextAnchor != RouteAnchor.PressBall) return false;
 
             _ballMs = elapsedMs;
+            _lastAnchorMs = elapsedMs;
             LastAnchor = RouteAnchor.PressBall;
             BuildLab(Lab?.Lateness ?? LabLateness.Fast);
 
@@ -312,6 +327,8 @@ public sealed class ContextSession
             fenceNote = AssumeFenceFinished();
             BuildLab();
         }
+
+        _lastAnchorMs = elapsedMs;
 
         double fps = StarterTool.VariableOffset?.SelectedFps ?? 60.0;
         Log(string.Format(CultureInfo.InvariantCulture, "anchor {0} at {1:F1} ms, frame {2}{3}{4}{5}",

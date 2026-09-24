@@ -135,6 +135,8 @@ public sealed class VariableOffsetTimer : BaseTimer
 
             OnDataChange();
             RequestArm();
+
+            _form.RefreshContextAdvice();
         };
 
         foreach (Control control in new Control[]

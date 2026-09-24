@@ -376,6 +376,8 @@ public partial class MainForm : Form
 
     public bool ReportFocus(int delta) => TroubleshootPanel.MoveNpc(delta);
 
+    public void RefreshContextAdvice() => ContextPanel.SetAdvice(StarterTool.Context.Advice());
+
     private void ShowContextSession()
     {
         ContextSession session = StarterTool.Context;

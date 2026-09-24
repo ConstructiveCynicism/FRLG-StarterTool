@@ -1,4 +1,9 @@
-﻿### v2.4.0
+﻿### v2.4.1
+- anchor lockout
+- better fence guy rating
+- parity update when swapping squirtles
+
+### v2.4.0
 - Experimental Adapter Manip (off by default)
 - Experimental Audio shift (off by default)
 

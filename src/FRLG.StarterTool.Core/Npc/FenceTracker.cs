@@ -225,7 +225,8 @@ public sealed class FenceTracker
             if (lags[i] < least) least = lags[i];
         }
 
-        double score = least >= 0.0 ? -least / LatencyScaleMs : least / EarlyScaleMs;
+        double excess = least - MinimumLatencyMs;
+        double score = excess >= 0.0 ? -excess / LatencyScaleMs : excess / EarlyScaleMs;
 
         foreach (double lag in lags) score -= (lag - least) / ReactionScaleMs;
 
@@ -237,6 +238,8 @@ public sealed class FenceTracker
     public const double LatencyScaleMs = 2000.0;
 
     public const double EarlyScaleMs = 50.0;
+
+    public const double MinimumLatencyMs = 150.0;
 
     private bool Consistent(FenceCandidate candidate, int offset)
     {
