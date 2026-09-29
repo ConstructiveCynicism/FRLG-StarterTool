@@ -1,4 +1,6 @@
+using System.Globalization;
 using FRLG.StarterTool.Core.Settings;
+using FRLG.StarterTool.Core.Voice;
 
 namespace FRLG.StarterTool.App;
 
@@ -164,6 +166,87 @@ public partial class MainForm
                 break;
         }
     }
+
+    public void EnterSpokenTrainerId(string heard, SpokenId? spoken, int press, bool final, bool paused)
+    {
+        if (press == _voiceEnteredPress) return;
+        string said = heard.Length > 0 ? $"\"{heard}\"" : "nothing";
+
+        string? closed = _selectedTab is TabKey.Training or TabKey.GenericTraining or TabKey.GenericFixed
+                or TabKey.GenericIgt or TabKey.GenericVariable
+            ? "not on this tab"
+            : !StarterTool.IsTimerRunning ? "no run started"
+            : _trainerIdLocked ? "the ID is locked"
+            : !TextBoxTrainerId.Enabled ? "the ID box is off"
+            : null;
+        if (closed != null)
+        {
+            if (final) ContextSession.Log($"voice: heard {said}, ignored - {closed}");
+            return;
+        }
+
+        if (spoken is not { } id)
+        {
+            if (!final) return;
+            ContextSession.Log($"voice: heard {said}, not a Trainer ID");
+            LabelLanding.Text = heard.Length > 0 ? $"Voice: {said} is not a Trainer ID" : "Voice: heard nothing";
+            return;
+        }
+
+        if (!final)
+        {
+            bool caretIn = ReferenceEquals(ActiveControl, TextBoxTrainerId);
+            int prospective = id.Kind == SpokenKind.Number || id.Digits.Length == MaxTrainerIdDigits || !caretIn
+                ? id.Digits.Length
+                : TextBoxTrainerId.Text.Length - TextBoxTrainerId.SelectionLength + id.Digits.Length;
+            bool open = !paused && SpokenNumber.EndsOpen(heard.Split(' ', StringSplitOptions.RemoveEmptyEntries));
+            bool complete = prospective == MaxTrainerIdDigits && !open && (id.Kind == SpokenKind.Digits || paused);
+            if (!complete) return;
+        }
+
+        _voiceEnteredPress = press;
+        FocusTrainerIdIfNeeded();
+
+        if (id.Kind == SpokenKind.Number || id.Digits.Length == MaxTrainerIdDigits)
+        {
+            TextBoxTrainerId.Text = id.Digits;
+            TextBoxTrainerId.SelectionStart = id.Digits.Length;
+        }
+        else
+        {
+            string box = TextBoxTrainerId.Text;
+            int typed = box.Length - TextBoxTrainerId.SelectionLength + id.Digits.Length;
+            if (typed > MaxTrainerIdDigits)
+            {
+                ContextSession.Log($"voice: heard {said}, refused - it would make {typed} digits");
+                LabelLanding.Text = $"Voice: {said} would make {typed} digits";
+                return;
+            }
+
+            foreach (char digit in id.Digits) TypeTrainerIdDigit(digit);
+        }
+
+        string entered = TextBoxTrainerId.Text;
+        bool whole = entered.Length == MaxTrainerIdDigits;
+        bool valid = int.TryParse(entered, NumberStyles.None, CultureInfo.InvariantCulture, out int value)
+                     && value <= MaxTrainerId;
+
+        ContextSession.Log($"voice: heard {said}{(final ? "" : " (key still down)")}, ID box {entered}"
+                           + (!whole ? ", waiting for more" : valid ? ", searching" : ", not a Trainer ID"));
+
+        if (whole && !valid)
+        {
+            LabelLanding.Text = $"Voice: {entered} is over {MaxTrainerId}";
+            return;
+        }
+
+        ClearSearchNote();
+        if (whole) RunSearch();
+    }
+
+    private const int MaxTrainerIdDigits = 5;
+
+    private int _voiceEnteredPress;
 
     private void HandleFrameNumpad(Keys key)
     {

@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Concurrent;
 using System.Globalization;
 using System.Reflection;
@@ -29,6 +30,13 @@ public enum TitleGame
 {
     FireRed = 0,
     LeafGreen = 1,
+}
+
+public enum TitleAdapter
+{
+    Out = 0,
+
+    In = 1,
 }
 
 public enum TitleSaves
@@ -72,6 +80,8 @@ public readonly record struct TitleVariant(TitleButtonMode Buttons, TitleSoundMo
     TitleLoop Loop = TitleLoop.None, TitleSaves Saves = TitleSaves.Multi, string? Recipe = null)
 {
     public bool HasRecipe => Recipe is not null;
+
+    public bool HoldsWithAdapter => Recipe is null || !Recipe.Contains("soft", StringComparison.Ordinal);
 
     public string SavesKey => Saves == TitleSaves.Single ? "single" : "multi";
 

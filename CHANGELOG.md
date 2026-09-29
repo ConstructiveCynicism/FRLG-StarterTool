@@ -1,4 +1,10 @@
-﻿### v2.4.1
+﻿### v2.4.2
+- double tap prevention
+- better fence guy rating
+- speech to text TID
+- better calibrated offset/delay tuning
+
+### v2.4.1
 - anchor lockout
 - better fence guy rating
 - parity update when swapping squirtles

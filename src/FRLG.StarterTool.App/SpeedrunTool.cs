@@ -55,7 +55,9 @@ public static class StarterTool
 
     public static IntPtr MainFormHandle { get; private set; }
 
-    private static readonly int[] LastKeyEvent = new int[256];
+    private static readonly bool[] KeyDown = new bool[256];
+
+    private static readonly Dictionary<InputCode, (double Down, double Up)> LastEdges = new();
 
     public static BaseTimer CurrentTab => _currentTab ?? VariableOffset;
 
@@ -110,7 +112,22 @@ public static class StarterTool
         StatServer = new StatServer();
         StatServer.Start(Settings);
         Beeps = new BeepPlayer(ContextSession.Log);
-        Beeps.Configure(Settings.AudioOutput, Settings.AudioPeriodMs, Settings.AudioAlignStart);
+        Beeps.LearnedPeriod = id =>
+        {
+            lock (Settings.AudioDevicePeriods)
+            {
+                return Settings.AudioDevicePeriods.TryGetValue(id, out double ms) ? ms : 0;
+            }
+        };
+        Beeps.PeriodLearned = (id, ms) => Post(() =>
+        {
+            lock (Settings.AudioDevicePeriods)
+            {
+                Settings.AudioDevicePeriods[id] = ms;
+            }
+        });
+        Beeps.Configure(Settings.AudioOutput, Settings.AudioPeriodMs, Settings.AudioAlignStart, Settings.AudioOutputDevice);
+        VoiceInput.Apply(Settings);
         VariableOffset = new VariableOffsetTimer(mainForm);
         VariableOffset.OnInit();
         FixedOffset = new FixedOffsetTimer(mainForm);
@@ -173,6 +190,7 @@ public static class StarterTool
         }
 
         StopTimerThread();
+        VoiceInput.Stop();
         Beeps?.Dispose();
         Capture.Dispose();
 
@@ -363,6 +381,19 @@ public static class StarterTool
 
     private static IntPtr Keycallback(int nCode, int wParam, IntPtr lParam)
     {
+        if (nCode >= 0 && VoiceInput.Enabled)
+        {
+            try
+            {
+                var kbd = Marshal.PtrToStructure<Win32.KBDLLHOOKSTRUCT>(lParam);
+                bool down = wParam is Win32.WM_KEYDOWN or Win32.WM_SYSKEYDOWN;
+                VoiceInput.Track(InputCode.Key((int)kbd.vkCode), down, SettingsForm == null && _modalDepth == 0);
+            }
+            catch (Exception)
+            {
+            }
+        }
+
         if (nCode >= 0 && SettingsForm == null && _modalDepth == 0)
         {
             double eventTime = Win32.GetTime();
@@ -378,12 +409,18 @@ public static class StarterTool
 
                 bool extended = (kbd.flags & Win32.LLKHF_EXTENDED) != 0;
 
-                if (Settings.KeyMethod.IsActivatedByEvent(wParam) && wParam != LastKeyEvent[index])
+                bool down = wParam is Win32.WM_KEYDOWN or Win32.WM_SYSKEYDOWN;
+                if (down != KeyDown[index])
                 {
-                    Dispatch(InputPress.Capture(InputCode.Key((int)key), Settings), extended, eventTime, lagMs);
-                }
+                    KeyDown[index] = down;
+                    var input = InputCode.Key((int)key);
 
-                LastKeyEvent[index] = wParam;
+                    bool bounce = IsBounce(input, down, eventTime);
+                    if (Settings.KeyMethod.IsActivatedByEvent(wParam) && !bounce)
+                    {
+                        Dispatch(InputPress.Capture(input, Settings), extended, eventTime, lagMs);
+                    }
+                }
             }
             catch (Exception)
             {
@@ -395,8 +432,20 @@ public static class StarterTool
 
     private static void GamepadChanged(InputCode input, bool pressed, double time)
     {
+        if (VoiceInput.Enabled && Settings != null)
+        {
+            try
+            {
+                VoiceInput.Track(input, pressed, SettingsForm == null && _modalDepth == 0);
+            }
+            catch (Exception)
+            {
+            }
+        }
+
         if (SettingsForm != null || _modalDepth != 0 || Settings == null) return;
-        if (!Settings.KeyMethod.IsActivatedByEdge(pressed)) return;
+        bool bounce = IsBounce(input, pressed, time);
+        if (!Settings.KeyMethod.IsActivatedByEdge(pressed) || bounce) return;
 
         try
         {
@@ -405,6 +454,28 @@ public static class StarterTool
         catch (Exception)
         {
         }
+    }
+
+    private static bool IsBounce(InputCode input, bool down, double time)
+    {
+        double opposite;
+        lock (LastEdges)
+        {
+            if (!LastEdges.TryGetValue(input, out var edges)) edges = (double.NegativeInfinity, double.NegativeInfinity);
+            opposite = down ? edges.Up : edges.Down;
+            LastEdges[input] = down ? (time, edges.Up) : (edges.Down, time);
+        }
+
+        double gap = time - opposite;
+        if (Settings.PressDebounceMs <= 0 || gap >= Settings.PressDebounceMs) return false;
+
+        if (down == (Settings.KeyMethod == KeyMethod.OnPress))
+        {
+            Post(() => ContextSession.Log(string.Format(CultureInfo.InvariantCulture,
+                "{0} {1} ignored - {2:F1} ms after its {3}, under the {4:0.#} ms debounce",
+                input.Describe(), down ? "press" : "release", gap, down ? "release" : "press", Settings.PressDebounceMs)));
+        }
+        return true;
     }
 
     private static void Dispatch(InputPress press, bool extended, double eventTime, double lagMs)
@@ -450,6 +521,14 @@ public static class StarterTool
                     {
                         ContextSession.Log(string.Format(CultureInfo.InvariantCulture,
                             "start press ignored at {0:F1} ms - landing still owed",
+                            eventTime - TimerStart));
+                        return;
+                    }
+
+                    if (VariableOffset.Held)
+                    {
+                        ContextSession.Log(string.Format(CultureInfo.InvariantCulture,
+                            "start press ignored at {0:F1} ms - timer held for a later frame",
                             eventTime - TimerStart));
                         return;
                     }
@@ -565,7 +644,8 @@ public static class StarterTool
         || Settings.IgtAdd3.IsPressed(press) || Settings.IgtSub3.IsPressed(press)
         || Settings.IgtAdd4.IsPressed(press) || Settings.IgtSub4.IsPressed(press)
         || Settings.IgtAdd5.IsPressed(press) || Settings.IgtSub5.IsPressed(press)
-        || Settings.IgtAdd6.IsPressed(press) || Settings.IgtSub6.IsPressed(press);
+        || Settings.IgtAdd6.IsPressed(press) || Settings.IgtSub6.IsPressed(press)
+        || Settings.PushToTalk.IsPressed(press);
 
     private static HotkeyAction? ListAction(InputPress press)
     {
@@ -630,6 +710,12 @@ public static class StarterTool
 
     public static void StopTimer(bool timerExpired, double lagMs = 0.0, bool letCuesFinish = false)
     {
+        if (!timerExpired && VariableOffset is { Held: true } held)
+        {
+            held.EndHold();
+            return;
+        }
+
         if (!IsTimerRunning)
         {
             if (!timerExpired) VariableOffset.ResetEncounterRun();
@@ -657,6 +743,14 @@ public static class StarterTool
         {
             Context.TimerStopped();
         }
+    }
+
+    public static void EndHeldRun()
+    {
+        if (!IsTimerRunning) return;
+
+        StopTimerThread();
+        StopTimer(true);
     }
 
     private static void StopTimerThread()

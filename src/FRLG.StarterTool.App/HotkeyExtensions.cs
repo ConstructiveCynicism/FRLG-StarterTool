@@ -12,11 +12,13 @@ public static class HotkeyExtensions
         (HotkeyAction.SubFrame, "− 1 frame"),
         (HotkeyAction.Multiply2, "×2 frames"),
         (HotkeyAction.Multiply3, "×3 frames"),
+        (HotkeyAction.ReportPcVisit, "PC Potion"),
         (HotkeyAction.ToggleLevel, "Level 5 / 6"),
         (HotkeyAction.ExportStats, "Copy IVs"),
         (HotkeyAction.ToggleGlobalHotkeys, "Global Hotkey Lock"),
         (HotkeyAction.ListUp, "List up"),
-        (HotkeyAction.ListDown, "List down")
+        (HotkeyAction.ListDown, "List down"),
+        (HotkeyAction.PushToTalk, "Push to talk")
     };
 
     public static readonly (HotkeyAction Action, string Label)[] ContextActions =
@@ -29,8 +31,7 @@ public static class HotkeyExtensions
         (HotkeyAction.NpcFocusNext, "Select Next"),
         (HotkeyAction.NpcUndo, "Undo"),
         (HotkeyAction.NpcComplete, "Toggle"),
-        (HotkeyAction.NpcMiss, "Miss"),
-        (HotkeyAction.ReportPcVisit, "PC Potion")
+        (HotkeyAction.NpcMiss, "Miss")
     };
 
     public static readonly (HotkeyAction Action, string Label)[] IgtActions =

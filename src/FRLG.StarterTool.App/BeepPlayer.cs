@@ -13,10 +13,15 @@ public sealed class BeepPlayer : IDisposable
     private IBeepOutput? _output;
     private AudioOutput _preferred = AudioOutput.Wasapi;
     private double _periodMs;
+    private string _deviceId = "";
     private bool _alignStart;
     private bool _reopenPending;
 
     private double _periodOverrideMs;
+
+    public Func<string, double>? LearnedPeriod { get; set; }
+
+    public Action<string, double>? PeriodLearned { get; set; }
     private readonly Action<string> _log;
     private readonly object _lock = new();
 
@@ -99,13 +104,15 @@ public sealed class BeepPlayer : IDisposable
         _log(line);
     }
 
-    public void Configure(AudioOutput output, double periodMs, bool alignStart)
+    public void Configure(AudioOutput output, double periodMs, bool alignStart, string deviceId)
     {
         lock (_lock)
         {
-            bool changed = output != _preferred || periodMs != _periodMs;
+            deviceId ??= "";
+            bool changed = output != _preferred || periodMs != _periodMs || deviceId != _deviceId;
             _preferred = output;
             _periodMs = periodMs;
+            _deviceId = deviceId;
             _alignStart = alignStart;
             if (changed) _periodOverrideMs = 0;
             if (_output == null || changed) ScheduleReopen();
@@ -362,8 +369,18 @@ public sealed class BeepPlayer : IDisposable
         if (old != null)
         {
             old.DeviceChanged -= OnDeviceChanged;
-            if (old is WasapiOutput { SuggestedPeriodMs: not 0 } judged) _periodOverrideMs = judged.SuggestedPeriodMs;
-            else _periodOverrideMs = 0;
+            if (old is WasapiOutput { SuggestedPeriodMs: not 0 } judged)
+            {
+                _periodOverrideMs = judged.SuggestedPeriodMs;
+                if (judged.SuggestedPeriodMs > 0 && judged.EndpointId != null)
+                {
+                    PeriodLearned?.Invoke(judged.EndpointId, judged.SuggestedPeriodMs);
+                }
+            }
+            else
+            {
+                _periodOverrideMs = 0;
+            }
             old.Dispose();
         }
 
@@ -378,11 +395,11 @@ public sealed class BeepPlayer : IDisposable
         try
         {
             bool wasapi = _preferred == AudioOutput.Wasapi && _periodOverrideMs >= 0;
-            if (wasapi) output = WasapiOutput.Open(_periodOverrideMs > 0 ? _periodOverrideMs : _periodMs, _openLog);
+            if (wasapi) output = WasapiOutput.Open(_periodOverrideMs > 0 ? _periodOverrideMs : _periodMs, _deviceId, LearnedPeriod, _openLog);
             if (output == null)
             {
                 if (wasapi) _openLog("audio: falling back to waveOut");
-                output = WaveOutOutput.Open(_openLog);
+                output = WaveOutOutput.Open(_deviceId, _openLog);
             }
 
             if (output == null)

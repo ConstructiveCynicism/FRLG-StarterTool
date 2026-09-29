@@ -33,7 +33,9 @@ public sealed class SettingsForm : Form
         "Cue Context (ms)",
         "Beep Sound",
         "Volume",
-        "Output",
+        "Output Driver",
+        "Output Device",
+        "Input Device",
         "Clipboard Format",
         "Time Format",
         "Nature and Frame",
@@ -137,6 +139,8 @@ public sealed class SettingsForm : Form
         int comboX = Math.Max(keyColumnX, Scaled(LeftMargin) + widestCaption + Scaled(12));
 
         int comboWidth = Math.Max(Scaled(KeyButtonWidth), Scaled(VolumeBarWidth));
+        _deviceComboX = comboX;
+        _deviceComboWidth = comboWidth;
 
         int contextY = contextTable.Bottom + Scaled(RowGap + 4);
         Controls.Add(new Label
@@ -286,10 +290,36 @@ public sealed class SettingsForm : Form
         Controls.Add(methodLabel);
         Controls.Add(methodBox);
 
+        int debounceY = methodBox.Bottom + Scaled(RowGap + 2);
+        Controls.Add(new Label
+        {
+            Text = "Debounce (ms)",
+            Location = new Point(Scaled(LeftMargin), debounceY + Scaled(4)),
+            AutoSize = true
+        });
+        var debounceBox = new ThemedTextBox
+        {
+            Numeric = true,
+            Location = new Point(comboX, debounceY),
+            Width = comboWidth,
+            Text = _settings.PressDebounceMs.ToString("0.###", CultureInfo.InvariantCulture)
+        };
+        debounceBox.Leave += (_, _) =>
+        {
+            if (double.TryParse(debounceBox.Text, NumberStyles.Float, CultureInfo.InvariantCulture,
+                    out double ms) && ms >= 0.0)
+            {
+                _settings.PressDebounceMs = Math.Min(ms, 200.0);
+            }
+
+            debounceBox.Text = _settings.PressDebounceMs.ToString("0.###", CultureInfo.InvariantCulture);
+        };
+        Controls.Add(debounceBox);
+
         var atomicClock = new ThemedCheckBox
         {
             Text = AtomicClockCaption(),
-            Location = new Point(Scaled(LeftMargin), methodBox.Bottom + Scaled(RowGap + 2)),
+            Location = new Point(Scaled(LeftMargin), debounceBox.Bottom + Scaled(RowGap + 2)),
             AutoSize = true,
             Checked = _settings.AtomicClockSync
         };
@@ -349,15 +379,52 @@ public sealed class SettingsForm : Form
         Controls.Add(soundLabel);
         Controls.Add(soundBox);
 
+        var outputLabel = new Label
+        {
+            Text = "Output driver",
+            Location = new Point(Scaled(LeftMargin), soundBox.Bottom + Scaled(RowGap) + Scaled(4)),
+            AutoSize = true
+        };
+        var outputBox = new ThemedComboBox
+        {
+            Location = new Point(comboX, soundBox.Bottom + Scaled(RowGap)),
+            Size = new Size(comboWidth, Scaled(23)),
+            DropDownStyle = ComboBoxStyle.DropDownList
+        };
+        outputBox.Items.Add("WASAPI (low latency)");
+        outputBox.Items.Add("waveOut (legacy)");
+        outputBox.SelectedIndex = (int)_settings.AudioOutput;
+        outputBox.SelectedIndexChanged += (_, _) =>
+        {
+            _settings.AudioOutput = (AudioOutput)outputBox.SelectedIndex;
+            StarterTool.Beeps.Configure(_settings.AudioOutput, _settings.AudioPeriodMs, _settings.AudioAlignStart, _settings.AudioOutputDevice);
+        };
+        Controls.Add(outputLabel);
+        Controls.Add(outputBox);
+
+        ThemedComboBox outputDeviceBox = AddDeviceRow("Output device", outputBox.Bottom + Scaled(RowGap),
+            capture: false, _settings.AudioOutputDevice, id =>
+            {
+                _settings.AudioOutputDevice = id;
+                StarterTool.Beeps.Configure(_settings.AudioOutput, _settings.AudioPeriodMs, _settings.AudioAlignStart, _settings.AudioOutputDevice);
+            });
+
+        ThemedComboBox inputDeviceBox = AddDeviceRow("Input device", outputDeviceBox.Bottom + Scaled(RowGap),
+            capture: true, _settings.VoiceInputDevice, id =>
+            {
+                _settings.VoiceInputDevice = id;
+                VoiceInput.Apply(_settings);
+            });
+
         var volumeLabel = new Label
         {
             Text = "Volume",
-            Location = new Point(Scaled(LeftMargin), soundBox.Bottom + Scaled(14)),
+            Location = new Point(Scaled(LeftMargin), inputDeviceBox.Bottom + Scaled(14)),
             AutoSize = true
         };
         var volumeBar = new TrackBar
         {
-            Location = new Point(comboX, soundBox.Bottom + Scaled(8)),
+            Location = new Point(comboX, inputDeviceBox.Bottom + Scaled(8)),
             AutoSize = false,
             Size = new Size(comboWidth, Scaled(40)),
             Minimum = 0,
@@ -373,40 +440,17 @@ public sealed class SettingsForm : Form
         Controls.Add(volumeLabel);
         Controls.Add(volumeBar);
 
-        var outputLabel = new Label
-        {
-            Text = "Output",
-            Location = new Point(Scaled(LeftMargin), volumeBar.Bottom + Scaled(RowGap) + Scaled(4)),
-            AutoSize = true
-        };
-        var outputBox = new ThemedComboBox
-        {
-            Location = new Point(comboX, volumeBar.Bottom + Scaled(RowGap)),
-            Size = new Size(comboWidth, Scaled(23)),
-            DropDownStyle = ComboBoxStyle.DropDownList
-        };
-        outputBox.Items.Add("WASAPI (low latency)");
-        outputBox.Items.Add("waveOut (legacy)");
-        outputBox.SelectedIndex = (int)_settings.AudioOutput;
-        outputBox.SelectedIndexChanged += (_, _) =>
-        {
-            _settings.AudioOutput = (AudioOutput)outputBox.SelectedIndex;
-            StarterTool.Beeps.Configure(_settings.AudioOutput, _settings.AudioPeriodMs, _settings.AudioAlignStart);
-        };
-        Controls.Add(outputLabel);
-        Controls.Add(outputBox);
-
         var alignStart = new ThemedCheckBox
         {
             Text = "Place beeps on the device clock",
-            Location = new Point(Scaled(LeftMargin), outputBox.Bottom + Scaled(RowGap + 4)),
+            Location = new Point(Scaled(LeftMargin), volumeBar.Bottom + Scaled(RowGap)),
             AutoSize = true,
             Checked = _settings.AudioAlignStart
         };
         alignStart.CheckedChanged += (_, _) =>
         {
             _settings.AudioAlignStart = alignStart.Checked;
-            StarterTool.Beeps.Configure(_settings.AudioOutput, _settings.AudioPeriodMs, _settings.AudioAlignStart);
+            StarterTool.Beeps.Configure(_settings.AudioOutput, _settings.AudioPeriodMs, _settings.AudioAlignStart, _settings.AudioOutputDevice);
         };
         Controls.Add(alignStart);
 
@@ -1158,7 +1202,7 @@ public sealed class SettingsForm : Form
             clear.Click += (_, _) =>
             {
                 hotkey.Clear();
-                RefreshKeyButtons(action);
+                BindingChanged(action);
             };
             table.Controls.Add(clear);
 
@@ -1196,6 +1240,47 @@ public sealed class SettingsForm : Form
             table.PerformLayout();
         }
     }
+
+    private ThemedComboBox AddDeviceRow(string caption, int y, bool capture, string current, Action<string> changed)
+    {
+        Controls.Add(new Label
+        {
+            Text = caption,
+            Location = new Point(Scaled(LeftMargin), y + Scaled(4)),
+            AutoSize = true
+        });
+
+        var ids = new List<string> { "" };
+        var box = new ThemedComboBox
+        {
+            Location = new Point(_deviceComboX, y),
+            Size = new Size(_deviceComboWidth, Scaled(23)),
+            DropDownStyle = ComboBoxStyle.DropDownList,
+            DropDownWidth = Math.Max(_deviceComboWidth, Scaled(320))
+        };
+        box.Items.Add("Default device");
+        foreach (AudioDevices.Endpoint endpoint in AudioDevices.List(capture))
+        {
+            ids.Add(endpoint.Id);
+            box.Items.Add(endpoint.Name);
+        }
+
+        int selected = ids.IndexOf(current ?? "");
+        if (selected < 0)
+        {
+            ids.Add(current!);
+            box.Items.Add("Saved device (not connected)");
+            selected = ids.Count - 1;
+        }
+
+        box.SelectedIndex = selected;
+        box.SelectedIndexChanged += (_, _) => changed(ids[box.SelectedIndex]);
+        Controls.Add(box);
+        return box;
+    }
+
+    private int _deviceComboX;
+    private int _deviceComboWidth;
 
     private Label AddSectionHeader(string text, int y)
     {
@@ -1365,9 +1450,17 @@ public sealed class SettingsForm : Form
             if (selection.ShowDialog(this) != DialogResult.OK) return;
 
             _settings.GetHotkey(action).Toggle(selection.Chord);
-            RefreshKeyButtons(action);
+            BindingChanged(action);
         };
         return button;
+    }
+
+    private void BindingChanged(HotkeyAction action)
+    {
+        RefreshKeyButtons(action);
+        if (action != HotkeyAction.PushToTalk) return;
+
+        VoiceInput.Apply(_settings);
     }
 
     private void RefreshKeyButtons(HotkeyAction action)

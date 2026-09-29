@@ -14,7 +14,7 @@ public sealed class EncounterRoutePreset
 
     public string Saves { get; set; } = "multi";
 
-    public int MaxSeconds { get; set; }
+    public string Adapter { get; set; } = "out";
 
     public string Sound { get; set; } = "mono";
     public string Intro { get; set; } = "none";
@@ -118,7 +118,7 @@ public sealed class EncounterRoutePreset
         Game = Game is "lg" ? Game : "fr";
         Buttons = Buttons is "la" or "either" ? Buttons : "help";
         Saves = Saves is "single" or "either" ? Saves : "multi";
-        MaxSeconds = Math.Clamp(MaxSeconds, 0, 100000);
+        if (Adapter is not ("in" or "out" or "either")) Adapter = "out";
         Sound = Sound is "stereo" or "any" ? Sound : "mono";
         Intro = Intro is "any" ? Intro : TitleVariant.Parse(null, null, Intro).ChoiceKey;
         Title = Title is "played" or "spedup" ? Title : "either";
@@ -167,7 +167,7 @@ public sealed class EncounterRoutePreset
         Game = Game,
         Buttons = Buttons,
         Saves = Saves,
-        MaxSeconds = MaxSeconds,
+        Adapter = Adapter,
         Sound = Sound,
         Intro = Intro,
         Title = Title,
@@ -266,8 +266,8 @@ public sealed class EncounterRoutePreset
             {
                 "boot\tHold Start from power-on",
                 "286-447\tTap L - the copyright screen",
-                "448-469\tA+B+Select, Start still held - soft reset (when copyright fades to black)",
-                "481-493\tRelease all four (as soon as you see white)",
+                "448-470\tA+B+Select, Start still held - soft reset (when copyright fades to black)",
+                "471-493\tRelease all four - from 9 frames before the white to 13 after",
                 "2851\tHold Start - title clears",
             },
             ManipSettings = new List<string> { "L=A", "Mono", "Single Save", "Seed 0A94" },

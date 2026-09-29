@@ -35,6 +35,8 @@ internal sealed class WasapiOutput : IBeepOutput
     private double _defaultPeriodMs = 10.0;
 
     private const double ValidateMs = 5000.0;
+
+    private const double ValidateFirstMs = 2000.0;
     private const double ValidateJitterPeriods = 1.5;
     private const double ValidateRate = 0.0003;
     private const double ValidateSettleMs = 100.0;
@@ -42,6 +44,8 @@ internal sealed class WasapiOutput : IBeepOutput
     public double SuggestedPeriodMs { get; private set; }
 
     public event Action? DeviceChanged;
+
+    public string? EndpointId { get; private set; }
 
     private WasapiOutput(Action<string> log)
     {
@@ -54,12 +58,12 @@ internal sealed class WasapiOutput : IBeepOutput
 
     public bool NeedsReopen => _needsReopen;
 
-    public static WasapiOutput? Open(double periodMs, Action<string> log)
+    public static WasapiOutput? Open(double periodMs, string? deviceId, Func<string, double>? learnedPeriodMs, Action<string> log)
     {
         var output = new WasapiOutput(log);
         try
         {
-            if (output.Initialize(periodMs)) return output;
+            if (output.Initialize(periodMs, deviceId, learnedPeriodMs)) return output;
         }
         catch (Exception e)
         {
@@ -70,21 +74,50 @@ internal sealed class WasapiOutput : IBeepOutput
         return null;
     }
 
-    private bool Initialize(double periodMs)
+    private bool Initialize(double periodMs, string? deviceId, Func<string, double>? learnedPeriodMs)
     {
-        var enumerator = (IMMDeviceEnumerator)new MMDeviceEnumeratorComObject();
+        var enumerator = (IMMDeviceEnumerator)AudioDevices.CreateEnumeratorObject();
         try
         {
-            int hr = enumerator.GetDefaultAudioEndpoint(DataFlowRender, RoleConsole, out IMMDevice device);
-            if (hr < 0)
+            IMMDevice? device = null;
+            bool chosen = !string.IsNullOrEmpty(deviceId);
+            if (chosen)
             {
-                _log($"audio: WASAPI has no default render device (0x{hr:X8})");
-                return false;
+                if (enumerator.GetDevice(deviceId!, out IMMDevice found) >= 0)
+                {
+                    if (found.GetState(out int state) >= 0 && state == DeviceStateActive) device = found;
+                    else Marshal.FinalReleaseComObject(found);
+                }
+
+                if (device == null) _log("audio: the chosen output device is not connected, using the default until it is");
+            }
+
+            bool onChosen = device != null;
+            if (device == null)
+            {
+                int hr = enumerator.GetDefaultAudioEndpoint(DataFlowRender, RoleConsole, out IMMDevice fallback);
+                if (hr < 0)
+                {
+                    _log($"audio: WASAPI has no default render device (0x{hr:X8})");
+                    return false;
+                }
+
+                device = fallback;
             }
 
             try
             {
                 LogDevice(device);
+                EndpointId = IdOf(device);
+
+                double learned = EndpointId != null ? learnedPeriodMs?.Invoke(EndpointId) ?? 0 : 0;
+                if (learned > 0 && (periodMs <= 0 || periodMs < learned))
+                {
+                    _log(string.Format(CultureInfo.InvariantCulture,
+                        "audio: this device was stepped up to {0:F2} ms in an earlier session, opening there", learned));
+                    periodMs = learned;
+                }
+
                 if (!InitializeOn(device, periodMs)) return false;
             }
             finally
@@ -92,7 +125,7 @@ internal sealed class WasapiOutput : IBeepOutput
                 Marshal.FinalReleaseComObject(device);
             }
 
-            _watch = new DeviceWatch(this);
+            _watch = new DeviceWatch(this, chosen ? deviceId : null, followsDefault: !onChosen);
             enumerator.RegisterEndpointNotificationCallback(_watch);
             _watch.Enumerator = enumerator;
             enumerator = null!;
@@ -102,6 +135,14 @@ internal sealed class WasapiOutput : IBeepOutput
         {
             if (enumerator != null) Marshal.FinalReleaseComObject(enumerator);
         }
+    }
+
+    private static string? IdOf(IMMDevice device)
+    {
+        if (device.GetId(out IntPtr idPtr) < 0 || idPtr == IntPtr.Zero) return null;
+        string? id = Marshal.PtrToStringUni(idPtr);
+        Marshal.FreeCoTaskMem(idPtr);
+        return id;
     }
 
     private void LogDevice(IMMDevice device)
@@ -313,6 +354,7 @@ internal sealed class WasapiOutput : IBeepOutput
         {
             double startedMs = Win32.GetTime();
             double baseClock = double.NaN, basePull = double.NaN, windowStartMs = double.NaN;
+            bool firstWindow = true;
 
             while (!_stopping)
             {
@@ -337,9 +379,10 @@ internal sealed class WasapiOutput : IBeepOutput
                                     windowStartMs = now;
                                 }
                             }
-                            else if (now - windowStartMs >= ValidateMs && !Playing())
+                            else if (now - windowStartMs >= (firstWindow ? ValidateFirstMs : ValidateMs) && !Playing())
                             {
                                 Judge(baseClock, basePull);
+                                firstWindow = false;
                                 if (_needsReopen) break;
                                 (baseClock, basePull) = ClockAndPull();
                                 windowStartMs = now;
@@ -608,20 +651,36 @@ internal sealed class WasapiOutput : IBeepOutput
     private sealed class DeviceWatch : IMMNotificationClient
     {
         private readonly WasapiOutput _owner;
+        private readonly string? _chosen;
+        private readonly bool _followsDefault;
         public IMMDeviceEnumerator? Enumerator;
 
-        public DeviceWatch(WasapiOutput owner)
+        public DeviceWatch(WasapiOutput owner, string? chosen, bool followsDefault)
         {
             _owner = owner;
+            _chosen = chosen;
+            _followsDefault = followsDefault;
         }
 
-        public void OnDeviceStateChanged(string deviceId, int newState) { }
-        public void OnDeviceAdded(string deviceId) { }
+        public void OnDeviceStateChanged(string deviceId, int newState)
+        {
+            if (newState == DeviceStateActive) ChosenReturned(deviceId);
+        }
+
+        public void OnDeviceAdded(string deviceId) => ChosenReturned(deviceId);
+
         public void OnDeviceRemoved(string deviceId) { }
+
+        private void ChosenReturned(string deviceId)
+        {
+            if (_chosen == null || !_followsDefault) return;
+            if (!string.Equals(deviceId, _chosen, StringComparison.OrdinalIgnoreCase)) return;
+            _owner.Invalidate("the chosen output device is back, the output will be reopened");
+        }
 
         public void OnDefaultDeviceChanged(int flow, int role, string? deviceId)
         {
-            if (flow != DataFlowRender || role != RoleConsole) return;
+            if (flow != DataFlowRender || role != RoleConsole || !_followsDefault) return;
             _owner.Invalidate("default device changed, the output will be reopened");
         }
 
@@ -766,6 +825,7 @@ internal sealed class WasapiOutput : IBeepOutput
 
     private const int DataFlowRender = 0;
     private const int RoleConsole = 0;
+    private const int DeviceStateActive = 1;
     private const uint CLSCTX_ALL = 0x17;
     private const int ShareModeShared = 0;
 
@@ -806,11 +866,6 @@ internal sealed class WasapiOutput : IBeepOutput
     {
         public Guid fmtid;
         public uint pid;
-    }
-
-    [ComImport, Guid("BCDE0395-E52F-467C-8E3D-C4579291692E")]
-    private class MMDeviceEnumeratorComObject
-    {
     }
 
     [ComImport, Guid("A95664D2-9614-4F35-A746-DE8DB63617E6"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]

@@ -103,18 +103,50 @@ public static class Assets
 
     public const int NpcFrameHeight = 32;
 
-    private static Image? _player;
     private static Bitmap? _playerSheet;
+    private static Bitmap? _playerSheetF;
+    private static readonly Dictionary<int, Image?> _playerPoses = new();
+    private static readonly Dictionary<int, Image?> _playerPosesF = new();
 
-    public static Image? Player() => _player ??= NpcFrame(ref _playerSheet, "npc.player.png", 0);
+    public static Image? Player(PlayerGender gender) => Player(gender, Direction.South, false);
+
+    public static Image? Player(PlayerGender gender, Direction facing, bool walking) =>
+        gender == PlayerGender.Female
+            ? Pose(_playerPosesF, ref _playerSheetF, "npc.player_f.png", facing, walking)
+            : Pose(_playerPoses, ref _playerSheet, "npc.player.png", facing, walking);
+
+    private static Bitmap? _oakSheet;
+    private static Image? _oak;
+
+    public static Image? ProfOak() => _oak ??= NpcFrame(ref _oakSheet, "npc.prof_oak.png", 0);
+
+    private static Bitmap? _rivalSheet;
+    private static Image? _rival;
+
+    public static Image? Rival() => _rival ??= NpcFrame(ref _rivalSheet, "npc.blue.png", 1);
+
+    private static Image? _itemBall;
+
+    public static Image? ItemBall()
+    {
+        if (_itemBall != null) return _itemBall;
+        if (Load("npc.item_ball.png") is not Bitmap raw) return null;
+
+        _itemBall = GbaColors.Correct(raw);
+        return _itemBall;
+    }
 
     private static Bitmap? _fatManSheet;
     private static readonly Dictionary<int, Image?> _fatMan = new();
 
-    public static Image? FatMan(Direction facing, bool walking)
+    public static Image? FatMan(Direction facing, bool walking) =>
+        Pose(_fatMan, ref _fatManSheet, "npc.fat_man.png", facing, walking);
+
+    private static Image? Pose(Dictionary<int, Image?> cache, ref Bitmap? sheet, string resource,
+        Direction facing, bool walking)
     {
         int key = (int)facing * 2 + (walking ? 1 : 0);
-        if (_fatMan.TryGetValue(key, out Image? cached)) return cached;
+        if (cache.TryGetValue(key, out Image? cached)) return cached;
 
         bool mirror = facing == Direction.East;
         int index = (facing, walking) switch
@@ -127,10 +159,10 @@ public static class Assets
             _ => 0,
         };
 
-        Image? frame = NpcFrame(ref _fatManSheet, "npc.fat_man.png", index);
+        Image? frame = NpcFrame(ref sheet, resource, index);
         if (frame != null && mirror) frame.RotateFlip(RotateFlipType.RotateNoneFlipX);
 
-        _fatMan[key] = frame;
+        cache[key] = frame;
         return frame;
     }
 
@@ -170,6 +202,10 @@ public static class Assets
     private static Bitmap? _palletTown;
 
     public static Bitmap? PalletTownMap => _palletTown ??= LoadMap("npc.pallet_town.png");
+
+    private static Bitmap? _oaksLab;
+
+    public static Bitmap? OaksLabMap => _oaksLab ??= LoadMap("npc.oaks_lab.png");
 
     private static Bitmap? _textBox;
     private static Bitmap? _font;
@@ -280,4 +316,10 @@ public static class Assets
         using var original = Image.FromStream(stream);
         return new Bitmap(original);
     }
+}
+
+public enum PlayerGender
+{
+    Male,
+    Female,
 }

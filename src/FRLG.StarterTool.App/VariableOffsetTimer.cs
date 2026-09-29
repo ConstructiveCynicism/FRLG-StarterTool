@@ -62,6 +62,10 @@ public sealed class VariableOffsetTimer : BaseTimer
 
     private System.Windows.Forms.Timer? _landingWindowClose;
 
+    public bool Held { get; private set; }
+
+    private double _holdCheckedMs;
+
     private bool _writingFrameBox;
 
     private EncounterRun? _encounter;
@@ -350,6 +354,7 @@ public sealed class VariableOffsetTimer : BaseTimer
         Submitted = false;
         _hasLandingTarget = false;
         _genericLanded = false;
+        Held = false;
         _landingWindowClose?.Stop();
         _countdownStartMs = double.MaxValue;
         _driftCheckMs = double.MaxValue;
@@ -409,6 +414,7 @@ public sealed class VariableOffsetTimer : BaseTimer
     public override void OnTimerStop()
     {
         _armDebounce?.Stop();
+        Held = false;
 
         bool encounterStopped = _encounter != null;
         if (_encounter != null) StopEncounterRun();
@@ -500,12 +506,15 @@ public sealed class VariableOffsetTimer : BaseTimer
         _landingWindowClose?.Stop();
 
         int countdownFrame = CountdownFrameAt(elapsedMs);
-        int? landedFrame = StarterTool.Context.LandedFrame(countdownFrame);
+        bool drill = _form.TrainingPanel.IsRunning;
+        int? landedFrame = drill
+            ? _landingTargetFrame + (int)Math.Round(deltaMs * _landingInfo.Fps / 1000.0, MidpointRounding.AwayFromZero)
+            : StarterTool.Context.LandedFrame(countdownFrame);
         double rawChance = VariableOffsetCalculator.HitChance(deltaMs, _landingInfo.Fps);
         double chance = FrameWindow.HitChance(deltaMs, _landingInfo.Fps,
             StarterTool.Settings?.NpcContextWindowMs ?? 0.0);
 
-        if (landedFrame is { } counted && !StarterTool.Context.Reachable(counted, _landingTargetFrame))
+        if (!drill && landedFrame is { } counted && !StarterTool.Context.Reachable(counted, _landingTargetFrame))
         {
             rawChance = chance = 0.0;
         }
@@ -524,6 +533,8 @@ public sealed class VariableOffsetTimer : BaseTimer
 
         StarterTool.Context.RecordHit(countdownFrame, deltaMs, chance,
             TrainingUsesVisualOffset ? VisualOffsetMs : OffsetMs);
+
+        EndHold();
         return true;
     }
 
@@ -560,7 +571,64 @@ public sealed class VariableOffsetTimer : BaseTimer
             return;
         }
 
+        if (Held)
+        {
+            ContextSession.Log("landing window closed with no press - timer held for a later frame");
+            _form.ShowHeldStatus("No landing · timer held - pick a later frame, or search around the one you got");
+            return;
+        }
+
         StarterTool.Context.Unpressed();
+    }
+
+    private const double HoldCheckMs = 250.0;
+
+    private bool ShouldHold(double elapsedSeconds) =>
+        !Held && !Generic && _encounter == null && _hasLandingTarget
+        && !_form.TrainingPanel.IsRunning
+        && LaterFrameInReach(elapsedSeconds);
+
+    private bool LaterFrameInReach(double elapsedSeconds)
+    {
+        VariableInfo probe = _landingInfo;
+        probe.NumBeeps = Math.Min(probe.NumBeeps, 2u);
+        foreach (int frame in _form.LaterFrames(_landingTargetFrame))
+        {
+            probe.Frame = (uint)frame;
+            probe.AdvanceCorrection = StarterTool.Context.CorrectionAt(frame) ?? 0;
+            if (VariableOffsetCalculator.CanSubmit(probe, elapsedSeconds)) return true;
+        }
+
+        return false;
+    }
+
+    private void EnterHold()
+    {
+        Held = true;
+        _holdCheckedMs = Win32.GetTime() - StarterTool.TimerStart;
+
+        Submitted = false;
+        CurrentOffset = double.MaxValue;
+        _countdownStartMs = double.MaxValue;
+        _beepRun.Reset();
+        _flashRun.Reset();
+
+        ContextSession.Log(string.Format(CultureInfo.InvariantCulture,
+            "countdown on {0} expired with no landing - timer held for a later frame",
+            _landingTargetFrame));
+        _form.ShowHeldStatus("Timer held - a later frame can still be picked");
+
+        ArmLandingWindowClose();
+        OnDataChange();
+    }
+
+    public void EndHold()
+    {
+        if (!Held) return;
+
+        Held = false;
+        ContextSession.Log("held timer ended");
+        StarterTool.EndHeldRun();
     }
 
     public EncounterRoutePreset? EncounterRoute =>
@@ -597,7 +665,7 @@ public sealed class VariableOffsetTimer : BaseTimer
         _encounterDone = false;
 
         _encounterScored = null;
-        _encounter = new EncounterRun(route, info);
+        _encounter = new EncounterRun(route, info, _form.EncounterPanel.SeedLookup(route));
         _encounterLastTargetTime = StarterTool.TimerStart + _encounter.LastPressMs;
 
         _form.CloseCapture();
@@ -656,7 +724,10 @@ public sealed class VariableOffsetTimer : BaseTimer
         }
         ContextSession.Log(string.Format(CultureInfo.InvariantCulture,
             "encounter {0} press at {1:F1} ms ({2:+0.0;-0.0;0.0} ms off frame {3}), landed frame {4}, hit chance {5:P0} - press lag {6:F1} ms",
-            target.Press.Name, elapsedMs, target.DeltaMs, target.Press.Frames, target.LandedFrame, target.Chance, pressLagMs));
+            target.Press.Name, elapsedMs, target.DeltaMs, target.Press.Frames, target.LandedFrame, target.Chance, pressLagMs)
+            + (ReferenceEquals(target, _encounter.TitleTarget) && target.LandedFrame is int landed
+                ? _encounter.SeedNote(landed)
+                : ""));
 
         _form.ShowEncounterLanding(_encounter.Rows(), _encounter.Status(), _encounter.WorstChance);
 
@@ -785,6 +856,20 @@ public sealed class VariableOffsetTimer : BaseTimer
         _form.SampleContextPanel();
 
         double elapsed = elapsedMs / 1000.0;
+
+        if (elapsed >= CurrentOffset && ShouldHold(elapsed)) EnterHold();
+        if (Held && elapsedMs - _holdCheckedMs >= HoldCheckMs)
+        {
+            _holdCheckedMs = elapsedMs;
+            if (!LaterFrameInReach(elapsed))
+            {
+                ContextSession.Log(string.Format(CultureInfo.InvariantCulture,
+                    "held timer released at {0:F1} ms - no later frame left in reach", elapsedMs));
+                Held = false;
+                return 0.0;
+            }
+        }
+
         double ret = Math.Min(Math.Max(elapsed, 0.001), CurrentOffset);
         if (ret == CurrentOffset) ret = 0.0;
         CurrentTime = ret;
@@ -873,7 +958,7 @@ public sealed class VariableOffsetTimer : BaseTimer
         bool full = VariableOffsetCalculator.CanSubmit(Info, CurrentTime);
         double finalBeepMs = VariableOffsetCalculator.BeepOffsetMs(Info, elapsedMs, Adjusted);
 
-        if (!full && (!Submitted || finalBeepMs < 0.0))
+        if (!full && (!(Submitted || Held) || finalBeepMs < 0.0))
         {
             Disarm();
             return;
@@ -923,6 +1008,15 @@ public sealed class VariableOffsetTimer : BaseTimer
 
         _form.TrainingPanel.RoundArmed(
             _landingTargetFrame, Info.Offset, Info.VisualOffset, VariableOffsetCalculator.LandingWindowMs(Info));
+
+        if (Held)
+        {
+            Held = false;
+            _landingWindowClose?.Stop();
+            _form.ShowHeldStatus("");
+            ContextSession.Log(string.Format(CultureInfo.InvariantCulture,
+                "held timer re-armed on {0}", _landingTargetFrame));
+        }
 
         Submitted = true;
         OnDataChange();

@@ -35,6 +35,28 @@ public sealed class LandingCorrection
 
     private double FrameMs => 1000.0 / Fps;
 
+    public const double DelayPriorRuns = 0.0;
+
+    public const double OffsetPriorRuns = 1.0;
+
+    public const double MinimumShiftFrames = 0.25;
+
+    private sealed class RunningShift(double priorRuns)
+    {
+        private double _sum;
+
+        public int Count { get; private set; }
+
+        public double Mean => Count == 0 ? 0.0 : _sum / (priorRuns + Count);
+
+        public void Observe(double frames)
+        {
+            double mean = Mean;
+            _sum += Math.Clamp(frames, mean - OutlierFrames, mean + OutlierFrames);
+            Count++;
+        }
+    }
+
     public OffsetTuner OffsetPosterior { get; } = new();
 
     public OffsetTuner DelayPosterior { get; } = new();
@@ -80,15 +102,22 @@ public sealed class LandingCorrection
 
         bool timed = _reports.Any(report => report.DeltaMs != null);
 
-        var offsetPosterior = new OffsetTuner();
-        var delayPosterior = new OffsetTuner();
+        var offset = new RunningShift(OffsetPriorRuns);
+        var delay = new RunningShift(DelayPriorRuns);
+        var spread = new OffsetTuner();
         int runs = 0;
         double loneDelayShift = 0.0;
         double loneOffsetShift = 0.0;
 
+        void ObserveOffset(double frames)
+        {
+            offset.Observe(frames);
+            ObserveRobustly(spread, frames);
+        }
+
         foreach ((double deltaMs, int offsetAtMs) in _attempts)
         {
-            ObserveRobustly(offsetPosterior, OffsetErrorFrames(deltaMs, offsetAtMs));
+            ObserveOffset(OffsetErrorFrames(deltaMs, offsetAtMs));
         }
 
         foreach (LandingReport report in _reports)
@@ -103,33 +132,41 @@ public sealed class LandingCorrection
                 if (report.PredictedFrame is { } predicted)
                 {
                     loneDelayShift = FramesOff(predicted - report.ReportedFrame, report.Step) * FrameMs;
-                    ObserveRobustly(delayPosterior,
-                        DelayErrorFrames(predicted, report.ReportedFrame, report.DelayAtMs, report.Step));
+                    delay.Observe(DelayErrorFrames(predicted, report.ReportedFrame, report.DelayAtMs, report.Step));
+                }
+                else
+                {
+                    double framesOff = (report.TargetFrame - report.ReportedFrame) / Math.Max(report.Step, 1)
+                        + delta / FrameMs;
+                    loneDelayShift = framesOff * FrameMs;
+                    delay.Observe(-framesOff - (report.DelayAtMs - InitialDelayMs) / FrameMs);
                 }
             }
             else
             {
                 loneOffsetShift = FramesOff(report.TargetFrame - report.ReportedFrame, report.Step) * FrameMs;
-                ObserveRobustly(offsetPosterior,
-                    OffsetErrorFrames(report.TargetFrame, report.ReportedFrame, report.OffsetAtMs, report.Step));
+                ObserveOffset(OffsetErrorFrames(report.TargetFrame, report.ReportedFrame, report.OffsetAtMs, report.Step));
             }
             runs++;
         }
-        if (runs == 0 && offsetPosterior.Observations == 0) return null;
+        if (runs == 0 && offset.Count == 0) return null;
 
-        bool firstRun = runs <= 1 && offsetPosterior.Observations <= 1;
+        bool firstRun = runs <= 1 && offset.Count <= 1;
         if (firstRun && Math.Max(Math.Abs(loneDelayShift), Math.Abs(loneOffsetShift)) < FrameMs) return null;
 
-        int offsetShift = offsetPosterior.Observations == 0
-            ? 0
-            : offsetPosterior.RecommendedOffsetMs(InitialOffsetMs, Fps) - offsetNowMs;
-        int delayShift = delayPosterior.Observations == 0
-            ? 0
-            : delayPosterior.RecommendedOffsetMs(InitialDelayMs, Fps) - delayNowMs;
+        int offsetShift = Shift(offset, InitialOffsetMs, offsetNowMs);
+        int delayShift = Shift(delay, InitialDelayMs, delayNowMs);
         if (delayShift == 0 && offsetShift == 0) return null;
 
         return new LandingAdvice(
-            delayShift, offsetShift, runs, offsetPosterior.Observations, timed,
-            offsetPosterior.Observations > 0 ? offsetPosterior.MeanSigma : 0.0);
+            delayShift, offsetShift, runs, offset.Count, timed,
+            spread.Observations > 0 ? spread.MeanSigma : 0.0);
+    }
+
+    private int Shift(RunningShift mean, int initialMs, int nowMs)
+    {
+        if (mean.Count == 0) return 0;
+        int shift = (int)Math.Round(initialMs - mean.Mean * FrameMs) - nowMs;
+        return Math.Abs(shift) < MinimumShiftFrames * FrameMs ? 0 : shift;
     }
 }

@@ -242,7 +242,7 @@ public partial class MainForm : Form
             game: settings.EncounterGame, saves: settings.EncounterSaves);
         EncounterPanel.ButtonsEither = settings.EncounterButtons == "either";
         EncounterPanel.SavesEither = settings.EncounterSaves == "either";
-        EncounterPanel.MaxSeconds = settings.EncounterMaxSeconds;
+        EncounterPanel.SetAdapter(settings.EncounterAdapter);
         EncounterPanel.DelayMs = settings.EncounterDelayMs;
         EncounterPanel.OffsetMs = settings.EncounterOffsetMs;
         EncounterPanel.IntroFrame = settings.EncounterIntroFrame;
@@ -319,7 +319,7 @@ public partial class MainForm : Form
         settings.EncounterGame = EncounterPanel.Variant.GameKey;
         settings.EncounterButtons = EncounterPanel.ButtonsKey;
         settings.EncounterSaves = EncounterPanel.SavesKey;
-        settings.EncounterMaxSeconds = EncounterPanel.MaxSeconds;
+        settings.EncounterAdapter = EncounterPanel.AdapterKey;
         settings.EncounterDelayMs = EncounterPanel.DelayMs;
         settings.EncounterOffsetMs = EncounterPanel.OffsetMs;
         settings.EncounterIntroFrame = EncounterPanel.IntroFrame;
@@ -376,7 +376,25 @@ public partial class MainForm : Form
 
     public bool ReportFocus(int delta) => TroubleshootPanel.MoveNpc(delta);
 
-    public void RefreshContextAdvice() => ContextPanel.SetAdvice(StarterTool.Context.Advice());
+    public void RefreshContextAdvice()
+    {
+        ContextPanel.SetAdvice(StarterTool.Context.Advice());
+        ContextPanel.SetPlayerGender(TargetGender());
+    }
+
+    private PlayerGender TargetGender()
+    {
+        int target = (int)(StarterTool.VariableOffset?.Info.Frame ?? 0u);
+        if (target <= 0 || _allSeedRows) return PlayerGender.Male;
+
+        foreach (PokemonRng row in _results)
+        {
+            if (row.Frame != target) continue;
+            return row.IsFemale(_resultSpecies.GenderRate) ? PlayerGender.Female : PlayerGender.Male;
+        }
+
+        return PlayerGender.Male;
+    }
 
     private void ShowContextSession()
     {
@@ -727,6 +745,8 @@ public partial class MainForm : Form
 
     private void SearchAroundFrame(int centre)
     {
+        StarterTool.VariableOffset?.EndHold();
+
         ClearLanding();
         SearchAroundFrame(centre, centre, takeFocus: true);
     }
@@ -850,6 +870,7 @@ public partial class MainForm : Form
 
         ListViewResults.VirtualListSize = 0;
         _results = results;
+        ContextPanel.SetPlayerGender(TargetGender());
 
         ApplyResultColumns(allSeed);
 
@@ -1097,6 +1118,18 @@ public partial class MainForm : Form
 
     internal static string FormatChance(double chance) =>
         chance > 0.0 && chance < 0.005 ? "<1%" : $"{chance * 100.0:0}%";
+
+    public void ShowHeldStatus(string text)
+    {
+        Label readout = ActiveLandingLabel;
+        readout.ForeColor = Theme.DimText;
+        readout.Text = text;
+    }
+
+    public IEnumerable<int> LaterFrames(int after) =>
+        _encounterGrid || _allSeedRows
+            ? Enumerable.Empty<int>()
+            : _results.Select(r => (int)r.Frame).Where(f => f > after);
 
     public void ShowTimingStatus(string what, double compensationMs)
     {
@@ -1368,6 +1401,12 @@ public partial class MainForm : Form
         Color fore = marked || alternate || contextOnly || target ? Theme.LandingRowText
             : range != null ? Theme.RangeRowText(back)
             : ListViewResults.ForeColor;
+
+        if (inRange && !marked && !alternate && !contextOnly && !target && !_allSeedRows
+            && StarterTool.Context.OffParity((int)_results[e.ItemIndex].Frame))
+        {
+            fore = Theme.OffParityText(fore, back);
+        }
 
         using (var brush = new SolidBrush(back))
         {

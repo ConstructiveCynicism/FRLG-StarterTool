@@ -59,6 +59,47 @@ public readonly record struct FenceCandidate(
     public const int FullyVisibleFrame =
         RouteTimeline.LeadWalkFatManFullyVisibleFrames - RouteTimeline.LeadWalkFatManRespawnFrames;
 
+    public const int CameraSouthEndFrame =
+        RouteTimeline.LeadWalkCameraSouthFrames - RouteTimeline.LeadWalkFatManRespawnFrames;
+
+    public int PixelsSouth(int frame)
+    {
+        if (Motion.Count == 0) return 0;
+
+        FenceFrameState home = Motion[0];
+        FenceFrameState state = Motion[Math.Clamp(frame, 0, Motion.Count - 1)];
+
+        int pixels = (state.Y - home.Y) * 16;
+        if (!state.Walking) return pixels;
+
+        int dx = 0, dy = 0;
+        Directions.MoveCoords(state.Facing, ref dx, ref dy);
+        return pixels - dy * (ObjectEventSim.NormalWalkFrames - state.WalkStep);
+    }
+
+    public bool OnScreen(int frame) =>
+        PixelsSouth(frame) <= Math.Min(frame, CameraSouthEndFrame) - VisibleFrame;
+
+    public bool Seeable(NpcEvent e)
+    {
+        for (int frame = Math.Max(0, e.Frame); frame < Motion.Count; frame++)
+        {
+            if (OnScreen(frame)) return true;
+        }
+
+        return Motion.Count == 0;
+    }
+
+    public int WatchableFrame(int eventFrame)
+    {
+        for (int frame = Math.Max(0, eventFrame); frame < Motion.Count; frame++)
+        {
+            if (OnScreen(frame)) return frame;
+        }
+
+        return Math.Max(eventFrame, VisibleFrame);
+    }
+
     public int MissedCorrection(int oakPressFrame, int targetAdvances = 0)
     {
         int rate = RouteTimeline.AdvancesPerFrame(Adapter);
@@ -107,7 +148,7 @@ public static class FenceRun
         double shiftMs = RouteTimeline.AnchorCorrection(adapter) * 1000.0 / fps;
         double window = contextMs + StartUncertaintyMs;
         double exitAt = exitElapsedMs - shiftMs;
-        double oakAt = oakElapsedMs - shiftMs;
+        double oakAt = oakElapsedMs - shiftMs - (adapter ? 0.0 : PlainOakAnchorLateFrames * 1000.0 / fps);
 
         return Build(seed,
             FrameWindow.Candidates(exitAt, fps, window),
@@ -119,9 +160,18 @@ public static class FenceRun
 
     public const double StartUncertaintyMs = 100.0;
 
+    public const double PlainOakAnchorLateFrames = 1.0;
+
     public const double AnchorSharpness = 1.5;
 
     public const double PreReadPrior = 66.0 / 76.0;
+
+    public const double OddStreamShiftPrior = 0.5;
+
+    public const int OddStreamShiftMaxAdvances = 3;
+
+    public static double StreamShiftPrior(int shift) =>
+        shift % 2 != 0 && Math.Abs(shift) <= OddStreamShiftMaxAdvances ? OddStreamShiftPrior : 1.0;
 
     public const bool RespawnReadsPost = true;
 
@@ -166,7 +216,9 @@ public static class FenceRun
         (SpawnRead Spawn, SpawnRead Respawn)[] sidesOnly = sides;
         var forks = undeclaredForks.SelectMany(extra =>
             cards.SelectMany(card => lags.SelectMany(lag => sidesOnly.Select(side =>
-                (side.Spawn, side.Respawn, Lag: lag, Card: card.Advances, Prior: card.Prior,
+                (side.Spawn, side.Respawn, Lag: lag, Card: card.Advances,
+                    Prior: card.Prior * StreamShiftPrior(
+                        card.Advances - cards[0].Advances - (lag - RouteTimeline.AdapterWarpLagFrames)),
                     Undeclared: extra))))).ToArray();
         sides = forks.Select(f => (f.Spawn, f.Respawn)).ToArray();
 

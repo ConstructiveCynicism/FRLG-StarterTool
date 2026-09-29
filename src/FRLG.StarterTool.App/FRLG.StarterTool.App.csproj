@@ -4,6 +4,7 @@
     <PackageReference Include="FlashCap" Version="1.12.0" />
     <PackageReference Include="Sdcb.FFmpeg" Version="7.0.0" />
     <PackageReference Include="Sdcb.FFmpeg.runtime.windows-x64" Version="7.1.0" />
+    <PackageReference Include="Vosk" Version="0.3.38" />
     <ProjectReference Include="..\FRLG.StarterTool.Core\FRLG.StarterTool.Core.csproj" />
   </ItemGroup>
 
@@ -25,6 +26,34 @@
     <ItemGroup>
       <NativeCopyLocalItems Remove="@(NativeCopyLocalItems)" Condition="$([System.Text.RegularExpressions.Regex]::IsMatch('%(Filename)', '^(avdevice|avfilter|postproc)-'))" />
       <RuntimeTargetsCopyLocalItems Remove="@(RuntimeTargetsCopyLocalItems)" Condition="$([System.Text.RegularExpressions.Regex]::IsMatch('%(Filename)', '^(avdevice|avfilter|postproc)-'))" />
+    </ItemGroup>
+  </Target>
+
+  <PropertyGroup>
+    <VoskModelUrl>https://alphacephei.com/vosk/models/vosk-model-small-en-us-0.15.zip</VoskModelUrl>
+    <VoskModelSha256>30F26242C4EB449F948E42CB302DD7A686CB29A3423A8367F99FF41780942498</VoskModelSha256>
+    <VoskModelDir>$(MSBuildProjectDirectory)\obj\vosk</VoskModelDir>
+    <VoskModelZip>$(VoskModelDir)\vosk-model-small-en-us-0.15.zip</VoskModelZip>
+    <VoskModelPartial>$(VoskModelDir)\download.partial</VoskModelPartial>
+  </PropertyGroup>
+
+  <Target Name="FetchVoskModel" BeforeTargets="PrepareForBuild" Condition="!Exists('$(VoskModelZip)')">
+    <Delete Files="$(VoskModelPartial)" />
+    <DownloadFile SourceUrl="$(VoskModelUrl)" DestinationFolder="$(VoskModelDir)"
+                  DestinationFileName="download.partial" ContinueOnError="WarnAndContinue" />
+    <GetFileHash Condition="Exists('$(VoskModelPartial)')" Files="$(VoskModelPartial)" Algorithm="SHA256">
+      <Output TaskParameter="Hash" PropertyName="VoskModelActualSha256" />
+    </GetFileHash>
+    <Move Condition="Exists('$(VoskModelPartial)') And '$(VoskModelActualSha256)' == '$(VoskModelSha256)'"
+          SourceFiles="$(VoskModelPartial)" DestinationFiles="$(VoskModelZip)" />
+    <Warning Condition="Exists('$(VoskModelPartial)')"
+             Text="The downloaded Vosk model does not match its pinned hash and was discarded; this build has no speech model." />
+    <Delete Files="$(VoskModelPartial)" />
+  </Target>
+
+  <Target Name="EmbedVoskModel" BeforeTargets="PrepareForBuild" DependsOnTargets="FetchVoskModel">
+    <ItemGroup Condition="Exists('$(VoskModelZip)')">
+      <EmbeddedResource Include="$(VoskModelZip)" LogicalName="vosk-model.zip" />
     </ItemGroup>
   </Target>
 

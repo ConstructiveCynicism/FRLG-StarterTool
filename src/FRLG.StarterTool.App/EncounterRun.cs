@@ -60,10 +60,13 @@ internal sealed class EncounterRun
 
     private readonly VariableInfo _info;
 
-    public EncounterRun(EncounterRoutePreset route, in VariableInfo info)
+    private readonly Func<int, int?>? _seedAt;
+
+    public EncounterRun(EncounterRoutePreset route, in VariableInfo info, Func<int, int?>? seedAt = null)
     {
         Route = route;
         _info = info;
+        _seedAt = route.Seed >= 0 ? seedAt : null;
 
         if (route.OffsetMs is int offsetMs)
         {
@@ -85,6 +88,14 @@ internal sealed class EncounterRun
     public IReadOnlyList<Target> Targets { get; }
 
     public double Fps => _info.Fps;
+
+    public int DelayMs => Route.DelayMs != 0 ? Route.DelayMs : _info.DelayOffset;
+
+    public int OffsetMs => _info.Offset;
+
+    public string DelayBox => Route.DelayMs != 0 ? "Route Delay" : "Delay";
+
+    public string OffsetBox => Route.OffsetMs != null ? "Route Offset" : "Offset";
 
     public double LastTargetMs => Targets.Count == 0 ? 0.0 : Targets[^1].TargetMs;
 
@@ -241,6 +252,16 @@ internal sealed class EncounterRun
         }
     }
 
+    public string SeedNote(int frame)
+    {
+        if (Route.Seed < 0) return "";
+        string target = Route.Seed.ToString("X4", CultureInfo.InvariantCulture);
+        if (_seedAt is null) return $", seed unknown (target {target})";
+        if (_seedAt(frame) is not int seed) return $", no seed on the table for frame {frame} (target {target})";
+        return string.Format(CultureInfo.InvariantCulture, ", seed {0:X4} {1} (target {2})",
+            seed, seed == Route.Seed ? "HIT" : "MISS", target);
+    }
+
     public string ArmLog()
     {
         var parts = new List<string>();
@@ -255,6 +276,14 @@ internal sealed class EncounterRun
             "encounter manip armed: route \"{0}\", reset delay {1:+#;-#;+0} ms, {2}, offset {3} ms, "
             + "countdown delay {4} ms, fps {5}",
             Route.Name, Route.DelayMs, string.Join("; ", parts), _info.Offset, _info.DelayOffset,
-            _info.Fps);
+            _info.Fps)
+            + TargetSeedLog();
+    }
+
+    private string TargetSeedLog()
+    {
+        if (Route.Seed < 0) return "";
+        return string.Format(CultureInfo.InvariantCulture, ", target seed {0:X4}{1}",
+            Route.Seed, _seedAt is null ? " (row not in the planner's results - presses not read as seeds)" : "");
     }
 }

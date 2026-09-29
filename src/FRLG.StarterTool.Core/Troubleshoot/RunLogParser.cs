@@ -142,6 +142,15 @@ public static class RunLogParser
                 }
 
                 Direction tapped = Directions.FromLetter(match.Groups[1].Value[0]);
+
+                if (line.Contains(" - ignored,", StringComparison.Ordinal)) continue;
+                if (line.Contains(" dropped - ", StringComparison.Ordinal))
+                {
+                    int last = taps.LastIndexOf(tapped);
+                    if (last >= 0) taps.RemoveAt(last);
+                    continue;
+                }
+
                 if (tapped != Direction.None) taps.Add(tapped);
                 continue;
             }

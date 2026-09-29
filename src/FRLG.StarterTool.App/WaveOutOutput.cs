@@ -22,7 +22,7 @@ internal sealed class WaveOutOutput : IBeepOutput
         _waveOut = handle;
     }
 
-    public static WaveOutOutput? Open(Action<string> log)
+    public static WaveOutOutput? Open(string? deviceId, Action<string> log)
     {
         var format = new WAVEFORMATEX
         {
@@ -35,7 +35,14 @@ internal sealed class WaveOutOutput : IBeepOutput
             cbSize = 0
         };
 
-        int result = waveOutOpen(out IntPtr handle, WAVE_MAPPER, ref format, IntPtr.Zero, IntPtr.Zero, CALLBACK_NULL);
+        int device = WAVE_MAPPER;
+        if (!string.IsNullOrEmpty(deviceId))
+        {
+            device = DeviceNumberOf(deviceId);
+            if (device == WAVE_MAPPER) log("audio: the chosen output device is not connected, waveOut is using the default");
+        }
+
+        int result = waveOutOpen(out IntPtr handle, device, ref format, IntPtr.Zero, IntPtr.Zero, CALLBACK_NULL);
         if (result != MMSYSERR_NOERROR)
         {
             log($"audio: waveOut open failed, MMRESULT {result} ({BeepPlayer.SampleRate} Hz 16-bit {BeepPlayer.NumChannels}ch)");
@@ -44,6 +51,32 @@ internal sealed class WaveOutOutput : IBeepOutput
 
         log("audio: output waveout, engine period 10 ms");
         return new WaveOutOutput(handle);
+    }
+
+    private static int DeviceNumberOf(string id)
+    {
+        uint count = waveOutGetNumDevs();
+        for (int n = 0; n < count; n++)
+        {
+            if (waveOutMessage((IntPtr)n, DRV_QUERYFUNCTIONINSTANCEIDSIZE, out uint size, IntPtr.Zero) != MMSYSERR_NOERROR
+                || size == 0)
+            {
+                continue;
+            }
+
+            IntPtr buffer = Marshal.AllocHGlobal((int)size);
+            try
+            {
+                if (waveOutMessage((IntPtr)n, DRV_QUERYFUNCTIONINSTANCEID, buffer, (IntPtr)size) != MMSYSERR_NOERROR) continue;
+                if (string.Equals(Marshal.PtrToStringUni(buffer), id, StringComparison.OrdinalIgnoreCase)) return n;
+            }
+            finally
+            {
+                Marshal.FreeHGlobal(buffer);
+            }
+        }
+
+        return WAVE_MAPPER;
     }
 
     public bool IsOpen => _waveOut != IntPtr.Zero;
@@ -184,6 +217,8 @@ internal sealed class WaveOutOutput : IBeepOutput
     private const ushort WAVE_FORMAT_PCM = 1;
     private const uint CALLBACK_NULL = 0;
     private const uint TIME_BYTES = 4;
+    private const uint DRV_QUERYFUNCTIONINSTANCEIDSIZE = 0x0811;
+    private const uint DRV_QUERYFUNCTIONINSTANCEID = 0x0812;
 
     [StructLayout(LayoutKind.Sequential, Pack = 1)]
     private struct WAVEFORMATEX
@@ -238,6 +273,15 @@ internal sealed class WaveOutOutput : IBeepOutput
 
     [DllImport("winmm.dll")]
     private static extern int waveOutClose(IntPtr hWaveOut);
+
+    [DllImport("winmm.dll")]
+    private static extern uint waveOutGetNumDevs();
+
+    [DllImport("winmm.dll")]
+    private static extern int waveOutMessage(IntPtr deviceId, uint message, out uint size, IntPtr unused);
+
+    [DllImport("winmm.dll")]
+    private static extern int waveOutMessage(IntPtr deviceId, uint message, IntPtr buffer, IntPtr size);
 
     #endregion
 }

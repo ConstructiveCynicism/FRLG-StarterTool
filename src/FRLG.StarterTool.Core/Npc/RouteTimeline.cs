@@ -32,12 +32,12 @@ public static class RouteTimeline
     public const int AdapterPreExitLagFrames = 54;
 
     public static int AdapterTrainerCardAdvances(TitleButtonMode buttons) =>
-        buttons == TitleButtonMode.Help ? -12 : -8;
+        buttons == TitleButtonMode.Help ? 0 : 8;
 
     public static (int Advances, double Prior)[] AdapterTrainerCardForks(TitleButtonMode buttons) =>
         buttons == TitleButtonMode.Help
-            ? new[] { (-12, 1.0), (-13, 27.0 / 59.0), (-11, 9.0 / 59.0) }
-            : new[] { (-8, 1.0), (-7, 19.0 / 124.0), (-9, 7.0 / 124.0) };
+            ? new[] { (0, 1.0), (-1, 27.0 / 59.0), (1, 9.0 / 59.0) }
+            : new[] { (8, 1.0), (7, 0.5), (6, 0.3), (9, 0.15) };
 
     public static int PcVisitAdvances(bool adapter) => adapter ? -40 : 3;
 
@@ -85,6 +85,8 @@ public static class RouteTimeline
     public const int LeadWalkFatManVisibleFrames = 201;
 
     public const int LeadWalkFatManFullyVisibleFrames = 233;
+
+    public const int LeadWalkCameraSouthFrames = 240;
 
     public const int LabLoadToReleaseFrames = 32;
 

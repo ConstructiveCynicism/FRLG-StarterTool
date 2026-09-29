@@ -49,11 +49,15 @@ public sealed record TitleRecipe(TitleVariant Variant, string Key, string Skip, 
 
     public const int SoftHoldFrames = 13;
 
+    public const int SoftReadBeforeLanding = 10;
+
     public const int GapFrame = 448;
 
-    public const int GapPressWindow = 22;
+    public const int GapButtonLastReleaseSingle = 1740;
 
-    public const int GapReleaseWindow = 23;
+    public const int GapButtonLastReleaseMulti = 1739;
+
+    public int GapButtonLastRelease => Variant.Saves == TitleSaves.Single ? GapButtonLastReleaseSingle : GapButtonLastReleaseMulti;
 
     public const int TapFrame = 286;
 
@@ -83,7 +87,7 @@ public sealed record TitleRecipe(TitleVariant Variant, string Key, string Skip, 
                     : $"Hold {Name(gap)} from power-on", false));
             }
             if (Has("ltap")) steps.Add(new RecipeStep(TapFrame, TapWindow, "Tap L - the copyright screen", false));
-            if (gap is not null) steps.Add(new RecipeStep(GapFrame, Variant.Saves == TitleSaves.Single ? GapPressWindow : GapReleaseWindow, "Release it - nothing reads the pad here", true));
+            if (gap is not null) steps.Add(new RecipeStep(1, GapButtonLastRelease, "Release it - any time before the title screen", false));
             RecipeStep? release = null;
             if (HeldButton is string up && ReleaseFrame is int at and > 0)
             {
@@ -103,9 +107,11 @@ public sealed record TitleRecipe(TitleVariant Variant, string Key, string Skip, 
 
             if (Has("soft"))
             {
-                steps.Add(new RecipeStep(GapFrame, GapPressWindow,
+                int read = Land - SoftReadBeforeLanding;
+                steps.Add(new RecipeStep(GapFrame, read - GapFrame + 1,
                     start0 ? "A+B+Select, Start still held - soft reset (when copyright fades to black)" : "A+B+Start+Select together - soft reset", false));
-                steps.Add(new RecipeStep(Land + 1, SoftHoldFrames, $"Release all four (as soon as you see white)", false));
+                steps.Add(new RecipeStep(read + 1, SoftReadBeforeLanding + SoftHoldFrames,
+                    $"Release all four - from {SoftReadBeforeLanding - 1} frames before the white to {SoftHoldFrames} after", false));
             }
             if (Has("ltap2")) steps.Add(new RecipeStep(Land + SoftTapAfterLanding, TapWindow, "Tap L - the soft boot's copyright screen", false));
 

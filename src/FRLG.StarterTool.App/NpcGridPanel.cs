@@ -29,12 +29,37 @@ public sealed class NpcGridPanel : Control
 
     private ContextAdvice? _advice;
 
+    private PlayerGender _playerGender;
+
+    public void SetPlayerGender(PlayerGender gender)
+    {
+        if (_playerGender == gender) return;
+
+        _playerGender = gender;
+        Invalidate();
+    }
+
     public void SetAdvice(ContextAdvice? advice)
     {
         if (ReferenceEquals(_advice, advice) || (_advice != null && advice != null && _advice == advice)) return;
 
         _advice = advice;
+        _route = advice?.Route;
+        ArmRouteClock();
         Invalidate();
+    }
+
+    private LabRoute? _route;
+
+    private bool RouteShowing => !_labMode && _route != null && Cue == CueKind.LabText;
+
+    private void ArmRouteClock()
+    {
+        if (_route == null || _labMode || _anchors != 2 || _labCueFrame == int.MaxValue) return;
+
+        _endFrame = int.MaxValue;
+        _frame = CurrentFrame();
+        _animation.Start();
     }
 
     private const int LabRowHeight = 26;
@@ -279,6 +304,7 @@ public sealed class NpcGridPanel : Control
         _labCueFrame = oakFrame is { } oak ? oak + LabTextCueFrames : int.MaxValue;
 
         Retime(fps, _labCueFrame == int.MaxValue ? 0 : _labCueFrame);
+        ArmRouteClock();
     }
 
     public void SetLabField(IReadOnlyList<LabOption> boxes, IReadOnlyList<double> likelihoods,
@@ -339,7 +365,7 @@ public sealed class NpcGridPanel : Control
         CueKind before = Cue;
         _frame = frame;
 
-        if (_labMode || before == CueKind.Fence || Cue != before) Invalidate();
+        if (_labMode || before == CueKind.Fence || Cue != before || RouteShowing) Invalidate();
 
         if (Cue != before) CueChanged?.Invoke(this, EventArgs.Empty);
 
@@ -383,13 +409,13 @@ public sealed class NpcGridPanel : Control
     {
         if (_advice is not { } advice) return;
 
-        bool column = !_labMode && Cue is CueKind.House or CueKind.Fence;
+        bool column = !_labMode && (Cue is CueKind.House or CueKind.Fence || RouteShowing);
         int x = column ? GridPixels + Gutter : 0;
         var line = new Rectangle(x, Font.Height * 2 + 1, Math.Max(0, Width - x), Font.Height);
 
         string pill = "";
         Color pillBack = Theme.Accent;
-        if (_labMode && _focused >= 0 && _focused < _boxes.Count && advice.PressNow(
+        if (_labMode && !advice.IsAssumption && _focused >= 0 && _focused < _boxes.Count && advice.PressNow(
                 _frame - _boxes[_focused].Representative.LabPressFrame) is { } now
             && _frame - _boxes[_focused].Representative.LabPressFrame <= LabRun.AdapterMaxWindowFrames)
         {
@@ -620,6 +646,7 @@ public sealed class NpcGridPanel : Control
         {
             case CueKind.House: PaintHouseCue(g); break;
             case CueKind.Fence: PaintFenceCue(g); break;
+            case CueKind.LabText when RouteShowing: PaintRouteCue(g); break;
             default: PaintTextCue(g); break;
         }
     }
@@ -668,6 +695,222 @@ public sealed class NpcGridPanel : Control
 
         DrawFenceReadout(g, new Rectangle(0, box.Bottom + 4, Width,
             Math.Max(0, Height - ControlStripHeight - box.Bottom - 4)), compact: true);
+    }
+
+    private void PaintRouteCue(Graphics g)
+    {
+        var grid = new Rectangle(0, 0, GridPixels, RouteRows * TileSize);
+        var strip = new Rectangle(0, grid.Bottom, GridPixels, GridPixels - grid.Height);
+
+        LabRoute route = _route!;
+        int loop = route.LoopFrames;
+        int frame = ((_frame - _labCueFrame) % loop + loop) % loop;
+
+        DrawRoute(g, grid, route, frame);
+        DrawRouteStrip(g, strip, route, frame);
+
+        Rectangle readout = FenceReadout;
+        TextRenderer.DrawText(g, _status, Font,
+            new Rectangle(readout.X, readout.Y, readout.Width, StatusHeight), Theme.Text,
+            TextFormatFlags.Left | TextFormatFlags.Top | TextFormatFlags.WordBreak
+            | TextFormatFlags.NoPadding);
+
+        var box = new Rectangle(readout.X, readout.Y + StatusHeight + 4, TextBoxWidth, TextBoxHeight);
+        Region clip = g.Clip;
+        g.IntersectClip(readout);
+        DrawTextBox(g, box, LabCueText, spent: false, scale: 1);
+        g.Clip = clip;
+
+        DrawFenceReadout(g, new Rectangle(readout.X, box.Bottom + 4, readout.Width,
+            Math.Max(0, readout.Height - StatusHeight - box.Height - 8)), compact: true);
+    }
+
+    private const int RouteRows = 6;
+
+    private const int RouteViewX = 4;
+
+    private const int RouteViewY = 2;
+
+    private void DrawRoute(Graphics g, Rectangle grid, LabRoute route, int frame)
+    {
+        int left = RouteViewX, top = RouteViewY;
+
+        using (var offMap = new SolidBrush(Theme.NpcTileBlocked))
+        {
+            g.FillRectangle(offMap, grid);
+        }
+
+        Region clip = g.Clip;
+        g.IntersectClip(grid);
+
+        DrawMapArt(g, grid, Assets.OaksLabMap, left, top);
+
+        using (var lattice = new Pen(TileLattice))
+        {
+            for (int row = 0; row < RouteRows; row++)
+            {
+                for (int column = 0; column < GridTiles; column++)
+                {
+                    g.DrawRectangle(lattice,
+                        grid.X + column * TileSize, grid.Y + row * TileSize,
+                        TileSize - 1, TileSize - 1);
+                }
+            }
+        }
+
+        DrawSprite(g, grid, Assets.ProfOak(), LabRoute.OakX - left, LabRoute.OakY - top);
+        DrawSprite(g, grid, Assets.Rival(), LabRoute.RivalX - left, LabRoute.RivalY - top);
+        for (int ball = LabRoute.BallX - 1; ball <= LabRoute.BallX + 1; ball++)
+        {
+            DrawTileSprite(g, grid, Assets.ItemBall(), ball - left, LabRoute.BallY - top);
+        }
+
+        LabRouteState state = route.At(frame);
+        LabMove move = state.Move;
+
+        if (move.Kind == LabMoveKind.Step) DrawStepArrow(g, grid, move.ToX - left, move.ToY - top, move.Facing);
+
+        DrawSprite(g, grid, Assets.Player(_playerGender, state.Facing, state.Walking), state.X - left, state.Y - top);
+
+        if (state.Pressed) DrawPressMark(g, grid, LabRoute.BallX - left, LabRoute.BallY - top);
+
+        g.Clip = clip;
+
+        DrawRouteCaption(g, grid, state, frame - LabRoute.LeadFrames);
+    }
+
+    private static void DrawTileSprite(Graphics g, Rectangle grid, Image? sprite, int column, int row)
+    {
+        if (sprite == null) return;
+
+        var bounds = new Rectangle(grid.X + column * TileSize, grid.Y + row * TileSize, TileSize, TileSize);
+
+        InterpolationMode interpolation = g.InterpolationMode;
+        PixelOffsetMode offset = g.PixelOffsetMode;
+        g.InterpolationMode = InterpolationMode.NearestNeighbor;
+        g.PixelOffsetMode = PixelOffsetMode.Half;
+        g.DrawImage(sprite, bounds);
+        g.InterpolationMode = interpolation;
+        g.PixelOffsetMode = offset;
+    }
+
+    private void DrawPressMark(Graphics g, Rectangle grid, int column, int row)
+    {
+        float cx = grid.X + (column + 0.5f) * TileSize;
+        float cy = grid.Y + (row + 0.5f) * TileSize;
+        const float Radius = TileSize * 0.34f;
+        var disc = new RectangleF(cx - Radius, cy - Radius, 2 * Radius, 2 * Radius);
+
+        SmoothingMode smoothing = g.SmoothingMode;
+        g.SmoothingMode = SmoothingMode.AntiAlias;
+        using (var fill = new SolidBrush(CaptionInk))
+        using (var edge = new Pen(ArrowOutline, 1.5f))
+        {
+            g.FillEllipse(fill, disc);
+            g.DrawEllipse(edge, disc);
+        }
+        g.SmoothingMode = smoothing;
+
+        TextRenderer.DrawText(g, "A", BoldFont, Rectangle.Round(disc), CaptionBack,
+            TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter | TextFormatFlags.NoPadding);
+    }
+
+    private void DrawRouteCaption(Graphics g, Rectangle grid, LabRouteState state, int frame)
+    {
+        string input = state.Move.Input switch
+        {
+            LabInput.Up => "\u2191",
+            LabInput.Down => "\u2193",
+            LabInput.Left => "\u2190",
+            LabInput.Right => "\u2192",
+            LabInput.A => "A",
+            _ => "",
+        };
+        string what = state.Move.Kind switch
+        {
+            LabMoveKind.Bonk => "bonk Oak",
+            LabMoveKind.Turn => "turn",
+            LabMoveKind.Step => "walk",
+            LabMoveKind.Press => "press",
+            _ => frame < 0 ? "text closes" : "wait",
+        };
+
+        int shown = state.Pressed ? state.Move.Start : Math.Max(frame, 0);
+        string caption = string.Format(CultureInfo.InvariantCulture, "{0} {1}  {2}",
+            input, what, shown).Trim();
+
+        Size text = TextRenderer.MeasureText(g, caption, BoldFont, grid.Size, TextFormatFlags.NoPadding);
+        var pill = new Rectangle(
+            grid.X + (grid.Width - text.Width) / 2 - 6,
+            grid.Bottom - text.Height - 8,
+            text.Width + 12,
+            text.Height + 4);
+
+        using (var back = new SolidBrush(CaptionBack))
+        {
+            g.FillRectangle(back, pill);
+        }
+
+        TextRenderer.DrawText(g, caption, BoldFont, pill, CaptionInk,
+            TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter | TextFormatFlags.NoPadding);
+    }
+
+    private void DrawRouteStrip(Graphics g, Rectangle strip, LabRoute route, int frame)
+    {
+        using (var back = new SolidBrush(CaptionBack))
+        {
+            g.FillRectangle(back, strip);
+        }
+
+        const int Inset = 6;
+        int span = Math.Max(route.PressFrame, route.LadyWalkEnd) + 24;
+        float scale = (float)(strip.Width - 2 * Inset) / span;
+        float X(int f) => strip.X + Inset + f * scale;
+
+        int labelHeight = Font.Height;
+        var bar = new Rectangle(strip.X + Inset, strip.Y + labelHeight + 3, strip.Width - 2 * Inset,
+            Math.Max(4, strip.Height - labelHeight - 8));
+
+        using (var rail = new SolidBrush(Color.FromArgb(0x50, CaptionInk)))
+        {
+            g.FillRectangle(rail, bar.X, bar.Y + bar.Height / 2 - 1, bar.Width, 2);
+        }
+
+        var walk = new Rectangle((int)X(route.LadyDelay), bar.Y, (int)(X(route.LadyWalkEnd) - X(route.LadyDelay)), bar.Height);
+        using (var band = new SolidBrush(route.NeedWalking ? Theme.LandingHitBack : Theme.LandingMissBack))
+        {
+            g.FillRectangle(band, walk);
+        }
+
+        int pressX = (int)X(route.PressFrame);
+        using (var mark = new Pen(CaptionInk, 2f))
+        {
+            g.DrawLine(mark, pressX, bar.Y - 2, pressX, bar.Bottom + 2);
+        }
+
+        string label = string.Format(CultureInfo.InvariantCulture, "Lady {0}-{1} · A {2}",
+            route.LadyDelay, route.LadyWalkEnd, route.PressFrame);
+        Size labelSize = TextRenderer.MeasureText(g, label, BoldFont, strip.Size, TextFormatFlags.NoPadding);
+        int centre = (walk.X + walk.Right + pressX) / 3;
+        int labelX = Math.Clamp(centre - labelSize.Width / 2, strip.X + 2, strip.Right - labelSize.Width - 2);
+        TextRenderer.DrawText(g, label, BoldFont, new Rectangle(labelX, strip.Y + 2, labelSize.Width, labelHeight),
+            CaptionInk, TextFormatFlags.Left | TextFormatFlags.Top | TextFormatFlags.NoPadding);
+
+        int at = Math.Clamp(frame - LabRoute.LeadFrames, 0, span);
+        float cx = X(at);
+        var cursor = new[]
+        {
+            new PointF(cx, bar.Y + bar.Height / 2f - 1),
+            new PointF(cx - 4, bar.Bottom + 3),
+            new PointF(cx + 4, bar.Bottom + 3),
+        };
+        SmoothingMode smoothing = g.SmoothingMode;
+        g.SmoothingMode = SmoothingMode.AntiAlias;
+        using (var brush = new SolidBrush(Theme.NpcStepArrow))
+        {
+            g.FillPolygon(brush, cursor);
+        }
+        g.SmoothingMode = smoothing;
     }
 
     private void DrawFenceReadout(Graphics g, Rectangle readout, bool compact)
@@ -1036,7 +1279,7 @@ public sealed class NpcGridPanel : Control
 
     private static readonly Color TileLattice = Color.FromArgb(0x38, 0x00, 0x00, 0x00);
 
-    private static void DrawHouse(Graphics g, Rectangle grid)
+    private void DrawHouse(Graphics g, Rectangle grid)
     {
         int left = ViewX - GridTiles / 2;
         int top = ViewY - GridTiles / 2;
@@ -1061,7 +1304,7 @@ public sealed class NpcGridPanel : Control
             }
         }
 
-        DrawSprite(g, grid, Assets.Player(), PlayerX - left, PlayerY - top);
+        DrawSprite(g, grid, Assets.Player(_playerGender), PlayerX - left, PlayerY - top);
         DrawDoorArrow(g, grid, PlayerX - left, PlayerY + 1 - top);
     }
 
@@ -1105,7 +1348,7 @@ public sealed class NpcGridPanel : Control
         int dx = 0, dy = 0;
         if (state.Walking) Directions.MoveCoords(state.Facing, ref dx, ref dy);
 
-        bool offScreen = _frame < candidate.LeadWalkVisibleFrame;
+        bool offScreen = !candidate.OnScreen(_frame - candidate.LeadWalkStartFrame);
 
         Region clip = g.Clip;
         g.IntersectClip(grid);
@@ -1334,7 +1577,7 @@ public sealed class NpcGridPanel : Control
 
     private const int TextOriginY = 9;
 
-    private void DrawTextBox(Graphics g, Rectangle box, string text, bool spent)
+    private void DrawTextBox(Graphics g, Rectangle box, string text, bool spent, int scale = TextBoxScale)
     {
         Bitmap? art = Assets.TextBox;
         if (art == null) return;
@@ -1349,8 +1592,8 @@ public sealed class NpcGridPanel : Control
         g.PixelOffsetMode = offset;
 
         GameText.Draw(g, text,
-            new Point(box.X + TextOriginX * TextBoxScale, box.Y + TextOriginY * TextBoxScale),
-            TextBoxScale);
+            new Point(box.X + TextOriginX * scale, box.Y + TextOriginY * scale),
+            scale);
 
         if (!spent) return;
 

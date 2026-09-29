@@ -3,7 +3,8 @@ using FRLG.StarterTool.Core.Npc;
 
 namespace FRLG.StarterTool.App;
 
-public sealed record ContextAdvice(bool NeedWalking, bool Sure, string Text, LabLive? Live, int Window)
+public sealed record ContextAdvice(bool NeedWalking, bool Sure, string Text, LabLive? Live, int Window,
+    int LadyDelay = 0)
 {
     public static ContextAdvice BeforeLab(LabParity parity, bool sure)
     {
@@ -35,7 +36,7 @@ public sealed record ContextAdvice(bool NeedWalking, bool Sure, string Text, Lab
                     delay + ObjectEventSim.NormalWalkFrames);
         }
 
-        return new ContextAdvice(parity.NeedWalking, sure, lead + " · " + what, null, 0);
+        return new ContextAdvice(parity.NeedWalking, sure, lead + " · " + what, null, 0, delay);
     }
 
     internal static int EarliestNextStep(int delay) =>
@@ -62,6 +63,17 @@ public sealed record ContextAdvice(bool NeedWalking, bool Sure, string Text, Lab
 
         return new ContextAdvice(needWalking, sure, lead + " · " + what, live, window);
     }
+
+    public static ContextAdvice Assumed(bool toldToWalk, LabLive live, int window) =>
+        new(!toldToWalk, false,
+            toldToWalk
+                ? "Other parity · assumed the Lady was NOT interrupted at the ball"
+                : "Other parity · assumed the Lady was interrupted at the ball",
+            live, window) { IsAssumption = true };
+
+    public bool IsAssumption { get; init; }
+
+    public LabRoute? Route => Live == null ? LabRoute.For(new LabParity(NeedWalking, LadyDelay)) : null;
 
     public bool? PressNow(int frame) =>
         Live is { } live ? live.LadyWalking(frame) == NeedWalking : null;

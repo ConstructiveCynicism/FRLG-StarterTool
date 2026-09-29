@@ -105,8 +105,8 @@ public sealed class EncounterPanel : Panel
     private readonly ThemedComboBox _buttons;
     private readonly Label _labelSaves;
     private readonly ThemedComboBox _saves;
-    private readonly Label _labelMax;
-    private readonly TextBox _maxSeconds;
+    private readonly Label _labelAdapter;
+    private readonly ThemedComboBox _adapter;
     private readonly ThemedListView _results;
     private readonly ManipDetail _status;
 
@@ -218,7 +218,7 @@ public sealed class EncounterPanel : Panel
         _boxSettings = AddSection("Game Settings", 0, TopBandHeight + SectionGap, PanelWidth, TopBandHeight);
 
         int optionRow = BoxTop;
-        string[] captions = { "Game", "Buttons", "Save", "Max Time (s)" };
+        string[] captions = { "Game", "Buttons", "Save", "Adapter" };
         var captionWidths = new int[captions.Length];
         int used = 0;
         for (int i = 0; i < captions.Length; i++)
@@ -253,17 +253,11 @@ public sealed class EncounterPanel : Panel
         _saves.SelectedIndex = 0;
         _saves.SelectedIndexChanged += (_, _) => OptionsChanged();
 
-        _labelMax = AddCaption(_boxSettings, captions[3], cellX[3], optionRow + 4, captionWidths[3]);
-        _maxSeconds = AddNumberBox(_boxSettings, FieldX(3), optionRow, OptionFields[3]);
-        _maxSeconds.AutoSize = false;
-        _maxSeconds.Height = _game.Height;
-        _maxSeconds.Leave += (_, _) => MaxSecondsCommitted();
-        _maxSeconds.KeyDown += (_, e) =>
-        {
-            if (e.KeyCode != Keys.Enter) return;
-            MaxSecondsCommitted();
-            e.Handled = e.SuppressKeyPress = true;
-        };
+        _labelAdapter = AddCaption(_boxSettings, captions[3], cellX[3], optionRow + 4, captionWidths[3]);
+        _adapter = AddOptionBox(FieldX(3), optionRow, OptionFields[3]);
+        _adapter.Items.AddRange(new object[] { "In", "Out", "Either" });
+        _adapter.SelectedIndex = 1;
+        _adapter.SelectedIndexChanged += (_, _) => OptionsChanged();
 
         _boxSettings.Height = _game.Bottom + BoxBottomPad;
 
@@ -668,27 +662,17 @@ public sealed class EncounterPanel : Panel
 
     public string ButtonsKey => ButtonsEither ? "either" : Variant.ButtonsKey;
 
-    public int MaxSeconds
+    public string AdapterKey => _adapter.SelectedIndex switch { 0 => "in", 2 => "either", _ => "out" };
+
+    public void SetAdapter(string? key)
     {
-        get => Number(_maxSeconds.Text) ?? 0;
-        set
-        {
-            bool was = _settingOptions;
-            _settingOptions = true;
-            try { _maxSeconds.Text = value <= 0 ? "" : value.ToString(CultureInfo.InvariantCulture); }
-            finally { _settingOptions = was; }
-            _searchedMaxSeconds = MaxSeconds;
-        }
+        bool was = _settingOptions;
+        _settingOptions = true;
+        try { _adapter.SelectedIndex = key switch { "in" => 0, "either" => 2, _ => 1 }; }
+        finally { _settingOptions = was; }
     }
 
-    private int _searchedMaxSeconds;
-
-    private void MaxSecondsCommitted()
-    {
-        if (MaxSeconds == _searchedMaxSeconds) return;
-        _searchedMaxSeconds = MaxSeconds;
-        OptionsChanged();
-    }
+    private bool AdapterIn => _adapter.SelectedIndex == 0;
 
     private void OptionsChanged()
     {
@@ -838,6 +822,21 @@ public sealed class EncounterPanel : Panel
         foreach (EncounterRoutePreset route in _routes)
         {
             if (EncounterRoutePreset.NameEquals(route.Name, name)) return route.Clone();
+        }
+        return null;
+    }
+
+    public Func<int, int?>? SeedLookup(EncounterRoutePreset route)
+    {
+        if (route.Seed < 0) return null;
+
+        IEnumerable<EncounterMatch> candidates = _picked is { } picked ? _matches.Prepend(picked) : _matches;
+        foreach (EncounterMatch match in candidates)
+        {
+            PressFrame press = match.Press;
+            if (press.Seed != route.Seed || press.ResetFrame != route.TitleFrame || press.Pass != route.Pass) continue;
+            return frame => TitleSeedTable.SeedAt(
+                press.Offset + (frame - press.ResetFrame), press.Pass, press.Cycles, press.Variant);
         }
         return null;
     }
@@ -1130,7 +1129,7 @@ public sealed class EncounterPanel : Panel
         Game = Variant.GameKey,
         Buttons = ButtonsKey,
         Saves = SavesKey,
-        MaxSeconds = MaxSeconds,
+        Adapter = AdapterKey,
         Sound = "any",
         Intro = "any",
         Title = "either",
@@ -1182,7 +1181,7 @@ public sealed class EncounterPanel : Panel
         Variant = TitleVariant.Parse(preset.Buttons, null, game: preset.Game, saves: preset.Saves);
         ButtonsEither = preset.Buttons == "either";
         SavesEither = preset.Saves == "either";
-        MaxSeconds = preset.MaxSeconds;
+        SetAdapter(preset.Adapter);
         DelayMs = preset.DelayMs;
         OffsetMs = preset.OffsetMs;
         IntroFrame = preset.IntroFrame;
@@ -1332,18 +1331,18 @@ public sealed class EncounterPanel : Panel
             TitleVariant chosen = Variant;
             TitleButtonMode? buttons = ButtonsEither ? null : chosen.Buttons;
             TitleSaves? saves = SavesEither ? null : chosen.Saves;
-            _searchedMaxSeconds = MaxSeconds;
-            int maxFrame = MaxSeconds > 0 ? (int)Math.Floor(MaxSeconds * TitleSeedTable.FramesPerSecond) : 0;
+            bool adapterIn = AdapterIn;
 
             var unswept = new List<TitleVariant>();
             EncounterSearchResult? result = await Task.Run(
                 () =>
                 {
                     List<TitleVariant> variants = TitleSeedTable.Spanning(chosen.Game, buttons, saves, unswept);
+                    if (adapterIn) variants = variants.Where(v => v.HoldsWithAdapter).ToList();
                     return variants.Count == 0
                         ? null
                         : EncounterSearch.Search(route, cycles: cycles, protocol: TitleProtocol.Rta,
-                            variants: variants, cancellationToken: token, maxResetFrame: maxFrame);
+                            variants: variants, cancellationToken: token, maxResetFrame: 0);
                 },
                 token);
             _skipped = unswept;
@@ -1383,7 +1382,7 @@ public sealed class EncounterPanel : Panel
         string skipped = _skipped.Count == 0
             ? ""
             : $" Not swept, so not searched: {string.Join("; ", _skipped.Select(v => Setup(v) + (SavesEither ? (v.Saves == TitleSaves.Single ? " single" : " multi") : "")))}.";
-        string within = MaxSeconds > 0 ? $" within {MaxSeconds} s of the reset" : "";
+        string within = AdapterIn ? " with the adapter in" : "";
 
         if (result.Matches.Count == 0)
         {

@@ -23,10 +23,8 @@ public partial class MainForm
     {
         if (target.DeltaMs is not { } deltaMs) return;
 
-        int delayNow = run.Route.DelayMs;
-        int offsetNow = run.Route.OffsetMs ?? StarterTool.VariableOffset?.OffsetMs ?? 0;
-        CorrectionFor("manip\n" + run.Route.Name + "\n" + target.Press.Name, delayNow, offsetNow, run.Fps)
-            .ObserveAttempt(deltaMs, offsetNow);
+        CorrectionFor("manip\n" + run.Route.Name + "\n" + target.Press.Name, run.DelayMs, run.OffsetMs, run.Fps)
+            .ObserveAttempt(deltaMs, run.OffsetMs);
     }
 
     private void ReportLandedFrame()
@@ -73,24 +71,27 @@ public partial class MainForm
         ContextSession.Log(string.Format(CultureInfo.InvariantCulture,
             "landing reported: route \"{0}\" {1} press landed on frame {2} (tool said {3})",
             run.Route.Name, target.Press.Name, frame,
-            target.LandedFrame is { } landed ? landed.ToString(CultureInfo.InvariantCulture) : "nothing"));
+            target.LandedFrame is { } landed ? landed.ToString(CultureInfo.InvariantCulture) : "nothing")
+            + (ReferenceEquals(target, run.TitleTarget) ? run.SeedNote(frame) : ""));
 
-        int delayNow = run.Route.DelayMs;
-        int offsetNow = run.Route.OffsetMs ?? StarterTool.VariableOffset?.OffsetMs ?? 0;
+        int delayNow = run.DelayMs;
+        int offsetNow = run.OffsetMs;
         if (target.AsReport(delayNow, offsetNow) is not { } report) return true;
 
         LandingCorrection correction = CorrectionFor(
             "manip\n" + run.Route.Name + "\n" + target.Press.Name, delayNow, offsetNow, run.Fps);
         correction.Add(report);
-        ShowAdvice(correction, $"{target.Press.Name} landed {frame}", delayNow, offsetNow);
+        ShowAdvice(correction, $"{target.Press.Name} landed {frame}", delayNow, offsetNow,
+            run.DelayBox, run.OffsetBox);
         return true;
     }
 
-    private void ShowAdvice(LandingCorrection correction, string what, int delayNow, int offsetNow)
+    private void ShowAdvice(LandingCorrection correction, string what, int delayNow, int offsetNow,
+        string delayBox = "Delay", string offsetBox = "Offset")
     {
         string reports = $"{correction.Count} report{(correction.Count == 1 ? "" : "s")}";
         string advice = correction.Advise(delayNow, offsetNow) is { } shift && shift.Any
-            ? AdviceText(shift, delayNow, offsetNow)
+            ? AdviceText(shift, delayNow, offsetNow, delayBox, offsetBox)
             : "nothing to change yet";
 
         Label readout = ActiveLandingLabel;
@@ -99,16 +100,17 @@ public partial class MainForm
         ContextSession.Log("landing advice: " + readout.Text);
     }
 
-    private static string AdviceText(in LandingAdvice advice, int delayNow, int offsetNow)
+    private static string AdviceText(in LandingAdvice advice, int delayNow, int offsetNow,
+        string delayBox, string offsetBox)
     {
         var parts = new List<string>();
         if (advice.DelayShiftMs != 0)
         {
-            parts.Add($"Delay {delayNow} → {delayNow + advice.DelayShiftMs} ms");
+            parts.Add($"{delayBox} {delayNow} → {delayNow + advice.DelayShiftMs} ms");
         }
         if (advice.OffsetShiftMs != 0)
         {
-            parts.Add($"Offset {offsetNow} → {offsetNow + advice.OffsetShiftMs} ms");
+            parts.Add($"{offsetBox} {offsetNow} → {offsetNow + advice.OffsetShiftMs} ms");
         }
         string text = "suggest " + string.Join(", ", parts);
         if (advice.Scattered)

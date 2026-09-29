@@ -57,7 +57,9 @@ public enum HotkeyAction
     IgtAdd5,
     IgtSub5,
     IgtAdd6,
-    IgtSub6
+    IgtSub6,
+
+    PushToTalk
 }
 
 public enum ClipboardFormat
@@ -149,6 +151,8 @@ public sealed class AppSettings
     public Hotkey IgtAdd6 { get; set; } = new();
     public Hotkey IgtSub6 { get; set; } = new();
 
+    public Hotkey PushToTalk { get; set; } = new();
+
     public double NpcContextWindowMs { get; set; }
 
     public bool NpcCuedLabPress { get; set; }
@@ -181,7 +185,7 @@ public sealed class AppSettings
 
     public string EncounterSaves { get; set; } = "multi";
 
-    public int EncounterMaxSeconds { get; set; }
+    public string EncounterAdapter { get; set; } = "out";
 
     public string EncounterGame { get; set; } = "fr";
 
@@ -234,6 +238,10 @@ public sealed class AppSettings
     public const double DefaultCuedPressWindowMs = 30.0;
 
     public KeyMethod KeyMethod { get; set; } = KeyMethod.OnPress;
+
+    public double PressDebounceMs { get; set; } = DefaultPressDebounceMs;
+
+    public const double DefaultPressDebounceMs = 30.0;
 
     public bool GlobalNumpadInput { get; set; } = true;
 
@@ -373,6 +381,12 @@ public sealed class AppSettings
 
     public bool AudioAlignStart { get; set; }
 
+    public string AudioOutputDevice { get; set; } = "";
+
+    public Dictionary<string, double> AudioDevicePeriods { get; set; } = new();
+
+    public string VoiceInputDevice { get; set; } = "";
+
     public int TrainingRounds { get; set; } = 10;
 
     public string GenericFps { get; set; } = "60";
@@ -505,6 +519,7 @@ public sealed class AppSettings
         HotkeyAction.IgtSub5 => IgtSub5,
         HotkeyAction.IgtAdd6 => IgtAdd6,
         HotkeyAction.IgtSub6 => IgtSub6,
+        HotkeyAction.PushToTalk => PushToTalk,
         _ => throw new ArgumentOutOfRangeException(nameof(action), action, "Unknown hotkey action")
     };
 
@@ -558,8 +573,18 @@ public sealed class AppSettings
         (IgtSub5 ??= new Hotkey()).Normalize();
         (IgtAdd6 ??= new Hotkey()).Normalize();
         (IgtSub6 ??= new Hotkey()).Normalize();
+        (PushToTalk ??= new Hotkey()).Normalize();
+        AudioOutputDevice ??= "";
+        AudioDevicePeriods ??= new Dictionary<string, double>();
+        foreach (string id in AudioDevicePeriods.Where(p => double.IsNaN(p.Value) || p.Value <= 0 || p.Value > 100).Select(p => p.Key).ToList())
+        {
+            AudioDevicePeriods.Remove(id);
+        }
+        VoiceInputDevice ??= "";
 
         if (!Enum.IsDefined(KeyMethod)) KeyMethod = KeyMethod.OnPress;
+        if (double.IsNaN(PressDebounceMs) || PressDebounceMs < 0) PressDebounceMs = 0;
+        if (PressDebounceMs > 200) PressDebounceMs = 200;
         if (!Enum.IsDefined(ClipboardFormat)) ClipboardFormat = ClipboardFormat.Column;
         if (!Enum.IsDefined(StatServerStripSide)) StatServerStripSide = StatStripSide.Bottom;
         if (!Enum.IsDefined(AudioOutput)) AudioOutput = AudioOutput.Wasapi;
@@ -571,7 +596,7 @@ public sealed class AppSettings
         EncounterProtocol = EncounterProtocol == "sweep" ? "sweep" : "rta";
         EncounterButtons = EncounterButtons is "la" or "either" ? EncounterButtons : "help";
         EncounterSaves = EncounterSaves is "single" or "either" ? EncounterSaves : "multi";
-        EncounterMaxSeconds = Math.Clamp(EncounterMaxSeconds, 0, 100000);
+        if (EncounterAdapter is not ("in" or "out" or "either")) EncounterAdapter = "out";
         EncounterIntroExtra = Encounters.ManipPress.FormatList(Encounters.ManipPress.ParseList("Intro", EncounterIntroExtra));
         EncounterTitleExtra = Encounters.ManipPress.FormatList(Encounters.ManipPress.ParseList("Title", EncounterTitleExtra));
         EncounterGame = EncounterGame is "lg" ? EncounterGame : "fr";

@@ -150,6 +150,16 @@ public sealed class FenceTracker
 
     private readonly List<double> _likelihoods = new();
 
+    public const double UnreportedStepPrior = 0.05;
+
+    private double UnreportedPrior(FenceCandidate candidate, int offset)
+    {
+        if (!Complete) return 0.0;
+
+        int unreported = candidate.LeadWalk.Skip(offset + _inputs.Count).Count(candidate.Seeable);
+        return unreported * Math.Log(UnreportedStepPrior);
+    }
+
     private int Prune()
     {
         _alive.Clear();
@@ -165,7 +175,7 @@ public sealed class FenceTracker
 
             _alive.Add(candidate);
             _offsets[(candidate.ExitFrame, candidate.OakFrame)] = offset;
-            scores.Add(score + AnchorPrior(candidate));
+            scores.Add(score + AnchorPrior(candidate) + UnreportedPrior(candidate, offset));
         }
 
         Normalise(scores);
@@ -173,7 +183,9 @@ public sealed class FenceTracker
     }
 
     private static double AnchorPrior(FenceCandidate candidate) =>
-        Math.Log(Math.Max(candidate.AnchorWeight, MinimumAnchorWeight));
+        PressPriorWeight * Math.Log(Math.Max(candidate.AnchorWeight, MinimumAnchorWeight));
+
+    public const double PressPriorWeight = 1.75;
 
     private const double MinimumAnchorWeight = 1e-6;
 
@@ -211,47 +223,69 @@ public sealed class FenceTracker
         if (_inputs.Count == 0) return 0.0;
 
         double frameMs = 1000.0 / Fps;
-        double visibleMs = candidate.LeadWalkVisibleFrame * frameMs;
+        double intervalMs = MovementStrip.QuietIntervalFrames * frameMs;
 
         double least = double.PositiveInfinity;
         var lags = new double[_inputs.Count];
+        var watchable = new int[_inputs.Count];
 
         for (int i = 0; i < _inputs.Count; i++)
         {
             NpcEvent predicted = candidate.LeadWalk[offset + i];
-            double stepMs = (candidate.LeadWalkStartFrame + predicted.Frame) * frameMs;
+            watchable[i] = candidate.WatchableFrame(predicted.Frame);
+            double watchableMs = (candidate.LeadWalkStartFrame + watchable[i]) * frameMs;
 
-            lags[i] = _inputs[i].ElapsedMs - Math.Max(stepMs, visibleMs);
+            lags[i] = _inputs[i].ElapsedMs - watchableMs;
             if (lags[i] < least) least = lags[i];
         }
 
-        double excess = least - MinimumLatencyMs;
-        double score = excess >= 0.0 ? -excess / LatencyScaleMs : excess / EarlyScaleMs;
+        double score = LatencyLogLikelihood(least);
 
-        foreach (double lag in lags) score -= (lag - least) / ReactionScaleMs;
+        for (int i = 0; i < lags.Length; i++)
+        {
+            int late = (int)Math.Floor((lags[i] - least) / frameMs);
+            score -= IntervalsLate(candidate.LeadWalk[offset + i], late) * intervalMs / ReactionScaleMs;
+        }
 
         return score;
     }
 
-    public const double ReactionScaleMs = 600.0;
+    private static int IntervalsLate(NpcEvent predicted, int late)
+    {
+        int walk = predicted.Kind == NpcEventKind.Step ? ObjectEventSim.NormalWalkFrames : 0;
+        int first = MovementStrip.QuietIntervalFrames + walk;
 
-    public const double LatencyScaleMs = 2000.0;
+        return late < first ? 0 : 1 + (late - first) / MovementStrip.QuietIntervalFrames;
+    }
+
+    public const double ReactionScaleMs = 150.0;
+
+    public static double LatencyLogLikelihood(double leastMs)
+    {
+        static double Density(double above)
+        {
+            double z = (Math.Log(above) - LatencyLogMedian) / LatencyLogSd;
+            return -0.5 * z * z - Math.Log(above);
+        }
+
+        double above = leastMs - MinimumLatencyMs;
+        return above > 1.0 ? Density(above) : Density(1.0) + (above - 1.0) / EarlyScaleMs;
+    }
+
+    public const double LatencyLogMedian = 6.0;
+
+    public const double LatencyLogSd = 0.7;
 
     public const double EarlyScaleMs = 50.0;
 
-    public const double MinimumLatencyMs = 150.0;
+    public const double MinimumLatencyMs = 250.0;
 
     private bool Consistent(FenceCandidate candidate, int offset)
     {
         IReadOnlyList<NpcEvent> predicted = candidate.LeadWalk;
         int visible = predicted.Count - offset;
 
-        if (Complete
-            ? visible != _inputs.Count
-            : visible < _inputs.Count)
-        {
-            return false;
-        }
+        if (visible < _inputs.Count) return false;
 
         for (int i = 0; i < _inputs.Count; i++)
         {

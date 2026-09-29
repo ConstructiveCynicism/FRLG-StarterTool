@@ -111,6 +111,8 @@ public static class Theme
 
     public static Color LandingRowText => Dark ? Color.White : Color.Black;
 
+    public static Color OffParityText(Color fore, Color back) => Blend(fore, back, 0.45);
+
     public static Color TipBack => Dark ? Color.FromArgb(0x1D, 0x31, 0x37) : Color.FromArgb(0xE6, 0xF4, 0xF7);
 
     public static Color TipRule => SectionBorder;
