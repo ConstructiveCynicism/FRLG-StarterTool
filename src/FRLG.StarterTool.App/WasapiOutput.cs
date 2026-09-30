@@ -22,6 +22,7 @@ internal sealed class WasapiOutput : IBeepOutput
     private byte[]? _scratch;
 
     private byte[]? _pcm;
+    private int _pcmLength;
     private double _sourceFrame;
 
     private long _totalFedFrames;
@@ -412,7 +413,7 @@ internal sealed class WasapiOutput : IBeepOutput
         if (padding >= _targetFrames) return;
         uint frames = _targetFrames - padding;
 
-        int copyFrames = _pcm == null ? 0 : _mix.FramesAvailable(_pcm, _sourceFrame, (int)frames);
+        int copyFrames = _pcm == null ? 0 : _mix.FramesAvailable(_pcmLength, _sourceFrame, (int)frames);
 
         Check(_render.GetBuffer(frames, out IntPtr data));
 
@@ -453,7 +454,7 @@ internal sealed class WasapiOutput : IBeepOutput
         return (clock, _totalFedFrames - padding);
     }
 
-    private bool Playing() => _pcm != null && _mix.FramesAvailable(_pcm, _sourceFrame, 1) > 0;
+    private bool Playing() => _pcm != null && _mix.FramesAvailable(_pcmLength, _sourceFrame, 1) > 0;
 
     private void Judge(double baseClock, double basePull)
     {
@@ -516,13 +517,14 @@ internal sealed class WasapiOutput : IBeepOutput
         }
     }
 
-    public bool Write(byte[] pcm)
+    public bool Write(byte[] pcm, int length)
     {
         lock (_lock)
         {
             if (!IsOpen) return false;
 
             _pcm = pcm;
+            _pcmLength = Math.Clamp(length, 0, pcm.Length);
             _sourceFrame = 0;
             _anchorFrames = _totalFedFrames;
 
@@ -596,7 +598,7 @@ internal sealed class WasapiOutput : IBeepOutput
             double relative = playedFrames - _anchorFrames;
             if (relative <= 0) return 0;
             long bytes = (long)(relative * _mix.SourceStep) * BytesPerFrame;
-            return (int)Math.Min(bytes, _pcm.Length);
+            return (int)Math.Min(bytes, _pcmLength);
         }
     }
 
@@ -605,17 +607,17 @@ internal sealed class WasapiOutput : IBeepOutput
         lock (_lock)
         {
             if (_pcm == null || !IsOpen) return -1;
-            return (int)Math.Min(((long)_sourceFrame + 2) * BytesPerFrame, _pcm.Length);
+            return (int)Math.Min(((long)_sourceFrame + 2) * BytesPerFrame, _pcmLength);
         }
     }
 
-    public void Silence(int fromByte)
+    public void Silence(int fromByte, int byteCount)
     {
         lock (_lock)
         {
             if (_pcm == null) return;
-            int from = Math.Clamp(fromByte, 0, _pcm.Length);
-            Array.Clear(_pcm, from, _pcm.Length - from);
+            int from = Math.Clamp(fromByte, 0, _pcmLength);
+            Array.Clear(_pcm, from, Math.Clamp(byteCount, 0, _pcmLength - from));
         }
     }
 
@@ -701,9 +703,9 @@ internal sealed class WasapiOutput : IBeepOutput
 
         public double FramesToMs(uint frames) => frames * 1000.0 / SampleRate;
 
-        public int FramesAvailable(byte[] pcm, double sourceFrame, int maxFrames)
+        public int FramesAvailable(int pcmLength, double sourceFrame, int maxFrames)
         {
-            int sourceFrames = pcm.Length / WasapiOutput.BytesPerFrame;
+            int sourceFrames = pcmLength / WasapiOutput.BytesPerFrame;
             if (SourceStep == 1.0)
             {
                 return Math.Clamp(sourceFrames - (int)sourceFrame, 0, maxFrames);

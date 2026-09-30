@@ -59,7 +59,9 @@ public enum HotkeyAction
     IgtAdd6,
     IgtSub6,
 
-    PushToTalk
+    PushToTalk,
+
+    ReportDoubleHelp
 }
 
 public enum ClipboardFormat
@@ -137,6 +139,8 @@ public sealed class AppSettings
     public Hotkey NpcMiss { get; set; } = new();
 
     public Hotkey ReportPcVisit { get; set; } = new();
+
+    public Hotkey ReportDoubleHelp { get; set; } = new();
 
     public Hotkey IgtPlay { get; set; } = new();
     public Hotkey IgtUndo { get; set; } = new();
@@ -507,6 +511,7 @@ public sealed class AppSettings
         HotkeyAction.NpcComplete => NpcComplete,
         HotkeyAction.NpcMiss => NpcMiss,
         HotkeyAction.ReportPcVisit => ReportPcVisit,
+        HotkeyAction.ReportDoubleHelp => ReportDoubleHelp,
         HotkeyAction.IgtPlay => IgtPlay,
         HotkeyAction.IgtUndo => IgtUndo,
         HotkeyAction.IgtAdd2 => IgtAdd2,
@@ -525,11 +530,13 @@ public sealed class AppSettings
 
     public IEnumerable<Hotkey> AllHotkeys()
     {
-        foreach (HotkeyAction action in Enum.GetValues<HotkeyAction>())
+        foreach (HotkeyAction action in Actions)
         {
             yield return GetHotkey(action);
         }
     }
+
+    private static readonly HotkeyAction[] Actions = Enum.GetValues<HotkeyAction>();
 
     private static string StripWhitespace(string? text, string fallback)
     {
@@ -561,6 +568,7 @@ public sealed class AppSettings
         (NpcComplete ??= new Hotkey()).Normalize();
         (NpcMiss ??= new Hotkey()).Normalize();
         (ReportPcVisit ??= new Hotkey()).Normalize();
+        (ReportDoubleHelp ??= new Hotkey()).Normalize();
         (IgtPlay ??= new Hotkey()).Normalize();
         (IgtUndo ??= new Hotkey()).Normalize();
         (IgtAdd2 ??= new Hotkey()).Normalize();

@@ -127,15 +127,19 @@ public sealed class FenceTracker
         LastTapRefused = false;
         _inputs.Clear();
         Complete = false;
+        CompleteByRunner = false;
         _focus = null;
         return Prune();
     }
 
-    public int SetComplete(bool complete)
+    public int SetComplete(bool complete, bool byRunner = false)
     {
         Complete = complete;
+        CompleteByRunner = complete && byRunner;
         return Prune();
     }
+
+    public bool CompleteByRunner { get; private set; }
 
     public int Observe(IReadOnlyList<FenceInput> inputs, bool complete = false)
     {
@@ -143,6 +147,7 @@ public sealed class FenceTracker
         _inputs.Clear();
         _inputs.AddRange(inputs.Where(i => i.Direction != Direction.None));
         Complete = complete;
+        CompleteByRunner &= complete;
         return Prune();
     }
 
@@ -156,8 +161,7 @@ public sealed class FenceTracker
     {
         if (!Complete) return 0.0;
 
-        int unreported = candidate.LeadWalk.Skip(offset + _inputs.Count).Count(candidate.Seeable);
-        return unreported * Math.Log(UnreportedStepPrior);
+        return Unreported(candidate, offset) * Math.Log(UnreportedStepPrior);
     }
 
     private int Prune()
@@ -168,10 +172,13 @@ public sealed class FenceTracker
 
         var scores = new List<double>();
 
+        bool hard = CompleteByRunner && _all.Any(c => MatchOffset(c, out _) is var o && o >= 0 && Unreported(c, o) == 0);
+
         foreach (FenceCandidate candidate in _all)
         {
             int offset = MatchOffset(candidate, out double score);
             if (offset < 0) continue;
+            if (hard && Unreported(candidate, offset) > 0) continue;
 
             _alive.Add(candidate);
             _offsets[(candidate.ExitFrame, candidate.OakFrame)] = offset;
@@ -181,6 +188,9 @@ public sealed class FenceTracker
         Normalise(scores);
         return _alive.Count;
     }
+
+    private int Unreported(FenceCandidate candidate, int offset) =>
+        candidate.LeadWalk.Skip(offset + _inputs.Count).Count(candidate.Seeable);
 
     private static double AnchorPrior(FenceCandidate candidate) =>
         PressPriorWeight * Math.Log(Math.Max(candidate.AnchorWeight, MinimumAnchorWeight));

@@ -11,6 +11,8 @@ public sealed class ThemedListView : ListView
     public ThemedListView()
     {
         _header = new HeaderWindow(this);
+
+        DoubleBuffered = true;
     }
 
     protected override void WndProc(ref Message m)
@@ -119,6 +121,16 @@ public sealed class ThemedListView : ListView
         int half = Math.Max(perPage - 1, 0) / 2;
         EnsureVisible(Math.Min(index + half, count - 1));
         EnsureVisible(Math.Max(index - half, 0));
+    }
+
+    public (int First, int Last) VisibleRows()
+    {
+        int count = VirtualMode ? VirtualListSize : Items.Count;
+        if (count == 0 || !IsHandleCreated) return (0, -1);
+
+        int top = Math.Max(Win32.SendMessage(Handle, Win32.LVM_GETTOPINDEX, false, 0), 0);
+        int perPage = Win32.SendMessage(Handle, Win32.LVM_GETCOUNTPERPAGE, false, 0);
+        return (Math.Min(top, count - 1), Math.Min(top + perPage, count - 1));
     }
 
     public void RefreshHeader()

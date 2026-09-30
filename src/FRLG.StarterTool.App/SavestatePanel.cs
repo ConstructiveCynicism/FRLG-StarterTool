@@ -35,6 +35,9 @@ public sealed class SavestatePanel : Panel
     private const int ModeKeep = 0;
     private const int ModeRandom = 1;
 
+    private const int ModeSet = 2;
+    private const int ModeRealStarter = 3;
+
     private static readonly string[] StatNames = { "HP", "Atk", "Def", "SpA", "SpD", "Spe" };
 
     private readonly TextBox _loadBox;
@@ -121,6 +124,7 @@ public sealed class SavestatePanel : Panel
         _ivCombo.Items.Add("— keep —");
         _ivCombo.Items.Add("Roll from filter");
         _ivCombo.Items.Add("Set below");
+        _ivCombo.Items.Add("Real starter (random TID)");
         _ivCombo.SelectedIndex = ModeKeep;
         _ivCombo.SelectedIndexChanged += (_, _) => Touched();
 
@@ -213,6 +217,8 @@ public sealed class SavestatePanel : Panel
     }
 
     public event EventHandler? CloseRequested;
+
+    public event EventHandler<StarterRoll>? StarterRolled;
 
     public Func<FilterPreset>? FilterSource { get; set; }
 
@@ -342,11 +348,12 @@ public sealed class SavestatePanel : Panel
         }
 
         int written = 0;
+        StarterRoll? lastRoll = null;
         foreach (SavestateEntry entry in chosen)
         {
             try
             {
-                entry.Status = SavestateEditor.Apply(entry, destination, edit, _random);
+                entry.Status = SavestateEditor.Apply(entry, destination, edit, _random, roll => lastRoll = roll);
                 written++;
             }
             catch (Exception ex)
@@ -364,11 +371,14 @@ public sealed class SavestatePanel : Panel
             ? $"Wrote {written} state{(written == 1 ? "" : "s")} to {destination}."
             : $"Wrote {written} of {chosen.Count}; the rest say why in their own row.",
             hit: written == chosen.Count);
+
+        if (lastRoll != null) StarterRolled?.Invoke(this, lastRoll);
     }
 
     private MonEdit BuildEdit()
     {
-        ConstraintRange filter = (FilterSource?.Invoke() ?? new FilterPreset()).Normalize().Primary;
+        FilterPreset preset = (FilterSource?.Invoke() ?? new FilterPreset()).Normalize();
+        ConstraintRange filter = preset.Primary;
 
         var edit = new MonEdit
         {
@@ -379,7 +389,8 @@ public sealed class SavestatePanel : Panel
             IvPlus = ToPack(filter.IvPlus),
             Ivs = ReadRow(_ivBoxes, 31),
             Evs = ReadRow(_evBoxes, 255),
-            EvMode = _evCheck.Checked ? EditMode.Specific : EditMode.Keep
+            EvMode = _evCheck.Checked ? EditMode.Specific : EditMode.Keep,
+            StarterFilter = preset
         };
 
         edit.NatureMode = _natureCombo.SelectedIndex switch
@@ -394,6 +405,7 @@ public sealed class SavestatePanel : Panel
         {
             ModeKeep => EditMode.Keep,
             ModeRandom => EditMode.Random,
+            ModeRealStarter => EditMode.RealStarter,
             _ => EditMode.Specific
         };
 
@@ -430,8 +442,9 @@ public sealed class SavestatePanel : Panel
 
     private void UpdateReadouts()
     {
-        bool specificIvs = _ivCombo.SelectedIndex > ModeRandom;
+        bool specificIvs = _ivCombo.SelectedIndex == ModeSet;
         foreach (TextBox box in _ivBoxes) box.Enabled = specificIvs;
+        _natureCombo.Enabled = _ivCombo.SelectedIndex != ModeRealStarter;
         foreach (TextBox box in _evBoxes) box.Enabled = _evCheck.Checked;
 
         int[] evs = ReadRow(_evBoxes, 255);

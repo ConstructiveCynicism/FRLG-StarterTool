@@ -25,7 +25,7 @@ public sealed class NpcGridPanel : Control
 
     public const int ControlStripHeight = 26;
 
-    private int StatusHeight => Font.Height * (_advice == null ? 2 : 3) + 2;
+    private int StatusHeight => FontHeight * (_advice == null ? 2 : 3) + 2;
 
     private ContextAdvice? _advice;
 
@@ -411,7 +411,7 @@ public sealed class NpcGridPanel : Control
 
         bool column = !_labMode && (Cue is CueKind.House or CueKind.Fence || RouteShowing);
         int x = column ? GridPixels + Gutter : 0;
-        var line = new Rectangle(x, Font.Height * 2 + 1, Math.Max(0, Width - x), Font.Height);
+        var line = new Rectangle(x, FontHeight * 2 + 1, Math.Max(0, Width - x), FontHeight);
 
         string pill = "";
         Color pillBack = Theme.Accent;
@@ -776,7 +776,7 @@ public sealed class NpcGridPanel : Control
 
         g.Clip = clip;
 
-        DrawRouteCaption(g, grid, state, frame - LabRoute.LeadFrames);
+        DrawRouteCaption(g, grid, state, route.Moves[0], frame - LabRoute.LeadFrames);
     }
 
     private static void DrawTileSprite(Graphics g, Rectangle grid, Image? sprite, int column, int row)
@@ -815,9 +815,10 @@ public sealed class NpcGridPanel : Control
             TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter | TextFormatFlags.NoPadding);
     }
 
-    private void DrawRouteCaption(Graphics g, Rectangle grid, LabRouteState state, int frame)
+    private void DrawRouteCaption(Graphics g, Rectangle grid, LabRouteState state, LabMove first, int frame)
     {
-        string input = state.Move.Input switch
+        bool lead = frame < 0 && state.Move.Kind == LabMoveKind.Stand;
+        string input = (lead ? first.Input : state.Move.Input) switch
         {
             LabInput.Up => "\u2191",
             LabInput.Down => "\u2193",
@@ -826,14 +827,16 @@ public sealed class NpcGridPanel : Control
             LabInput.A => "A",
             _ => "",
         };
-        string what = state.Move.Kind switch
-        {
-            LabMoveKind.Bonk => "bonk Oak",
-            LabMoveKind.Turn => "turn",
-            LabMoveKind.Step => "walk",
-            LabMoveKind.Press => "press",
-            _ => frame < 0 ? "text closes" : "wait",
-        };
+        string what = lead
+            ? first.Kind == LabMoveKind.Bonk ? "held · bonk next" : "held · turn next"
+            : state.Move.Kind switch
+            {
+                LabMoveKind.Bonk => "bonk Oak",
+                LabMoveKind.Turn => "turn",
+                LabMoveKind.Step => "walk",
+                LabMoveKind.Press => "press",
+                _ => "wait",
+            };
 
         int shown = state.Pressed ? state.Move.Start : Math.Max(frame, 0);
         string caption = string.Format(CultureInfo.InvariantCulture, "{0} {1}  {2}",
@@ -867,7 +870,7 @@ public sealed class NpcGridPanel : Control
         float scale = (float)(strip.Width - 2 * Inset) / span;
         float X(int f) => strip.X + Inset + f * scale;
 
-        int labelHeight = Font.Height;
+        int labelHeight = FontHeight;
         var bar = new Rectangle(strip.X + Inset, strip.Y + labelHeight + 3, strip.Width - 2 * Inset,
             Math.Max(4, strip.Height - labelHeight - 8));
 
@@ -1209,8 +1212,7 @@ public sealed class NpcGridPanel : Control
         float cy = cell.Y + cell.Height / 2f;
         float arm = cell.Width * 0.26f;
 
-        using var pen = new Pen(ink, 1.4f);
-        g.DrawLine(pen, cx - arm, cy, cx + arm, cy);
+        g.DrawLine(GdiCache.Pen(ink, 1.4f), cx - arm, cy, cx + arm, cy);
     }
 
     private static void DrawEventGlyph(Graphics g, Rectangle cell, NpcEvent e, bool started,
@@ -1239,13 +1241,11 @@ public sealed class NpcGridPanel : Control
 
         if (completed)
         {
-            using var brush = new SolidBrush(ink);
-            g.FillPolygon(brush, barbs);
+            g.FillPolygon(GdiCache.Brush(ink), barbs);
         }
         else
         {
-            using var pen = new Pen(ink, 1.4f);
-            g.DrawPolygon(pen, barbs);
+            g.DrawPolygon(GdiCache.Pen(ink, 1.4f), barbs);
         }
 
         g.SmoothingMode = smoothing;
@@ -1257,19 +1257,15 @@ public sealed class NpcGridPanel : Control
         Color fill = leader ? Theme.LandingHitBack : Theme.LandingMaybeBack;
 
         var track = new Rectangle(row.X, row.Bottom - 3, row.Width, 3);
-        using (var background = new SolidBrush(Theme.GridLine))
-        {
-            g.FillRectangle(background, track);
-        }
+        g.FillRectangle(GdiCache.Brush(Theme.GridLine), track);
 
         int filled = (int)Math.Round(chance * track.Width);
         if (filled > 0)
         {
-            using var bar = new SolidBrush(fill);
-            g.FillRectangle(bar, track.X, track.Y, filled, track.Height);
+            g.FillRectangle(GdiCache.Brush(fill), track.X, track.Y, filled, track.Height);
         }
 
-        int line = Math.Max(row.Height - 4, Font.Height);
+        int line = Math.Max(row.Height - 4, FontHeight);
 
         TextRenderer.DrawText(g,
             (chance * 100.0).ToString("0", CultureInfo.InvariantCulture) + "%", Font,

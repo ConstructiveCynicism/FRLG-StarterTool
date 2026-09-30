@@ -80,6 +80,8 @@ public sealed class VariableOffsetTimer : BaseTimer
 
     private const double EncounterResetWindowMaxMs = 10000.0;
 
+    private const double ButtonStartRepeatMs = 500.0;
+
     private bool _started;
 
     private bool _audioStartPending;
@@ -106,8 +108,26 @@ public sealed class VariableOffsetTimer : BaseTimer
         _form.CheckBoxBeepEnabled.Checked = settings.BeepEnabled;
         _form.CheckBoxFlashEnabled.Checked = settings.FlashEnabled;
 
-        _form.ButtonStart.Click += (_, _) => StarterTool.StartTimer();
-        _form.ButtonStop.Click += (_, _) => StarterTool.StopTimer(false);
+        _form.ButtonStart.Click += (_, _) =>
+        {
+            double sinceMs = Win32.GetTime() - StarterTool.TimerStart;
+            if (StarterTool.IsTimerRunning && sinceMs < ButtonStartRepeatMs)
+            {
+                ContextSession.Log(string.Format(CultureInfo.InvariantCulture,
+                    "start button ignored - {0:F0} ms after the run started", sinceMs));
+                return;
+            }
+
+            StarterTool.StartTimer();
+            ContextSession.Log(string.Format(CultureInfo.InvariantCulture,
+                "start by the Start button at t={0:F1} ms", StarterTool.TimerStart));
+        };
+        _form.ButtonStop.Click += (_, _) =>
+        {
+            ContextSession.Log(string.Format(CultureInfo.InvariantCulture,
+                "stop by the Stop button at t={0:F1} ms", Win32.GetTime()));
+            StarterTool.StopTimer(false);
+        };
         _form.ButtonPlus.Click += (_, _) => StarterTool.CurrentTab.Nudge(1);
         _form.ButtonMinus.Click += (_, _) => StarterTool.CurrentTab.Nudge(-1);
 
@@ -157,7 +177,11 @@ public sealed class VariableOffsetTimer : BaseTimer
         _form.CheckBoxBeepEnabled.CheckedChanged += (_, _) => Arm();
         _form.CheckBoxFlashEnabled.CheckedChanged += (_, _) => Arm();
 
-        _form.ComboBoxEncounterRoute.SelectedIndexChanged += (_, _) => _encounterDone = false;
+        _form.ComboBoxEncounterRoute.SelectedIndexChanged += (_, _) =>
+        {
+            _encounterDone = false;
+            if (_form.ComboBoxEncounterRoute.SelectedIndex == 0) DropEncounterRun();
+        };
         _form.ComboBoxFps.SelectedIndexChanged += (_, _) =>
         {
             OnDataChange();
@@ -354,6 +378,8 @@ public sealed class VariableOffsetTimer : BaseTimer
         Submitted = false;
         _hasLandingTarget = false;
         _genericLanded = false;
+        _starterLanded = false;
+        _starterClosed = false;
         Held = false;
         _landingWindowClose?.Stop();
         _countdownStartMs = double.MaxValue;
@@ -372,6 +398,11 @@ public sealed class VariableOffsetTimer : BaseTimer
             return;
         }
 
+        StartStarterRun();
+    }
+
+    private void StartStarterRun()
+    {
         _form.TextBoxFrame.Enabled = true;
 
         if (!Generic) _form.UnlockTrainerId();
@@ -531,10 +562,55 @@ public sealed class VariableOffsetTimer : BaseTimer
             _landingInfo.Fps,
             rawChance);
 
+        _starterLanded = !drill;
+
         StarterTool.Context.RecordHit(countdownFrame, deltaMs, chance,
             TrainingUsesVisualOffset ? VisualOffsetMs : OffsetMs);
 
         EndHold();
+        return true;
+    }
+
+    private bool _starterLanded;
+
+    private bool _starterClosed;
+
+    private bool _holdPinned;
+
+    public bool CanMissStarter =>
+        Active && (_starterLanded || _starterClosed) && !Generic && _encounter == null
+        && !_form.TrainingPanel.IsRunning;
+
+    private bool CountdownLive => StarterTool.IsTimerRunning && !Held && ElapsedSeconds < CurrentOffset;
+
+    private static double ElapsedSeconds => (Win32.GetTime() - StarterTool.TimerStart) / 1000.0;
+
+    public bool MissedStarter()
+    {
+        if (!CanMissStarter) return false;
+
+        bool live = _starterLanded && CountdownLive;
+        _starterLanded = false;
+        _starterClosed = false;
+
+        _form.ClearLanding();
+        if (!StarterTool.Context.ReopenHit()) _form.RefreshContextStrip();
+
+        if (live)
+        {
+            _hasLandingTarget = true;
+            ContextSession.Log(string.Format(CultureInfo.InvariantCulture,
+                "missed starter - countdown on {0} still live, landing reopened", _landingTargetFrame));
+            _form.ShowHeldStatus("Starter missed - press again on this countdown, or pick a later frame");
+            return true;
+        }
+
+        StarterTool.ResumeTimer();
+        _form.TextBoxFrame.Enabled = true;
+        ContextSession.Log(string.Format(CultureInfo.InvariantCulture,
+            "missed starter - timer resumed at {0:F1} ms and held", ElapsedSeconds * 1000.0));
+        EnterHold();
+        _holdPinned = true;
         return true;
     }
 
@@ -578,7 +654,8 @@ public sealed class VariableOffsetTimer : BaseTimer
             return;
         }
 
-        StarterTool.Context.Unpressed();
+        _starterClosed = StarterTool.Context.Unpressed() && !Generic;
+        if (_starterClosed) _form.RefreshContextStrip();
     }
 
     private const double HoldCheckMs = 250.0;
@@ -605,6 +682,7 @@ public sealed class VariableOffsetTimer : BaseTimer
     private void EnterHold()
     {
         Held = true;
+        _holdPinned = false;
         _holdCheckedMs = Win32.GetTime() - StarterTool.TimerStart;
 
         Submitted = false;
@@ -768,6 +846,35 @@ public sealed class VariableOffsetTimer : BaseTimer
             "Reset seed manip stopped - Start runs it again", null);
     }
 
+    private void DropEncounterRun()
+    {
+        if (_encounter == null || !StarterTool.IsTimerRunning || !Active) return;
+
+        _landingWindowClose?.Stop();
+        StarterTool.Capture.Disarm();
+        StarterTool.Beeps.ClearPending();
+        ClearFlash();
+        _encounter = null;
+        _encounterScored = null;
+        _encounterDone = false;
+
+        CurrentOffset = double.MaxValue;
+        _countdownStartMs = double.MaxValue;
+        _driftCheckMs = double.MaxValue;
+        _driftChecked = false;
+        _beepRun.Reset();
+        _flashRun.Reset();
+        _lastArmLog = "";
+
+        ContextSession.Log("encounter manip dropped - route set to None, clock kept for the starter manip");
+        _form.ShowEncounterLanding(Array.Empty<EncounterLandingRow>(),
+            "Reset seed manip dropped - the timer is the starter manip's", null);
+
+        StarterTool.Context.Start();
+        _form.CloseCapture();
+        StartStarterRun();
+    }
+
     public void ResetEncounterRun()
     {
         if (_encounter != null || !_encounterDone) return;
@@ -858,7 +965,7 @@ public sealed class VariableOffsetTimer : BaseTimer
         double elapsed = elapsedMs / 1000.0;
 
         if (elapsed >= CurrentOffset && ShouldHold(elapsed)) EnterHold();
-        if (Held && elapsedMs - _holdCheckedMs >= HoldCheckMs)
+        if (Held && !_holdPinned && elapsedMs - _holdCheckedMs >= HoldCheckMs)
         {
             _holdCheckedMs = elapsedMs;
             if (!LaterFrameInReach(elapsed))
@@ -1156,7 +1263,8 @@ public sealed class VariableOffsetTimer : BaseTimer
             landedFrame is { } frame ? frame.ToString(CultureInfo.InvariantCulture) : "not anchored",
             unanchored,
             landedFrame is { } marked
-                ? VariableOffsetCalculator.AlternateFrame(marked, deltaMs, _landingInfo.Fps)
+                ? VariableOffsetCalculator.AlternateFrame(marked, deltaMs, _landingInfo.Fps,
+                        _form.TrainingPanel.IsRunning ? 1 : StarterTool.Context.StreamStep)
                     .ToString(CultureInfo.InvariantCulture)
                 : "-",
             VariableOffsetCalculator.AlternateChance(deltaMs, _landingInfo.Fps),

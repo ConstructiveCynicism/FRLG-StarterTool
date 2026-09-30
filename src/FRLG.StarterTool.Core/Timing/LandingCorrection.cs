@@ -35,24 +35,24 @@ public sealed class LandingCorrection
 
     private double FrameMs => 1000.0 / Fps;
 
-    public const double DelayPriorRuns = 0.0;
+    public const double DelayPriorRuns = 2.0;
 
     public const double OffsetPriorRuns = 1.0;
 
+    public const double OffsetGain = 0.2;
+
     public const double MinimumShiftFrames = 0.25;
 
-    private sealed class RunningShift(double priorRuns)
+    private sealed class RunningShift(double priorRuns, double floorGain = 0.0)
     {
-        private double _sum;
-
         public int Count { get; private set; }
 
-        public double Mean => Count == 0 ? 0.0 : _sum / (priorRuns + Count);
+        public double Mean { get; private set; }
 
         public void Observe(double frames)
         {
-            double mean = Mean;
-            _sum += Math.Clamp(frames, mean - OutlierFrames, mean + OutlierFrames);
+            double gain = Math.Max(floorGain, 1.0 / (priorRuns + Count + 1));
+            Mean += gain * (Math.Clamp(frames, Mean - OutlierFrames, Mean + OutlierFrames) - Mean);
             Count++;
         }
     }
@@ -70,9 +70,12 @@ public sealed class LandingCorrection
     public static void ObserveRobustly(OffsetTuner tuner, double errorFrames)
         => tuner.Observe(Math.Clamp(errorFrames, tuner.Mu - OutlierFrames, tuner.Mu + OutlierFrames));
 
-    private readonly List<(double DeltaMs, int OffsetAtMs)> _attempts = new();
+    private readonly List<Attempt> _attempts = new();
 
-    public void ObserveAttempt(double deltaMs, int offsetAtMs) => _attempts.Add((deltaMs, offsetAtMs));
+    private readonly record struct Attempt(double DeltaMs, int OffsetAtMs);
+
+    public void ObserveAttempt(double deltaMs, int offsetAtMs) =>
+        _attempts.Add(new Attempt(deltaMs, offsetAtMs));
 
     public int Attempts => _attempts.Count;
 
@@ -90,8 +93,17 @@ public sealed class LandingCorrection
     public double OffsetErrorFrames(double targetFrame, int reportedFrame, int offsetUsed, int step = 1) =>
         FramesOff(reportedFrame - targetFrame, step) - (offsetUsed - InitialOffsetMs) / FrameMs;
 
-    public double DelayErrorFrames(int predictedFrame, int reportedFrame, int delayUsed, int step = 1) =>
-        -FramesOff(predictedFrame - reportedFrame, step) - (delayUsed - InitialDelayMs) / FrameMs;
+    public double DelayErrorFrames(int predictedFrame, int reportedFrame, int delayUsed, int step = 1,
+        double targetFrame = double.NaN, double? deltaMs = null)
+    {
+        double frames = -FramesOff(predictedFrame - reportedFrame, step);
+        if (deltaMs is { } delta && !double.IsNaN(targetFrame))
+        {
+            double position = targetFrame - Math.Floor(targetFrame) + delta / FrameMs;
+            frames += Math.Round(position, MidpointRounding.AwayFromZero) - position;
+        }
+        return frames - (delayUsed - InitialDelayMs) / FrameMs;
+    }
 
     public static double FramesOff(double counts, int step) =>
         step <= 1 ? counts : Math.Truncate(counts / step);
@@ -102,7 +114,7 @@ public sealed class LandingCorrection
 
         bool timed = _reports.Any(report => report.DeltaMs != null);
 
-        var offset = new RunningShift(OffsetPriorRuns);
+        var offset = new RunningShift(OffsetPriorRuns, OffsetGain);
         var delay = new RunningShift(DelayPriorRuns);
         var spread = new OffsetTuner();
         int runs = 0;
@@ -115,9 +127,9 @@ public sealed class LandingCorrection
             ObserveRobustly(spread, frames);
         }
 
-        foreach ((double deltaMs, int offsetAtMs) in _attempts)
+        foreach (Attempt attempt in _attempts)
         {
-            ObserveOffset(OffsetErrorFrames(deltaMs, offsetAtMs));
+            ObserveOffset(OffsetErrorFrames(attempt.DeltaMs, attempt.OffsetAtMs));
         }
 
         foreach (LandingReport report in _reports)
@@ -131,8 +143,10 @@ public sealed class LandingCorrection
 
                 if (report.PredictedFrame is { } predicted)
                 {
-                    loneDelayShift = FramesOff(predicted - report.ReportedFrame, report.Step) * FrameMs;
-                    delay.Observe(DelayErrorFrames(predicted, report.ReportedFrame, report.DelayAtMs, report.Step));
+                    double frames = DelayErrorFrames(predicted, report.ReportedFrame, report.DelayAtMs,
+                        report.Step, report.TargetFrame, delta);
+                    loneDelayShift = -(frames + (report.DelayAtMs - InitialDelayMs) / FrameMs) * FrameMs;
+                    delay.Observe(frames);
                 }
                 else
                 {

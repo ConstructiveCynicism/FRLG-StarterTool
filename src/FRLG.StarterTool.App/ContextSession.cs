@@ -75,6 +75,8 @@ public sealed class ContextSession
 
     private readonly Random _random = new();
 
+    private int _closeGeneration;
+
     public event EventHandler? Changed;
 
     public bool Tracking
@@ -110,22 +112,69 @@ public sealed class ContextSession
     private static int TakeHouseAdvances() =>
         -(StarterTool.VariableOffset?.TakeFrameAdjustment() ?? 0);
 
-    public bool ReportPcVisit()
+    public bool ReportPcVisit() => Declare("PC Potion", RouteTimeline.PcVisitAdvances(Adapter));
+
+    public bool ReportDoubleHelp()
     {
-        int shift = RouteTimeline.PcVisitAdvances(Adapter);
+        if (!Adapter)
+        {
+            Log("Double Help declared on the plain build, where it costs nothing - ignored");
+            return false;
+        }
+        return Declare("Double Help", RouteTimeline.DoubleHelpAdvances(Adapter), anyStage: true);
+    }
+
+    private int _preLabAdvances;
+
+    private int _postLabAdvances;
+
+    private FenceCandidate ForLab(FenceCandidate fence) =>
+        _preLabAdvances == 0 ? fence : fence with { AdvancesBeforeLabLoad = fence.AdvancesBeforeLabLoad + _preLabAdvances };
+
+    private int Reach(int frame) => Lab?.ReachTarget(frame) ?? frame - _postLabAdvances;
+
+    private bool Declare(string what, int shift, bool anyStage = false)
+    {
+        if (anyStage && _tracking && _armed && !_missed && !HitConfirmed && _oakMs != null)
+        {
+            return DeclareLate(what, shift);
+        }
 
         if (!_tracking || !_armed || _missed || _oakMs != null
             || StarterTool.VariableOffset is not { } timer)
         {
             Log(string.Format(CultureInfo.InvariantCulture,
-                "PC Potion declared too late to spend ({0:+#;-#;0} advances) - ignored", shift));
+                "{0} declared too late to spend ({1:+#;-#;0} advances) - ignored", what, shift));
             return false;
         }
 
         timer.ChangeAudio(-shift);
 
         Log(string.Format(CultureInfo.InvariantCulture,
-            "PC Potion declared: {0:+#;-#;0} advances ({1})", shift, Adapter ? "adapter" : "plain"));
+            "{0} declared: {1:+#;-#;0} advances ({2})", what, shift, Adapter ? "adapter" : "plain"));
+        return true;
+    }
+
+    private bool DeclareLate(string what, int shift)
+    {
+        if (_labMs == null)
+        {
+            _preLabAdvances += shift;
+            Log(string.Format(CultureInfo.InvariantCulture,
+                "{0} declared after the Oak anchor: {1:+#;-#;0} advances on the lab's stream ({2:+#;-#;0} in all)",
+                what, shift, _preLabAdvances));
+        }
+        else
+        {
+            _postLabAdvances += shift;
+            Lab?.SetManualAdvances(_postLabAdvances);
+            Log(string.Format(CultureInfo.InvariantCulture,
+                "{0} declared after the lab anchor{1}: {2:+#;-#;0} advances on the count ({3:+#;-#;0} in all)",
+                what, _ballMs == null ? " (taken as after the ball)" : "", shift, _postLabAdvances));
+        }
+
+        Retarget();
+        Changed?.Invoke(this, EventArgs.Empty);
         return true;
     }
 
@@ -207,6 +256,8 @@ public sealed class ContextSession
     public void Reset()
     {
         _exitMs = _oakMs = _labMs = _ballMs = null;
+        _ballLate = false;
+        _preLabAdvances = _postLabAdvances = 0;
         _ballTarget = null;
         _lastAnchorMs = null;
         _adapter = false;
@@ -234,6 +285,7 @@ public sealed class ContextSession
         _tip = "";
         _closeDeltaMs = null;
         _closeHitChance = 0.0;
+        _closeGeneration++;
         Changed?.Invoke(this, EventArgs.Empty);
     }
 
@@ -291,7 +343,19 @@ public sealed class ContextSession
         {
             if (NextAnchor != RouteAnchor.PressBall) return false;
 
+            double walkFps = StarterTool.VariableOffset?.SelectedFps ?? 60.0;
+            int window = FrameWindow.LikelyFrame(elapsedMs, walkFps) - FrameWindow.LikelyFrame(_labMs.Value, walkFps);
+            if (window < RouteTimeline.LabObservableFrames)
+            {
+                int back = RouteTimeline.LabObservableFrames - window + 1;
+                _labMs -= back * 1000.0 / walkFps;
+                Log(string.Format(CultureInfo.InvariantCulture,
+                    "ball press {0} frames after the lab press, under any walk - lab anchor taken {1} frames earlier",
+                    window, back));
+            }
+
             _ballMs = elapsedMs;
+            _ballLate = false;
             _lastAnchorMs = elapsedMs;
             LastAnchor = RouteAnchor.PressBall;
             BuildLab(Lab?.Lateness ?? LabLateness.Fast);
@@ -480,7 +544,10 @@ public sealed class ContextSession
         if (Tracker == null || _missed) return false;
 
         _fenceUnfinished = !complete;
-        Tracker.SetComplete(complete);
+
+        int left = Tracker.SetComplete(complete, byRunner: true);
+        Log(string.Format(CultureInfo.InvariantCulture, "fence guy reported {0} - {1} of {2} left",
+            complete ? "finished" : "not finished", left, Tracker.All.Count));
         Changed?.Invoke(this, EventArgs.Empty);
         return true;
     }
@@ -504,6 +571,7 @@ public sealed class ContextSession
 
     public bool Next() => Stage switch
     {
+        ContextStage.Lab when _adapter => SetBallLate(!_ballLate),
         ContextStage.Lab => Lab is { Lateness: var lateness }
             && SetLateness(lateness == LabLateness.VeryLate ? LabLateness.Fast : lateness + 1),
         _ => SetNext(!NextReported),
@@ -512,16 +580,49 @@ public sealed class ContextSession
     public bool NextReported => Stage switch
     {
         ContextStage.Fence => Tracker is { Complete: true },
-        ContextStage.Lab => Lab is { Late: true },
+        ContextStage.Lab => _adapter ? _ballLate : Lab is { Late: true },
         _ => false,
     };
 
     public bool SetNext(bool reported) => Stage switch
     {
         ContextStage.Fence => Tracker != null && SetComplete(reported),
+        ContextStage.Lab when _adapter => SetBallLate(reported),
         ContextStage.Lab => SetLateness(reported ? LabLateness.Late : LabLateness.Fast),
         _ => false,
     };
+
+    private bool _ballLate;
+
+    public bool BallLate => _ballLate;
+
+    public const int BallLateFrames = 16;
+
+    public bool SetBallLate(bool late)
+    {
+        if (Stage != ContextStage.Lab || !_adapter || Lab == null || HitConfirmed || _ballLate == late) return false;
+        if (late && _ballMs == null && AssumedBallFrame() == null) return false;
+
+        _ballLate = late;
+        BuildLab();
+        Log(late
+            ? string.Format(CultureInfo.InvariantCulture, "late to the ball: +{0} frames on the {1} press - {2} boxes",
+                BallLateFrames, _ballMs == null ? "assumed" : "measured", Lab?.All.Count ?? 0)
+            : string.Format(CultureInfo.InvariantCulture, "late to the ball: taken back - {0} boxes", Lab?.All.Count ?? 0));
+
+        Retarget();
+        Changed?.Invoke(this, EventArgs.Empty);
+        return true;
+    }
+
+    private int? AssumedBallFrame()
+    {
+        int target = (int)(StarterTool.VariableOffset?.Info.Frame ?? 0u);
+        if (target <= 0 || Tracker is not { Alive.Count: > 0 } tracker) return null;
+
+        LabParity parity = LabParity.Of(_seed, ForLab(tracker.Alive[tracker.MostLikelyIndex]), Reach(target));
+        return LabRoute.For(parity)?.PressFrame;
+    }
 
     public bool SetLateness(LabLateness lateness)
     {
@@ -628,7 +729,9 @@ public sealed class ContextSession
         if (_missLab is { } missLab) return missLab.Lab.CountdownFrame(targetFrame) - targetFrame;
         if (_missFence is { } rescued) return rescued.MissedCorrection(_missOakFrame, targetFrame);
 
-        return Adapter && !_missed ? RouteTimeline.AdapterPlainFrame(targetFrame) - targetFrame : null;
+        return Adapter && !_missed
+            ? RouteTimeline.AdapterPlainFrame(targetFrame - _preLabAdvances - _postLabAdvances) - targetFrame
+            : null;
     }
 
     public int? LandedFrame(int countdownFrame) =>
@@ -647,7 +750,7 @@ public sealed class ContextSession
     public bool OffParity(int frame) =>
         _adapter && !HitConfirmed
         && Lab?.Focused?.Representative is { Rate: > 1 } box
-        && !box.ParityOk(frame);
+        && !box.ParityOk(Reach(frame));
 
     private void NoteBallSide(LabTracker lab)
     {
@@ -659,14 +762,14 @@ public sealed class ContextSession
         double since = (Win32.GetTime() - StarterTool.TimerStart - labMs) * fps / 1000.0;
         if (since <= box.ObservableFrames) return;
 
-        _ballTarget = lab.Target;
-        _ballNeedWalking = !box.ParityOk(lab.Target, 0);
+        _ballTarget = lab.ReachTarget(lab.Target);
+        _ballNeedWalking = !box.ParityOk(lab.ReachTarget(lab.Target), 0);
         Log(string.Format(CultureInfo.InvariantCulture,
             "ball side taken as the instruction for {0} ({1})", lab.Target,
             _ballNeedWalking ? "Lady interrupted" : "Lady left standing"));
     }
 
-    private bool AgainstBall(int frame) => _ballTarget is { } aimed && ((aimed ^ frame) & 1) != 0;
+    private bool AgainstBall(int frame) => _ballTarget is { } aimed && ((aimed ^ Reach(frame)) & 1) != 0;
 
     private void LogBallSide(int before, int after)
     {
@@ -761,6 +864,25 @@ public sealed class ContextSession
         return true;
     }
 
+    public bool HitTaken => (_hit || _unpressed) && !_missed && Stage == ContextStage.Lab;
+
+    public bool ReopenHit()
+    {
+        if (!_hit && !_unpressed) return false;
+
+        Log(_hit
+            ? "starter press marked missed - landing withdrawn, the field is back for a later frame"
+            : "closed run reopened - no starter picked yet, the field is back for a later frame");
+        _hit = false;
+        _unpressed = false;
+        _hitCountdownFrame = null;
+        _closeDeltaMs = null;
+        _tip = "";
+
+        Changed?.Invoke(this, EventArgs.Empty);
+        return true;
+    }
+
     public bool Unpressed()
     {
         if (!_tracking || !_armed || _hit || _unpressed || _missed) return false;
@@ -819,20 +941,32 @@ public sealed class ContextSession
 
         RunLog.LogAttempt(attempt);
 
-        IReadOnlyList<TipAttempt> recent = RunLog.RecentAttempts(RunTip.RecentWindow);
-
-        if (recent.Count == 0 || !SameAttempt(recent[^1], attempt))
-        {
-            recent = recent.Append(attempt).TakeLast(RunTip.RecentWindow).ToList();
-        }
-
-        _tip = RunTip.Pick(Facts(settings, recent), _random);
-        Log("tip: " + _tip);
-
         _closeDeltaMs = deltaMs;
         _closeHitChance = hitChance;
 
-        StarterTool.StatServer?.PublishPostRun(BuildPostRunCard());
+        int generation = _closeGeneration;
+        Task.Run(() =>
+        {
+            IReadOnlyList<TipAttempt> recent = RunLog.RecentAttempts(RunTip.RecentWindow);
+            IReadOnlyList<TipAttempt> offsetWindow = RunLog.RecentAttempts(RunTip.OffsetWindow);
+            DateTime? lastSeen = RunLog.TrainerIdLastSeen(RunLog.CurrentTrainerId);
+
+            StarterTool.Post(() =>
+            {
+                if (generation != _closeGeneration) return;
+
+                if (recent.Count == 0 || !SameAttempt(recent[^1], attempt))
+                {
+                    recent = recent.Append(attempt).TakeLast(RunTip.RecentWindow).ToList();
+                }
+
+                _tip = RunTip.Pick(Facts(settings, recent, offsetWindow, lastSeen), _random);
+                Log("tip: " + _tip);
+
+                StarterTool.StatServer?.PublishPostRun(BuildPostRunCard());
+                Changed?.Invoke(this, EventArgs.Empty);
+            });
+        });
     }
 
     private PostRunCard BuildPostRunCard()
@@ -865,7 +999,8 @@ public sealed class ContextSession
         && (read.DeltaMs is not { } delta || Math.Abs(delta - closed.DeltaMs!.Value) < 0.05)
         && Math.Abs(read.HitChance - closed.HitChance) < 0.0005;
 
-    private TipFacts Facts(AppSettings settings, IReadOnlyList<TipAttempt> recent)
+    private TipFacts Facts(AppSettings settings, IReadOnlyList<TipAttempt> recent,
+        IReadOnlyList<TipAttempt> offsetWindow, DateTime? trainerIdLastSeen)
     {
         VariableOffsetTimer? timer = StarterTool.VariableOffset;
 
@@ -881,7 +1016,7 @@ public sealed class ContextSession
         int? suggested = null;
         if (streak >= RunTip.MissStreakTip && timer != null)
         {
-            suggested = RunTip.SuggestedOffsetMs(RunLog.RecentAttempts(RunTip.OffsetWindow),
+            suggested = RunTip.SuggestedOffsetMs(offsetWindow,
                 timer.TrainingUsesVisualOffset ? timer.VisualOffsetMs : timer.OffsetMs,
                 timer.SelectedFps);
         }
@@ -922,7 +1057,7 @@ public sealed class ContextSession
             RapidTriple = rapid,
             HitChance = recent.Count > 0 ? recent[^1].HitChance : 0.0,
 
-            TrainerIdLastSeen = RunLog.TrainerIdLastSeen(RunLog.CurrentTrainerId)
+            TrainerIdLastSeen = trainerIdLastSeen
         };
     }
 
@@ -1231,8 +1366,18 @@ public sealed class ContextSession
 
         if (_adapter)
         {
-            Lab = LabTracker.BuildAdapter(_seed, carried, oak, lab, _ballMs, fps, LabContextWindowMs,
-                belief, (int)(StarterTool.VariableOffset?.Info.Frame ?? 0u));
+            double? ball = _ballMs;
+            if (_ballLate)
+            {
+                double late = BallLateFrames * 1000.0 / fps;
+                ball = ball is { } measured ? measured - late
+                    : AssumedBallFrame() is { } frame ? lab + frame * 1000.0 / fps + late
+                    : null;
+            }
+
+            Lab = LabTracker.BuildAdapter(_seed, carried.Select(ForLab).ToList(), oak, lab, ball, fps,
+                LabContextWindowMs, belief, (int)(StarterTool.VariableOffset?.Info.Frame ?? 0u),
+                _postLabAdvances);
             return;
         }
 
@@ -1256,13 +1401,9 @@ public sealed class ContextSession
 
         if (Lab is { Focused: { } box } lab && box.Representative.Live is { } live)
         {
-            bool needWalking = !box.Representative.ParityOk(target, 0);
+            (bool needWalking, double labShare, bool unanimous) = LabVerdict(lab, box, target);
 
-            bool agreed = lab.All
-                .Where(o => o.Representative.Live != null)
-                .Select(o => !o.Representative.ParityOk(target, 0))
-                .Distinct()
-                .Count() <= 1;
+            bool agreed = unanimous;
 
             if (AgainstBall(target))
             {
@@ -1271,12 +1412,12 @@ public sealed class ContextSession
             }
 
             return Logged(ContextAdvice.InLab(needWalking, live,
-                box.Representative.ObservableFrames, agreed));
+                box.Representative.ObservableFrames, agreed, labShare));
         }
 
         if (Tracker is not { } tracker || tracker.Alive.Count == 0) return null;
 
-        var verdicts = tracker.Alive.Select(c => LabParity.Of(_seed, c, target)).Distinct().ToList();
+        var verdicts = tracker.Alive.Select(c => LabParity.Of(_seed, ForLab(c), Reach(target))).Distinct().ToList();
         bool agree = verdicts.Count == 1;
 
         if (!agree)
@@ -1288,10 +1429,41 @@ public sealed class ContextSession
             if (!tracker.Complete && !windowOver && !RankingEarned(tracker)) return null;
         }
 
-        LabParity said = agree
-            ? verdicts[0]
-            : LabParity.Of(_seed, tracker.Focused ?? tracker.Alive[0], target);
-        return Logged(ContextAdvice.BeforeLab(said, agree));
+        if (agree) return Logged(ContextAdvice.BeforeLab(verdicts[0], true));
+
+        var weighed = tracker.Alive
+            .Select((c, i) => (Parity: LabParity.Of(_seed, ForLab(c), Reach(target)), Weight: tracker.Likelihoods[i]))
+            .ToList();
+        double wrong = weighed.Where(x => x.Parity.NeedWalking).Sum(x => x.Weight);
+        double total = weighed.Sum(x => x.Weight);
+        bool side = wrong > total - wrong;
+        LabParity said = weighed.Where(x => x.Parity.NeedWalking == side).MaxBy(x => x.Weight).Parity;
+        double share = total > 0.0 ? (side ? wrong : total - wrong) / total : 0.5;
+        return Logged(ContextAdvice.BeforeLab(said, false, share));
+    }
+
+    private static (bool NeedWalking, double Share, bool Unanimous) LabVerdict(LabTracker lab, LabOption focused,
+        int target)
+    {
+        double wrong = 0.0, total = 0.0;
+        for (int i = 0; i < lab.All.Count; i++)
+        {
+            LabOption option = lab.All[i];
+            if (lab.FocusPinned && !ReferenceEquals(option, focused)) continue;
+
+            double weight = lab.FocusPinned ? 1.0 : lab.Likelihoods[i];
+            if (weight <= 0.0 || option.Members.Count == 0) continue;
+
+            int wrongMembers = option.Members.Count(m => !m.ParityOk(lab.ReachTarget(target), 0));
+            wrong += weight * wrongMembers / option.Members.Count;
+            total += weight;
+        }
+
+        if (total <= 0.0) return (!focused.Representative.ParityOk(lab.ReachTarget(target), 0), 1.0, true);
+
+        bool side = wrong > total - wrong;
+        double share = (side ? wrong : total - wrong) / total;
+        return (side, share, share >= 1.0 - 1e-9);
     }
 
     private string? _adviceLogged;

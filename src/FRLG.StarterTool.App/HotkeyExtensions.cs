@@ -13,6 +13,7 @@ public static class HotkeyExtensions
         (HotkeyAction.Multiply2, "×2 frames"),
         (HotkeyAction.Multiply3, "×3 frames"),
         (HotkeyAction.ReportPcVisit, "PC Potion"),
+        (HotkeyAction.ReportDoubleHelp, "Double Help"),
         (HotkeyAction.ToggleLevel, "Level 5 / 6"),
         (HotkeyAction.ExportStats, "Copy IVs"),
         (HotkeyAction.ToggleGlobalHotkeys, "Global Hotkey Lock"),

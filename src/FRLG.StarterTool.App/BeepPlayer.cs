@@ -33,6 +33,34 @@ public sealed class BeepPlayer : IDisposable
     private int _beepBytes;
     private int _bufferLength;
 
+    private readonly ScheduleBuffer[] _buffers = { new(), new() };
+
+    private ScheduleBuffer? _deviceBuffer;
+
+    private sealed class ScheduleBuffer
+    {
+        public byte[] Data = Array.Empty<byte>();
+        public readonly List<(int Start, int Length)> Beeps = new();
+
+        public byte[] Take(int length)
+        {
+            if (Data.Length < length)
+            {
+                Data = new byte[length];
+            }
+            else
+            {
+                foreach ((int start, int count) in Beeps)
+                {
+                    Array.Clear(Data, start, Math.Min(count, Data.Length - start));
+                }
+            }
+
+            Beeps.Clear();
+            return Data;
+        }
+    }
+
     private readonly List<int> _protectedStarts = new();
 
     private System.Threading.Timer? _writeTimer;
@@ -180,7 +208,8 @@ public sealed class BeepPlayer : IDisposable
 
         double maxOffset = offsetsMs.Max();
         int length = (int)Math.Ceiling(maxOffset / 1000.0 * SampleRate) * BytesPerFrame + _beep.Length;
-        var pcm = new byte[length];
+        ScheduleBuffer buffer = ReferenceEquals(_buffers[0], _deviceBuffer) ? _buffers[1] : _buffers[0];
+        byte[] pcm = buffer.Take(length);
 
         double shiftMs = StartShiftMs(offsetsMs);
         LastStartShiftMs = shiftMs;
@@ -194,13 +223,14 @@ public sealed class BeepPlayer : IDisposable
         for (int i = 0; i < offsetsMs.Count; i++)
         {
             int destOffset = (int)((offsetsMs[i] - shiftMs) / 1000.0 * SampleRate) * BytesPerFrame;
-            if (destOffset < 0 || destOffset + _beep.Length > pcm.Length) continue;
+            if (destOffset < 0 || destOffset + _beep.Length > length) continue;
             Array.Copy(_beep, 0, pcm, destOffset, _beep.Length);
+            buffer.Beeps.Add((destOffset, _beep.Length));
             starts.Add(destOffset);
             if (i < protectedCount) protectedStarts.Add(destOffset);
         }
 
-        Queue(pcm, starts, protectedStarts);
+        if (Queue(pcm, length, starts, protectedStarts)) _deviceBuffer = buffer;
 
         LastWriteLagMs = Win32.GetTime() - baseMs;
     }
@@ -217,7 +247,7 @@ public sealed class BeepPlayer : IDisposable
         return Math.Min(delayMs, earliest);
     }
 
-    private void Queue(byte[] pcm, List<int> starts, List<int> protectedStarts)
+    private bool Queue(byte[] pcm, int length, List<int> starts, List<int> protectedStarts)
     {
         lock (_lock)
         {
@@ -227,15 +257,16 @@ public sealed class BeepPlayer : IDisposable
             _protectedStarts.Clear();
             _protectedStarts.AddRange(protectedStarts);
             _beepBytes = _beep.Length;
-            _bufferLength = pcm.Length;
+            _bufferLength = length;
 
-            if (_output == null || !_output.Write(pcm))
+            if (_output == null || !_output.Write(pcm, length))
             {
                 _writtenAtMs = double.NaN;
-                return;
+                return false;
             }
 
             _writtenAtMs = Win32.GetTime();
+            return true;
         }
     }
 
@@ -280,7 +311,10 @@ public sealed class BeepPlayer : IDisposable
             from = Math.Max(from, start + _beepBytes);
         }
 
-        _output.Silence(Math.Min(from, _bufferLength));
+        foreach (int start in _beepStarts)
+        {
+            if (start >= from) _output.Silence(start, _beepBytes);
+        }
 
         _beepStarts.RemoveAll(start => start >= from);
         _protectedStarts.RemoveAll(start => start >= from);

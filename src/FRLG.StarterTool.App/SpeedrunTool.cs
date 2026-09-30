@@ -59,6 +59,10 @@ public static class StarterTool
 
     private static readonly Dictionary<InputCode, (double Down, double Up)> LastEdges = new();
 
+    private static double _landingPressMs = double.NegativeInfinity;
+
+    private const double PostLandingLockoutMs = 2000.0;
+
     public static BaseTimer CurrentTab => _currentTab ?? VariableOffset;
 
     private static BaseTimer? _currentTab;
@@ -85,6 +89,8 @@ public static class StarterTool
         Thread.CurrentThread.CurrentCulture = CultureInfo.InvariantCulture;
         Thread.CurrentThread.CurrentUICulture = CultureInfo.InvariantCulture;
         Win32.InitTiming();
+
+        System.Runtime.GCSettings.LatencyMode = System.Runtime.GCLatencyMode.SustainedLowLatency;
 
         Thread.CurrentThread.Priority = ThreadPriority.AboveNormal;
 
@@ -155,11 +161,15 @@ public static class StarterTool
         {
             _hookThreadId = Win32.GetCurrentThreadId();
 
+            IntPtr mmcss = Win32.JoinMmcss("Pro Audio");
+
             _keyboardCallback = Keycallback;
             _keyboardHook = Win32.SetHook(Win32.WH_KEYBOARD_LL, _keyboardCallback);
             installed.Set();
 
             Win32.RunMessageLoop();
+
+            Win32.LeaveMmcss(mmcss);
 
             if (_keyboardHook != IntPtr.Zero)
             {
@@ -198,6 +208,7 @@ public static class StarterTool
         AtomicClock.Stop();
         if (Settings != null) Settings.ClockDrift = ChooseDrift(runLocal: false, out _);
         SaveSettings();
+        RunLog.Flush();
         Win32.EndTiming();
     }
 
@@ -512,7 +523,22 @@ public static class StarterTool
             {
                 Post(() =>
                 {
-                    if (CurrentTab.TryRecordLanding(eventTime, lagMs)) return;
+                    bool starterLanding = ReferenceEquals(CurrentTab, VariableOffset)
+                                          && !VariableOffset.Generic
+                                          && !VariableOffset.EncounterRunLive
+                                          && !MainForm.TrainingPanel.IsRunning;
+                    if (CurrentTab.TryRecordLanding(eventTime, lagMs))
+                    {
+                        if (starterLanding) _landingPressMs = eventTime;
+                        return;
+                    }
+
+                    if (eventTime - _landingPressMs < PostLandingLockoutMs)
+                    {
+                        ContextSession.Log(string.Format(CultureInfo.InvariantCulture,
+                            "start press ignored - {0:F0} ms after the landing", eventTime - _landingPressMs));
+                        return;
+                    }
 
                     if (Context.MarkNextAnchor(eventTime)) return;
 
@@ -534,11 +560,19 @@ public static class StarterTool
                     }
 
                     StartTimer(eventTime, lagMs);
+
+                    ContextSession.Log(string.Format(CultureInfo.InvariantCulture,
+                        "start by {0} at t={1:F1} ms", press.Input.Describe(), eventTime));
                 });
             }
             else if (Settings.Stop.IsPressed(press))
             {
-                Post(() => StopTimer(false, lagMs));
+                Post(() =>
+                {
+                    ContextSession.Log(string.Format(CultureInfo.InvariantCulture,
+                        "stop by {0} at t={1:F1} ms", press.Input.Describe(), eventTime));
+                    StopTimer(false, lagMs);
+                });
             }
             else if (Settings.ToggleLevel.IsPressed(press))
             {
@@ -582,12 +616,20 @@ public static class StarterTool
 
             if (!typing && Settings.NpcMiss.IsPressed(press))
             {
-                Post(() => Context.Miss());
+                Post(() =>
+                {
+                    if (!VariableOffset.MissedStarter()) Context.Miss();
+                });
             }
 
             if (!typing && Settings.ReportPcVisit.IsPressed(press))
             {
                 Post(() => Context.ReportPcVisit());
+            }
+
+            if (!typing && Settings.ReportDoubleHelp.IsPressed(press))
+            {
+                Post(() => Context.ReportDoubleHelp());
             }
 
             HotkeyAction? listAction = typing ? null : ListAction(press);
@@ -638,6 +680,7 @@ public static class StarterTool
         || ContextDirection(press) != null || ContextFocus(press) != 0
         || Settings.NpcUndo.IsPressed(press) || Settings.NpcComplete.IsPressed(press)
         || Settings.NpcMiss.IsPressed(press) || Settings.ReportPcVisit.IsPressed(press)
+        || Settings.ReportDoubleHelp.IsPressed(press)
         || ListAction(press) != null
         || Settings.IgtPlay.IsPressed(press) || Settings.IgtUndo.IsPressed(press)
         || Settings.IgtAdd2.IsPressed(press) || Settings.IgtSub2.IsPressed(press)
@@ -696,7 +739,7 @@ public static class StarterTool
         CurrentTab.OnTimerStart();
 
         _timerThreadRunning = true;
-        _timerUpdateThread = new Thread(TimerUpdateCallback) { IsBackground = true, Name = "TimerUpdate" };
+        _timerUpdateThread = new Thread(TimerUpdateCallback) { IsBackground = true, Name = "TimerUpdate", Priority = ThreadPriority.Highest };
         _timerUpdateThread.Start();
 
         string before = Win32.CurrentPriority();
@@ -751,6 +794,19 @@ public static class StarterTool
 
         StopTimerThread();
         StopTimer(true);
+    }
+
+    public static void ResumeTimer()
+    {
+        if (IsTimerRunning) return;
+
+        IsTimerRunning = true;
+        TimerExpired = false;
+        TimerCuesFinish = false;
+
+        _timerThreadRunning = true;
+        _timerUpdateThread = new Thread(TimerUpdateCallback) { IsBackground = true, Name = "TimerUpdate", Priority = ThreadPriority.Highest };
+        _timerUpdateThread.Start();
     }
 
     private static void StopTimerThread()

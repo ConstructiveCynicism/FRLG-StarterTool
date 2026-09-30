@@ -14,10 +14,17 @@ public partial class MainForm
         if (!_corrections.TryGetValue(key, out LandingCorrection? correction))
         {
             correction = new LandingCorrection(delayMs, offsetMs, fps);
+            if (key == StarterCorrectionKey)
+            {
+                int step = StarterTool.Settings?.NpcAdapter == true ? 2 : 1;
+                LandingHistory.Seed(correction, RunLog.StarterHistory(step, HistoryLandings));
+            }
             _corrections[key] = correction;
         }
         return correction;
     }
+
+    private const int HistoryLandings = 100;
 
     internal void ObserveEncounterAttempt(EncounterRun run, EncounterRun.Target target)
     {

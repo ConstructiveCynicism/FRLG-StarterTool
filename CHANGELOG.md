@@ -1,4 +1,19 @@
-﻿### v2.4.2
+﻿### v2.4.3
+- Parity is now reflected as a % chance
+- Better priority for threads
+- Double Help key to flip parity
+- Undo hit prediction
+- I'm late button works on anchor 4 now, use if NPCs dont match
+- Pressing finished hides the scientist boxes now
+- Delay/Offset suggestion tunings
+- Updated parity advice
+- Updated lab animations
+- Anchor 4 can correct Anchor 3
+- Setting Route to none can swap from Encounter to Starter manip mid timer
+- Updated Speech to text
+- More seeds (leaf green ones added)
+
+### v2.4.2
 - double tap prevention
 - better fence guy rating
 - speech to text TID

@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
@@ -6,6 +7,7 @@ using System.Linq;
 using System.Text;
 
 using FRLG.StarterTool.Core.Settings;
+using FRLG.StarterTool.Core.Timing;
 using FRLG.StarterTool.Core.Tips;
 
 namespace FRLG.StarterTool.App;
@@ -16,6 +18,56 @@ internal static class RunLog
 
     private static readonly object Gate = new();
 
+    private static readonly BlockingCollection<Action> Queue = new();
+    private static Thread? _writer;
+
+    private static void Enqueue(Action work)
+    {
+        if (_writer == null)
+        {
+            lock (Gate)
+            {
+                if (_writer == null)
+                {
+                    var writer = new Thread(Drain) { IsBackground = true, Name = "RunLogWriter", Priority = ThreadPriority.BelowNormal };
+                    writer.Start();
+                    _writer = writer;
+                }
+            }
+        }
+
+        try
+        {
+            Queue.Add(work);
+        }
+        catch (Exception)
+        {
+        }
+    }
+
+    private static void Drain()
+    {
+        foreach (Action work in Queue.GetConsumingEnumerable())
+        {
+            try
+            {
+                work();
+            }
+            catch (Exception)
+            {
+            }
+        }
+    }
+
+    public static void Flush()
+    {
+        if (_writer == null || Thread.CurrentThread == _writer) return;
+
+        using var done = new ManualResetEventSlim();
+        Enqueue(done.Set);
+        done.Wait(3000);
+    }
+
     private static string? _stamp;
 
     private static int _trainerId;
@@ -24,15 +76,23 @@ internal static class RunLog
 
     public static string? CurrentPath
     {
-        get { lock (Gate) return _path; }
+        get
+        {
+            Flush();
+            lock (Gate) return _path;
+        }
     }
 
     public static int CurrentTrainerId
     {
-        get { lock (Gate) return _trainerId; }
+        get
+        {
+            Flush();
+            lock (Gate) return _trainerId;
+        }
     }
 
-    public static void StartRun()
+    public static void StartRun() => Enqueue(() =>
     {
         lock (Gate)
         {
@@ -41,12 +101,17 @@ internal static class RunLog
             _path = null;
             Open();
         }
-    }
+    });
 
     public static void SetTrainerId(int trainerId)
     {
         if (trainerId <= 0) return;
 
+        Enqueue(() => Rename(trainerId));
+    }
+
+    private static void Rename(int trainerId)
+    {
         lock (Gate)
         {
             if (_trainerId == trainerId || _stamp == null || _path == null) return;
@@ -72,22 +137,25 @@ internal static class RunLog
 
     public static void Log(string line)
     {
-        lock (Gate)
-        {
-            if (_path == null) Open();
-            if (_path == null) return;
+        string stamped = DateTime.Now.ToString("HH:mm:ss", CultureInfo.InvariantCulture) + "  " + line
+            + Environment.NewLine;
 
-            try
+        Enqueue(() =>
+        {
+            lock (Gate)
             {
-                File.AppendAllText(_path,
-                    DateTime.Now.ToString("HH:mm:ss", CultureInfo.InvariantCulture) + "  " + line
-                        + Environment.NewLine,
-                    Encoding.UTF8);
+                if (_path == null) Open();
+                if (_path == null) return;
+
+                try
+                {
+                    File.AppendAllText(_path, stamped, Encoding.UTF8);
+                }
+                catch (Exception)
+                {
+                }
             }
-            catch (Exception)
-            {
-            }
-        }
+        });
     }
 
     public static void LogAttempt(TipAttempt attempt) => Log(TipAttemptLog.Format(attempt));
@@ -96,6 +164,8 @@ internal static class RunLog
     {
         var found = new List<TipAttempt>(count);
         if (count <= 0) return found;
+
+        Flush();
 
         try
         {
@@ -123,12 +193,41 @@ internal static class RunLog
         return found;
     }
 
+    public static IReadOnlyList<HistoryLanding> StarterHistory(int step, int count)
+    {
+        var found = new List<HistoryLanding>();
+        try
+        {
+            string? current = CurrentPath;
+            IEnumerable<FileInfo> newest = new DirectoryInfo(Directory)
+                .EnumerateFiles("*.txt")
+                .OrderByDescending(f => f.LastWriteTimeUtc)
+                .Take(ScanLimit);
+
+            foreach (FileInfo file in newest)
+            {
+                if (current != null && string.Equals(file.FullName, Path.GetFullPath(current), StringComparison.OrdinalIgnoreCase))
+                {
+                    continue;
+                }
+
+                IReadOnlyList<HistoryLanding> landings = LandingHistory.Parse(File.ReadLines(file.FullName));
+                found.AddRange(landings.Where(l => l.Step == step).Reverse());
+                if (found.Count >= count) break;
+            }
+        }
+        catch (Exception)
+        {
+        }
+
+        return found.Take(count).Reverse().ToList();
+    }
+
     public static DateTime? TrainerIdLastSeen(int trainerId)
     {
         if (trainerId <= 0) return null;
 
-        string current;
-        lock (Gate) current = _path ?? "";
+        string current = CurrentPath ?? "";
 
         DateTime? newest = null;
 

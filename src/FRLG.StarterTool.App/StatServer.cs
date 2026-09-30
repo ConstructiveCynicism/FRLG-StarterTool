@@ -237,7 +237,8 @@ public sealed class StatServer : IDisposable
             })
             {
                 IsBackground = true,
-                Name = "StatServerConnection"
+                Name = "StatServerConnection",
+                Priority = ThreadPriority.BelowNormal
             };
             worker.Start();
         }

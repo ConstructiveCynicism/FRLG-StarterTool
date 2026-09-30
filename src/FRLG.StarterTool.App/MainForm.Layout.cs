@@ -76,7 +76,7 @@ public partial class MainForm
             foreach (ThemedButton button in new[]
             {
                 ButtonContextUndo, ButtonContextClear, ButtonContextMiss,
-                ButtonContextAnchor, ButtonContextLate, ButtonContextFinished
+                ButtonContextAnchor, ButtonContextLate, ButtonContextFinished, ButtonContextMissedStarter
             })
             {
                 button.Width = (int)(button.Width * fit);
@@ -92,6 +92,8 @@ public partial class MainForm
         ButtonContextLate.Location = new Point(ContextPanel.Right - ButtonContextLate.Width, buttonY);
         ButtonContextFinished.Location =
             new Point(ContextPanel.Right - ButtonContextFinished.Width, buttonY);
+        ButtonContextMissedStarter.Location =
+            new Point(ContextPanel.Right - ButtonContextMissedStarter.Width, buttonY);
 
         CaptureView.Bounds = ContextPanel.Bounds;
         ManipView.Bounds = ContextPanel.Bounds;

@@ -1,5 +1,6 @@
 using FRLG.StarterTool.Core.Pokemon;
 using FRLG.StarterTool.Core.Search;
+using FRLG.StarterTool.Core.Settings;
 
 namespace FRLG.StarterTool.Core.Savestate;
 
@@ -9,7 +10,9 @@ public enum EditMode
 
     Specific,
 
-    Random
+    Random,
+
+    RealStarter
 }
 
 public sealed class MonEdit
@@ -30,6 +33,10 @@ public sealed class MonEdit
 
     public StatPack IvPlus { get; set; }
 
+    public FilterPreset? StarterFilter { get; set; }
+
+    public static readonly int[] StarterSpecies = { 7, 8, 9 };
+
     public EditMode EvMode { get; set; } = EditMode.Keep;
 
     public int[] Evs { get; set; } = new int[6];
@@ -39,9 +46,26 @@ public sealed class MonEdit
     public bool ChangesNothing =>
         NatureMode == EditMode.Keep && IvMode == EditMode.Keep && EvMode == EditMode.Keep;
 
-    public void Apply(Gen3Mon mon, Random random)
+    public bool Touches(int species) =>
+        TargetSpecies.Contains(species)
+        && (IvMode != EditMode.RealStarter || StarterSpecies.Contains(species) || EvMode != EditMode.Keep);
+
+    public StarterRoll? Apply(Gen3Mon mon, Random random)
     {
-        if (NatureMode == EditMode.Specific)
+        StarterRoll? roll = null;
+
+        if (IvMode == EditMode.RealStarter)
+        {
+            if (StarterSpecies.Contains(mon.Species))
+            {
+                roll = StarterRoll.Roll(StarterFilter ?? new FilterPreset(), random)
+                       ?? throw new InvalidOperationException(
+                           $"none of {StarterRoll.MaxAttempts} Trainer IDs lists a row under the constraints");
+                mon.SetPersonality((uint)roll.Pokemon.Pid);
+                mon.SetIvs(roll.Ivs);
+            }
+        }
+        else if (NatureMode == EditMode.Specific)
         {
             mon.Repersonalize(new Nature(NatureId), random);
         }
@@ -69,6 +93,8 @@ public sealed class MonEdit
         {
             mon.RecalculateStats(PokemonSpecies.Get(species).BaseStats);
         }
+
+        return roll;
     }
 
     public int RollNature(Random random)

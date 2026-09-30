@@ -144,6 +144,8 @@ public sealed class Gen3Mon
         }
     }
 
+    public void SetPersonality(uint personality) => Personality = personality;
+
     public void Repersonalize(Nature nature, Random random)
     {
         if (Personality % Nature.NatureCount == (uint)nature.Id) return;

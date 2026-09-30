@@ -2,6 +2,7 @@ using System.Globalization;
 using FRLG.StarterTool.Core.Npc;
 using FRLG.StarterTool.Core.Pokemon;
 using FRLG.StarterTool.Core.Rng;
+using FRLG.StarterTool.Core.Savestate;
 using FRLG.StarterTool.Core.Search;
 using FRLG.StarterTool.Core.Settings;
 using FRLG.StarterTool.Core.Timing;
@@ -92,10 +93,11 @@ public partial class MainForm : Form
         };
         SavestatePanel.FilterSource = () => CaptureFilter();
         SavestatePanel.CloseRequested += (_, _) => SelectTab(TabKey.Manip);
+        SavestatePanel.StarterRolled += (_, roll) => ShowStarterRoll(roll);
         StarterTool.Context.Changed += (_, _) =>
         {
             ShowContextSession();
-            RedrawTimeColumn();
+            RedrawChangedRows();
         };
         ButtonContextUndo.Click += (_, _) => StarterTool.Context.Undo();
         ButtonContextClear.Click += (_, _) => StarterTool.Context.Clear();
@@ -103,6 +105,7 @@ public partial class MainForm : Form
         ButtonContextFinished.Click += (_, _) => StarterTool.Context.Next();
         ButtonContextAnchor.Click += (_, _) => StarterTool.Context.MarkNextAnchor(Win32.GetTime());
         ButtonContextMiss.Click += (_, _) => StarterTool.Context.Miss();
+        ButtonContextMissedStarter.Click += (_, _) => StarterTool.VariableOffset?.MissedStarter();
         ContextPanel.BoxClicked += (_, box) => StarterTool.Context.FocusBox(box);
         ContextPanel.CueChanged += (_, _) => ShowContextSession();
         ButtonTraining.Click += (_, _) => ToggleTraining();
@@ -119,6 +122,7 @@ public partial class MainForm : Form
 
         TextBoxTrainerId.TextChanged += (_, _) =>
         {
+            if (_writingRolledTrainerId) return;
             if (int.TryParse(TextBoxTrainerId.Text.Trim(), NumberStyles.Integer,
                     CultureInfo.InvariantCulture, out int typed)
                 && typed > 0 && typed <= MaxTrainerId)
@@ -396,6 +400,8 @@ public partial class MainForm : Form
         return PlayerGender.Male;
     }
 
+    internal void RefreshContextStrip() => ShowContextSession();
+
     private void ShowContextSession()
     {
         ContextSession session = StarterTool.Context;
@@ -413,13 +419,15 @@ public partial class MainForm : Form
             ButtonContextAnchor.Visible = session.Adapter && session.NextAnchor == RouteAnchor.PressBall;
             ButtonContextAnchor.Text = ButtonContextAnchor.Visible ? "Ball" : "Anchor";
 
-            ButtonContextLate.Visible = session.Hidden.Count == 0 && !session.Adapter;
-            ButtonContextLate.Text = lab?.Lateness switch
-            {
-                LabLateness.Late => "Very Late!",
-                LabLateness.VeryLate => "I'm Fast!",
-                _ => "I'm Late!",
-            };
+            ButtonContextLate.Visible = session.Hidden.Count == 0 && !ButtonContextAnchor.Visible;
+            ButtonContextLate.Text = session.Adapter
+                ? session.BallLate ? "I'm Fast!" : "I'm Late! +16"
+                : lab?.Lateness switch
+                {
+                    LabLateness.Late => "Very Late!",
+                    LabLateness.VeryLate => "I'm Fast!",
+                    _ => "I'm Late!",
+                };
             ButtonContextLate.Enabled = lab is { All.Count: > 0 };
 
             ContextPanel.SetLabField(
@@ -463,6 +471,8 @@ public partial class MainForm : Form
 
         ButtonContextMiss.Visible = session.Hidden.Count == 0;
         ButtonContextMiss.Enabled = session.CanMiss;
+
+        ButtonContextMissedStarter.Visible = StarterTool.VariableOffset?.CanMissStarter ?? false;
 
         ContextPanel.SetTip(session.Tip, session.TipIsShiny);
 
@@ -727,6 +737,30 @@ public partial class MainForm : Form
         SearchAroundFrame(_results[index].Frame);
     }
 
+    private bool _writingRolledTrainerId;
+
+    private void ShowStarterRoll(StarterRoll roll)
+    {
+        if (StarterTool.IsTimerRunning) return;
+
+        _writingRolledTrainerId = true;
+        try
+        {
+            TextBoxTrainerId.Text = roll.TrainerId.ToString(CultureInfo.InvariantCulture);
+        }
+        finally
+        {
+            _writingRolledTrainerId = false;
+        }
+
+        ClearLanding();
+        ClearSearchNote();
+
+        List<PokemonRng> results = RangeSearch.Search(ReadRangeCriteria());
+        int selected = results.FindIndex(row => row.Frame == roll.Pokemon.Frame);
+        ShowResults(results, selected, takeFocus: false, selectTab: false);
+    }
+
     private void SearchTypedFrame()
     {
         if (!int.TryParse(TextBoxSearchFrame.Text.Trim(), NumberStyles.Integer, CultureInfo.InvariantCulture,
@@ -859,9 +893,9 @@ public partial class MainForm : Form
     }
 
     private void ShowResults(List<PokemonRng> results, int selectedIndex, bool takeFocus = true,
-        bool levelStats = false, bool allSeed = false)
+        bool levelStats = false, bool allSeed = false, bool selectTab = true)
     {
-        SelectTab(TabKey.Manip);
+        if (selectTab) SelectTab(TabKey.Manip);
 
         _resultSpecies = SelectedSpecies;
         _resultFps = StarterTool.VariableOffset?.SelectedFps ?? 60.0;
@@ -870,6 +904,8 @@ public partial class MainForm : Form
 
         ListViewResults.VirtualListSize = 0;
         _results = results;
+        _drawnCorrection.Clear();
+        _drawnOffParity.Clear();
         ContextPanel.SetPlayerGender(TargetGender());
 
         ApplyResultColumns(allSeed);
@@ -968,6 +1004,32 @@ public partial class MainForm : Form
         if (!_encounterGrid && _results.Count > 0) ListViewResults.RedrawItems(0, _results.Count - 1, true);
     }
 
+    private readonly Dictionary<int, int> _drawnCorrection = new();
+    private readonly Dictionary<int, bool> _drawnOffParity = new();
+
+    private void RedrawChangedRows()
+    {
+        if (_encounterGrid || _results.Count == 0) return;
+
+        (int first, int last) = ListViewResults.VisibleRows();
+        int from = -1, to = -1;
+        for (int index = first; index <= last && index < _results.Count; index++)
+        {
+            int frame = (int)_results[index].Frame;
+            bool moved = !_allSeedRows
+                         && (!_drawnCorrection.TryGetValue(index, out int drawn)
+                             || drawn != (StarterTool.Context.CorrectionAt(frame) ?? 0));
+            bool greyed = !_allSeedRows && StarterTool.Context.OffParity(frame);
+            moved |= !_drawnOffParity.TryGetValue(index, out bool drawnGrey) || drawnGrey != greyed;
+            if (!moved) continue;
+
+            if (from < 0) from = index;
+            to = index;
+        }
+
+        if (from >= 0) ListViewResults.RedrawItems(from, to, true);
+    }
+
     private void FitLastColumn()
     {
         const int MinLastColumnWidth = 33;
@@ -1025,6 +1087,7 @@ public partial class MainForm : Form
         if (TrainingPanel.RecordLanding(landedFrame ?? targetFrame, targetFrame, deltaMs, gradedChance)) return;
 
         _landingTarget = targetFrame;
+        _landingSerial++;
 
         _landingReport = fps > 0.0 ? (deltaMs, fps, StarterTool.Context.StreamStep) : null;
 
@@ -1041,18 +1104,7 @@ public partial class MainForm : Form
             _landingAlternate = null;
             _landingContext.Clear();
 
-            _reportingLanding = true;
-            try
-            {
-                SearchAroundFrame(targetFrame, targetFrame, takeFocus: false);
-            }
-            finally
-            {
-                _reportingLanding = false;
-            }
-
-            ListViewResults.CenterOn(_results.FindIndex(pkm => pkm.Frame == targetFrame));
-            ListViewResults.Invalidate();
+            RebuildAroundLanding(targetFrame, targetFrame, null, SearchRadius);
             return;
         }
 
@@ -1093,22 +1145,41 @@ public partial class MainForm : Form
             int radius = SearchRadius;
             foreach (int frame in _landingContext) radius = Math.Max(radius, Math.Abs(frame - landed) + 1);
 
+            RebuildAroundLanding(landed, targetFrame, landed, radius);
+            return;
+        }
+
+        ListViewResults.CenterOn(_results.FindIndex(pkm => pkm.Frame == targetFrame));
+        if (index >= 0) ListViewResults.EnsureVisible(index);
+        ListViewResults.Invalidate();
+    }
+
+    private int _landingSerial;
+
+    private void RebuildAroundLanding(int centre, int targetFrame, int? landed, int radius)
+    {
+        int serial = _landingSerial;
+        BeginInvoke(() =>
+        {
+            if (IsDisposed || serial != _landingSerial) return;
+
+            Win32.PaintNow(Handle);
+
             _reportingLanding = true;
             try
             {
-                SearchAroundFrame(landed, targetFrame, takeFocus: false, radius);
+                SearchAroundFrame(centre, targetFrame, takeFocus: false, radius);
             }
             finally
             {
                 _reportingLanding = false;
             }
 
-            index = _results.FindIndex(pkm => pkm.Frame == landed);
-        }
-
-        ListViewResults.CenterOn(_results.FindIndex(pkm => pkm.Frame == targetFrame));
-        if (index >= 0) ListViewResults.EnsureVisible(index);
-        ListViewResults.Invalidate();
+            ListViewResults.CenterOn(_results.FindIndex(pkm => pkm.Frame == targetFrame));
+            if (landed is { } frame && _results.FindIndex(pkm => pkm.Frame == frame) is var index and >= 0)
+                ListViewResults.EnsureVisible(index);
+            ListViewResults.Invalidate();
+        });
     }
 
     private static string CompensationSuffix(double compensationMs, bool compact = false) =>
@@ -1227,6 +1298,7 @@ public partial class MainForm : Form
 
     public void ClearLanding()
     {
+        _landingSerial++;
         if (_landingFrame == null && _landingTarget == null) return;
 
         _landingFrame = null;
@@ -1317,6 +1389,7 @@ public partial class MainForm : Form
         {
             item = new ListViewItem(pkm.Frame.ToString(CultureInfo.InvariantCulture));
             int correction = StarterTool.Context.CorrectionAt((int)pkm.Frame) ?? 0;
+            _drawnCorrection[e.ItemIndex] = correction;
             item.SubItems.Add(FrameTime.Format(
                 pkm.Frame + correction + _timeShiftFrames, _resultFps, StarterTool.TimeFormat));
         }
@@ -1402,11 +1475,12 @@ public partial class MainForm : Form
             : range != null ? Theme.RangeRowText(back)
             : ListViewResults.ForeColor;
 
-        if (inRange && !marked && !alternate && !contextOnly && !target && !_allSeedRows
-            && StarterTool.Context.OffParity((int)_results[e.ItemIndex].Frame))
+        bool greyed = inRange && !_allSeedRows && StarterTool.Context.OffParity((int)_results[e.ItemIndex].Frame);
+        if (greyed && !marked && !alternate && !contextOnly && !target)
         {
             fore = Theme.OffParityText(fore, back);
         }
+        if (inRange && e.ColumnIndex == 0) _drawnOffParity[e.ItemIndex] = greyed;
 
         using (var brush = new SolidBrush(back))
         {

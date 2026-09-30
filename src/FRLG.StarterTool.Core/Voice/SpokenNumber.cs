@@ -27,6 +27,12 @@ public static class SpokenNumber
             .Concat(new[] { "hundred", "thousand", "and", "double", "triple" })
             .ToArray();
 
+    public static IReadOnlyList<string> Grammar { get; } =
+        Vocabulary
+            .Concat(Units.Append("oh").Select(unit => $"{unit} {unit}"))
+            .Concat(Units.Append("oh").Select(unit => $"{unit} {unit} {unit}"))
+            .ToArray();
+
     public static bool TryParse(IReadOnlyList<string> words, out SpokenId id)
     {
         id = default;

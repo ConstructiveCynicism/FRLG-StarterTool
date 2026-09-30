@@ -140,7 +140,11 @@ public sealed class TimerClock : Control
 
     protected override void Dispose(bool disposing)
     {
-        if (disposing) _animation.Dispose();
+        if (disposing)
+        {
+            _animation.Dispose();
+            _flashPath?.Dispose();
+        }
         base.Dispose(disposing);
     }
 
@@ -148,6 +152,60 @@ public sealed class TimerClock : Control
     {
         base.OnTextChanged(e);
         Invalidate();
+    }
+
+    private (float LineHeight, float Ascent, float Em)? _metrics;
+
+    private GraphicsPath? _flashPath;
+    private Rectangle _flashBox;
+
+    protected override void OnFontChanged(EventArgs e)
+    {
+        _metrics = null;
+        base.OnFontChanged(e);
+    }
+
+    protected override void OnDpiChangedAfterParent(EventArgs e)
+    {
+        _metrics = null;
+        base.OnDpiChangedAfterParent(e);
+    }
+
+    protected override void OnResize(EventArgs e)
+    {
+        _flashPath?.Dispose();
+        _flashPath = null;
+        base.OnResize(e);
+    }
+
+    private (float LineHeight, float Ascent, float Em) Metrics()
+    {
+        if (_metrics is { } cached) return cached;
+
+        FontFamily family = Font.FontFamily;
+        float em = Font.Unit switch
+        {
+            GraphicsUnit.Pixel => Font.Size,
+            GraphicsUnit.Point => Font.Size * DeviceDpi / 72F,
+            GraphicsUnit.Inch => Font.Size * DeviceDpi,
+            GraphicsUnit.Millimeter => Font.Size * DeviceDpi / 25.4F,
+            GraphicsUnit.Document => Font.Size * DeviceDpi / 300F,
+            _ => Font.Size * DeviceDpi / 72F,
+        };
+        int emUnits = family.GetEmHeight(Font.Style);
+        var metrics = (em * family.GetLineSpacing(Font.Style) / emUnits, em * family.GetCellAscent(Font.Style) / emUnits, em);
+        _metrics = metrics;
+        return metrics;
+    }
+
+    private GraphicsPath FlashPath(Rectangle box)
+    {
+        if (_flashPath != null && box == _flashBox) return _flashPath;
+
+        _flashPath?.Dispose();
+        _flashPath = RoundedRectangle(box, CornerRadius);
+        _flashBox = box;
+        return _flashPath;
     }
 
     private const float DigitCapHeight = 0.70F;
@@ -168,30 +226,17 @@ public sealed class TimerClock : Control
                 Rectangle box = ClientRectangle;
                 box.Inflate(-Inset, -Inset);
 
-                using var path = RoundedRectangle(box, CornerRadius);
                 using var brush = new SolidBrush(
                     Color.FromArgb(alpha, _final ? Theme.TimerFlashFinal : Theme.TimerFlash));
 
                 SmoothingMode smoothing = g.SmoothingMode;
                 g.SmoothingMode = SmoothingMode.AntiAlias;
-                g.FillPath(brush, path);
+                g.FillPath(brush, FlashPath(box));
                 g.SmoothingMode = smoothing;
             }
         }
 
-        FontFamily family = Font.FontFamily;
-        float em = Font.Unit switch
-        {
-            GraphicsUnit.Pixel => Font.Size,
-            GraphicsUnit.Point => Font.Size * DeviceDpi / 72F,
-            GraphicsUnit.Inch => Font.Size * DeviceDpi,
-            GraphicsUnit.Millimeter => Font.Size * DeviceDpi / 25.4F,
-            GraphicsUnit.Document => Font.Size * DeviceDpi / 300F,
-            _ => Font.Size * DeviceDpi / 72F,
-        };
-        int emUnits = family.GetEmHeight(Font.Style);
-        float lineHeight = em * family.GetLineSpacing(Font.Style) / emUnits;
-        float ascent = em * family.GetCellAscent(Font.Style) / emUnits;
+        (float lineHeight, float ascent, float em) = Metrics();
         float capHeight = em * DigitCapHeight;
         int textTop = (int)Math.Round(ClientRectangle.Height / 2.0 + capHeight / 2.0 - ascent);
         var line = new Rectangle(0, textTop, ClientRectangle.Width, (int)Math.Ceiling(lineHeight));

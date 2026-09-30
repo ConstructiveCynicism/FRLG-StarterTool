@@ -20,9 +20,18 @@ public sealed record TitleRecipe(TitleVariant Variant, string Key, string Skip, 
 
     public bool IsCombo => Key.StartsWith("x-", StringComparison.Ordinal);
 
-    private string? HeldButton => Parts.Length > 0 && Parts[0].Length == 2 && Parts[0][1] == '0' && "alr".Contains(Parts[0][0]) ? Parts[0][..1] : null;
+    private static readonly string[] Buttons = { "a", "b", "l", "r", "start", "select" };
 
-    private int ReleaseFrame => Parts.Skip(1).FirstOrDefault(p => p.StartsWith("up", StringComparison.Ordinal)) is string up
+    private string? HeldButton => Parts.Length > 0 && Parts[0].EndsWith('0')
+        ? Array.Find(Buttons, b => Parts[0].Length == b.Length + 1 && Parts[0].StartsWith(b, StringComparison.Ordinal))
+        : null;
+
+    private string? BlackoutButton => Parts.Length > 0 && Parts[0].StartsWith("black", StringComparison.Ordinal)
+        ? Array.Find(Buttons, b => Parts[0].Length == b.Length + 5 && Parts[0].EndsWith(b, StringComparison.Ordinal))
+        : null;
+
+    private int ReleaseFrame => Parts.Skip(1).FirstOrDefault(p => p.StartsWith("up", StringComparison.Ordinal)
+            && p.Length > 2 && p.Skip(2).All(char.IsAsciiDigit)) is string up
         ? int.Parse(up[2..], CultureInfo.InvariantCulture) : 0;
 
     private int SkipReleaseFrame => Parts.FirstOrDefault(p => p.StartsWith("rel", StringComparison.Ordinal)) is string rel
@@ -53,6 +62,8 @@ public sealed record TitleRecipe(TitleVariant Variant, string Key, string Skip, 
 
     public const int GapFrame = 448;
 
+    public const int BlackoutWindow = 23;
+
     public const int GapButtonLastReleaseSingle = 1740;
 
     public const int GapButtonLastReleaseMulti = 1739;
@@ -75,7 +86,7 @@ public sealed record TitleRecipe(TitleVariant Variant, string Key, string Skip, 
             string? gap = GapButton;
             bool start0 = Has("start0");
 
-            if (start0) steps.Add(new RecipeStep(0, 0, "Hold Start from power-on", false));
+            if (start0 && HeldButton is null) steps.Add(new RecipeStep(0, 0, "Hold Start from power-on", false));
             if (HeldButton is string held)
             {
                 steps.Add(new RecipeStep(0, 0, Has("held") ? $"Hold {Name(held)} from power-on and never let go" : $"Hold {Name(held)} from power-on", false));
@@ -86,10 +97,15 @@ public sealed record TitleRecipe(TitleVariant Variant, string Key, string Skip, 
                     ? $"Hold {Name(gap)} (or {Name(AliasButton)}) from power-on"
                     : $"Hold {Name(gap)} from power-on", false));
             }
+            if (BlackoutButton is string black)
+            {
+                steps.Add(new RecipeStep(GapFrame, BlackoutWindow,
+                    $"Press {Name(black)} - during the black screen before the shooting star", false));
+            }
             if (Has("ltap")) steps.Add(new RecipeStep(TapFrame, TapWindow, "Tap L - the copyright screen", false));
             if (gap is not null) steps.Add(new RecipeStep(1, GapButtonLastRelease, "Release it - any time before the title screen", false));
             RecipeStep? release = null;
-            if (HeldButton is string up && ReleaseFrame is int at and > 0)
+            if ((HeldButton ?? BlackoutButton) is string up && ReleaseFrame is int at and > 0)
             {
                 bool onSkip = Variant.IntroSkipped && at >= SkipFrame && at < SkipFrame + SkipWindow;
                 bool inFirstWindow = at == 478 && Variant.Intro == TitleIntro.Skip990;
@@ -254,9 +270,13 @@ public static class TitleRecipes
                 game: f[game], saves: f[saves]) with { Recipe = f[key] };
             if (variant.Table.Name != f[table]) continue;
 
+            string aliasOf = f[alias];
+            int dash = aliasOf.IndexOf('-'), colon = aliasOf.IndexOf(':');
+            if (dash < 0 || colon <= dash + 1 || colon == aliasOf.Length - 1) aliasOf = "";
+
             recipes[variant.Table] = new TitleRecipe(variant.Table, f[key], f[skip], f[loopSkip],
                 int.Parse(f[anchor0], CultureInfo.InvariantCulture), int.Parse(f[anchor], CultureInfo.InvariantCulture),
-                int.Parse(f[land], CultureInfo.InvariantCulture), f[pair], f[late], f[alias]);
+                int.Parse(f[land], CultureInfo.InvariantCulture), f[pair], f[late], aliasOf);
         }
         return recipes;
     }

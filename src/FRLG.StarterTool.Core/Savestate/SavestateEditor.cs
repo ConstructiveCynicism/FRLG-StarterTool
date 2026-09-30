@@ -56,25 +56,30 @@ public static class SavestateEditor
         return entries;
     }
 
-    public static string Apply(SavestateEntry entry, string saveFolder, MonEdit edit, Random random)
+    public static string Apply(SavestateEntry entry, string saveFolder, MonEdit edit, Random random,
+        Action<StarterRoll>? rolled = null)
     {
         GseSavestate state = GseSavestate.Load(entry.Path);
         PartyScan scan = PartyLocator.Find(state.Ewram);
 
         var edited = new List<string>();
+        var rolls = new List<StarterRoll>();
         foreach (Gen3Mon mon in scan.Party)
         {
-            if (!edit.TargetSpecies.Contains(mon.Species)) continue;
+            if (!edit.Touches(mon.Species)) continue;
 
-            edit.Apply(mon, random);
+            StarterRoll? roll = edit.Apply(mon, random);
             mon.WriteTo(state.Ewram);
-            edited.Add($"{PokemonSpecies.Get(mon.Species).Name} {mon.Nature.Name}");
+            if (roll != null) rolls.Add(roll);
+            edited.Add($"{PokemonSpecies.Get(mon.Species).Name} {mon.Nature.Name}"
+                       + (roll == null ? "" : $" (TID {roll.TrainerId} f{roll.Pokemon.Frame}{(roll.Backup ? ", backup" : "")})"));
         }
 
         if (edited.Count == 0) return "no target";
 
         string destination = Path.Combine(saveFolder, Path.GetFileName(entry.Path));
         state.Save(destination);
+        foreach (StarterRoll roll in rolls) rolled?.Invoke(roll);
         return "wrote " + string.Join(", ", edited);
     }
 

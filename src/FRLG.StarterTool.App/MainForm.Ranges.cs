@@ -203,39 +203,8 @@ public partial class MainForm
         int seed = seedless ? 0 : ReadTrainerId();
         ReadFrameRange(out int windowMin, out int windowMax);
 
-        var criteria = new List<RangeSearchCriteria>(_rangeCards.Count);
-        foreach (ConstraintRangePanel card in _rangeCards)
-        {
-            ConstraintRange range = card.Read();
-
-            int min = Bound(range.MinFrame, windowMin);
-            int max = Bound(range.MaxFrame, windowMax);
-
-            criteria.Add(new RangeSearchCriteria(
-                new PredictorSearchCriteria
-                {
-                    Seed = seed,
-                    MinFrame = Math.Max(windowMin, min),
-                    MaxFrame = Math.Min(windowMax, max),
-                    Natures = range.Natures,
-                    Minus = ToPack(range.IvMinus),
-                    Neutral = ToPack(range.IvNeutral),
-                    Plus = ToPack(range.IvPlus)
-                },
-                range.Backup,
-                range.BackupWithin));
-        }
-
-        return criteria;
-
-        static int Bound(string text, int fallback) =>
-            int.TryParse(text, NumberStyles.Integer, CultureInfo.InvariantCulture, out int value)
-                ? value
-                : fallback;
+        return RangeSearch.CriteriaOf(_rangeCards.Select(card => card.Read()).ToList(), seed, windowMin, windowMax);
     }
-
-    private static StatPack ToPack(int[] values) =>
-        new(values[0], values[1], values[2], values[3], values[4], values[5]);
 
     private async void CalculateRangeOdds(ConstraintRangePanel card)
     {

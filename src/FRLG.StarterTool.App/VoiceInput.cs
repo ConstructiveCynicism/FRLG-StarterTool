@@ -107,7 +107,7 @@ internal static class VoiceInput
             model = LoadModel();
             if (model == null) return;
 
-            string grammar = JsonSerializer.Serialize(SpokenNumber.Vocabulary.Append("[unk]").ToArray());
+            string grammar = JsonSerializer.Serialize(SpokenNumber.Grammar.Append("[unk]").ToArray());
             recognizer = new VoskRecognizer(model, AudioDevices.Capture.SampleRate, grammar);
 
             var preRoll = new Queue<byte[]>();

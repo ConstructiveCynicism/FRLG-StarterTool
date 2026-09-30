@@ -41,6 +41,13 @@ public static class RouteTimeline
 
     public static int PcVisitAdvances(bool adapter) => adapter ? -40 : 3;
 
+    public const int AdapterHelpVisitAdvances = -7;
+
+    public const int AdapterHelpWelcomeAdvances = -16;
+
+    public static int DoubleHelpAdvances(bool adapter) =>
+        adapter ? AdapterHelpWelcomeAdvances + AdapterHelpVisitAdvances : 0;
+
     public const int RivalNameLagFrames = 9;
 
     public static int RivalNameAdvances(bool adapter, bool named) =>

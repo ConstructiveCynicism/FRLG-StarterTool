@@ -487,7 +487,7 @@ public sealed class LabTracker
 
     public static LabTracker BuildAdapter(int seed, IReadOnlyList<FenceCandidate> fence,
         double oakElapsedMs, double labElapsedMs, double? ballElapsedMs, double fps, double contextMs,
-        IReadOnlyList<double>? fenceLikelihoods, int targetAdvances)
+        IReadOnlyList<double>? fenceLikelihoods, int targetAdvances, int manualAdvances = 0)
     {
         var tracker = new LabTracker(
             LabRun.BuildAdapter(seed, fence, oakElapsedMs, labElapsedMs, ballElapsedMs, fps, contextMs,
@@ -496,6 +496,7 @@ public sealed class LabTracker
         {
             Adapter = true,
             BallMeasured = ballElapsedMs != null,
+            ManualAdvances = manualAdvances,
         };
         tracker.SetTarget(targetAdvances);
         return tracker;
@@ -513,11 +514,21 @@ public sealed class LabTracker
 
         Target = targetAdvances;
         _targetSet = true;
-        if (!BallMeasured) KeepReachable(targetAdvances);
+        if (!BallMeasured) KeepReachable(ReachTarget(targetAdvances));
+        Rerank();
+        return true;
+    }
+
+    public int ReachTarget(int targetAdvances) => targetAdvances - ManualAdvances;
+
+    public void SetManualAdvances(int advances) => ManualAdvances = advances;
+
+    private void Rerank()
+    {
+        int reach = ReachTarget(Target);
         _likelihoods.Clear();
         _likelihoods.AddRange(Rank(_all, _gapMs, _fps, _contextMs, _fenceBelief,
-            member => LabRun.WindowPrior(member, targetAdvances)));
-        return true;
+            member => LabRun.WindowPrior(member, reach)));
     }
 
     private void KeepReachable(int targetAdvances)

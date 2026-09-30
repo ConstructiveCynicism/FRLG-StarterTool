@@ -10,7 +10,7 @@ internal interface IBeepOutput : IDisposable
 
     event Action? DeviceChanged;
 
-    bool Write(byte[] pcm);
+    bool Write(byte[] pcm, int length);
 
     double StartDelayMs();
 
@@ -20,5 +20,5 @@ internal interface IBeepOutput : IDisposable
 
     int CommittedBytes();
 
-    void Silence(int fromByte);
+    void Silence(int fromByte, int byteCount);
 }

@@ -165,6 +165,8 @@ partial class MainForm
 
     public ThemedButton ButtonContextFinished;
 
+    public ThemedButton ButtonContextMissedStarter;
+
     public ThemedButton ButtonContextMiss;
 
     public CheckBox ButtonLevelToggle;
@@ -822,12 +824,20 @@ partial class MainForm
             Size = new Size(124, 24),
             Visible = false
         };
+        ButtonContextMissedStarter = new ThemedButton
+        {
+            Text = "Missed Starter",
+            Location = new Point(ContextPanel.Right - 124, contextButtonY),
+            Size = new Size(124, 24),
+            Visible = false
+        };
 
         GroupBoxContext.Controls.Add(ButtonContextUndo);
         GroupBoxContext.Controls.Add(ButtonContextClear);
         GroupBoxContext.Controls.Add(ButtonContextMiss);
         GroupBoxContext.Controls.Add(ButtonContextLate);
         GroupBoxContext.Controls.Add(ButtonContextFinished);
+        GroupBoxContext.Controls.Add(ButtonContextMissedStarter);
         GroupBoxContext.Controls.Add(ButtonContextAnchor);
 
         ContextPanel.SendToBack();

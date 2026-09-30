@@ -91,8 +91,9 @@ internal sealed class WaveOutOutput : IBeepOutput
         remove { }
     }
 
-    public bool Write(byte[] pcm)
+    public bool Write(byte[] pcm, int length)
     {
+        length = Math.Clamp(length, 0, pcm.Length);
         lock (_lock)
         {
             if (_waveOut == IntPtr.Zero) return false;
@@ -100,14 +101,14 @@ internal sealed class WaveOutOutput : IBeepOutput
             waveOutReset(_waveOut);
             ReleaseBuffer();
 
-            _buffer = Marshal.AllocHGlobal(pcm.Length);
-            Marshal.Copy(pcm, 0, _buffer, pcm.Length);
-            _bufferLength = pcm.Length;
+            _buffer = Marshal.AllocHGlobal(length);
+            Marshal.Copy(pcm, 0, _buffer, length);
+            _bufferLength = length;
 
             var hdr = new WAVEHDR
             {
                 lpData = _buffer,
-                dwBufferLength = (uint)pcm.Length
+                dwBufferLength = (uint)length
             };
 
             _header = Marshal.AllocHGlobal(Marshal.SizeOf<WAVEHDR>());
@@ -163,14 +164,16 @@ internal sealed class WaveOutOutput : IBeepOutput
         return played < 0 ? -1 : played + GuardBytes;
     }
 
-    public void Silence(int fromByte)
+    public void Silence(int fromByte, int byteCount)
     {
         lock (_lock)
         {
             if (_buffer == IntPtr.Zero || !_prepared) return;
-            for (int at = Math.Clamp(fromByte, 0, _bufferLength); at < _bufferLength; at += SilenceBlock.Length)
+            int from = Math.Clamp(fromByte, 0, _bufferLength);
+            int end = from + Math.Clamp(byteCount, 0, _bufferLength - from);
+            for (int at = from; at < end; at += SilenceBlock.Length)
             {
-                Marshal.Copy(SilenceBlock, 0, _buffer + at, Math.Min(SilenceBlock.Length, _bufferLength - at));
+                Marshal.Copy(SilenceBlock, 0, _buffer + at, Math.Min(SilenceBlock.Length, end - at));
             }
         }
     }

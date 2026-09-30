@@ -1,5 +1,7 @@
+using System.Globalization;
 using FRLG.StarterTool.Core.Pokemon;
 using FRLG.StarterTool.Core.Rng;
+using FRLG.StarterTool.Core.Settings;
 
 namespace FRLG.StarterTool.Core.Search;
 
@@ -21,6 +23,57 @@ public sealed class RangeSearchCriteria
 
 public static class RangeSearch
 {
+    public static List<RangeSearchCriteria> CriteriaOf(
+        IReadOnlyList<ConstraintRange> ranges, int seed, int windowMin, int windowMax)
+    {
+        var criteria = new List<RangeSearchCriteria>(ranges.Count);
+        foreach (ConstraintRange range in ranges)
+        {
+            int min = Bound(range.MinFrame, windowMin);
+            int max = Bound(range.MaxFrame, windowMax);
+
+            criteria.Add(new RangeSearchCriteria(
+                new PredictorSearchCriteria
+                {
+                    Seed = seed,
+                    MinFrame = Math.Max(windowMin, min),
+                    MaxFrame = Math.Min(windowMax, max),
+                    Natures = range.Natures,
+                    Minus = ToPack(range.IvMinus),
+                    Neutral = ToPack(range.IvNeutral),
+                    Plus = ToPack(range.IvPlus)
+                },
+                range.Backup,
+                range.BackupWithin));
+        }
+
+        return criteria;
+
+        static int Bound(string text, int fallback) =>
+            int.TryParse(text, NumberStyles.Integer, CultureInfo.InvariantCulture, out int value)
+                ? value
+                : fallback;
+
+        static StatPack ToPack(int[] values) =>
+            new(values[0], values[1], values[2], values[3], values[4], values[5]);
+    }
+
+    public static List<RangeSearchCriteria> CriteriaOf(FilterPreset filter, int seed)
+    {
+        if (!int.TryParse(filter.MinFrame, NumberStyles.Integer, CultureInfo.InvariantCulture, out int min)
+            || min < 0)
+        {
+            min = 0;
+        }
+        if (!int.TryParse(filter.MaxFrame, NumberStyles.Integer, CultureInfo.InvariantCulture, out int max)
+            || max < min)
+        {
+            max = min;
+        }
+
+        return CriteriaOf(filter.Ranges, seed, min, max);
+    }
+
     public static List<PokemonRng> Search(
         IReadOnlyList<RangeSearchCriteria> ranges, CancellationToken cancellationToken = default)
         => Search(ranges, null, null, cancellationToken);

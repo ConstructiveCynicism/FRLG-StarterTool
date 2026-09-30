@@ -6,19 +6,19 @@ namespace FRLG.StarterTool.App;
 public sealed record ContextAdvice(bool NeedWalking, bool Sure, string Text, LabLive? Live, int Window,
     int LadyDelay = 0)
 {
-    public static ContextAdvice BeforeLab(LabParity parity, bool sure)
+    public static ContextAdvice BeforeLab(LabParity parity, bool sure, double share = 1.0)
     {
         int delay = parity.LadyDelay;
-        string lead = (sure ? "" : "Likely ") + (parity.NeedWalking ? "Parity WRONG" : "Parity OK");
+        string lead = Lead(parity.NeedWalking, sure, share);
 
         string what;
         if (!parity.NeedWalking)
         {
             what = delay <= RouteTimeline.LabObservableFrames - ObjectEventSim.NormalWalkFrames
                 ? string.Format(CultureInfo.InvariantCulture,
-                    "Lady steps at {0}, done before the ball - press before she steps again (she can from {1})",
-                    delay, EarliestNextStep(delay))
-                : delay <= RouteTimeline.LabObservableLateFrames
+                    "Lady steps at {0} - turn off Oak, stop before the ball, turn to it and press on {1}",
+                    delay, LabRoute.HeldOkPressFrame)
+                : delay < LabRoute.DirectPressFrame
                     ? string.Format(CultureInfo.InvariantCulture,
                         "wait for the Lady to finish her step ({0}-{1}), then press", delay,
                         delay + ObjectEventSim.NormalWalkFrames)
@@ -39,17 +39,26 @@ public sealed record ContextAdvice(bool NeedWalking, bool Sure, string Text, Lab
         return new ContextAdvice(parity.NeedWalking, sure, lead + " · " + what, null, 0, delay);
     }
 
+    private static string Lead(bool needWalking, bool sure, double share)
+    {
+        string verdict = needWalking ? "Parity WRONG" : "Parity OK";
+        if (sure) return verdict;
+
+        int pct = Math.Min(99, (int)Math.Floor(share * 100.0));
+        return string.Format(CultureInfo.InvariantCulture, "Likely {0} ({1}%)", verdict, pct);
+    }
+
     internal static int EarliestNextStep(int delay) =>
         delay + ObjectEventSim.NormalWalkFrames + ObjectEventSim.MovementDelaysMedium.Min() - 1;
 
-    public static ContextAdvice InLab(bool needWalking, LabLive live, int window, bool sure)
+    public static ContextAdvice InLab(bool needWalking, LabLive live, int window, bool sure, double share = 1.0)
     {
         var walks = live.LadyWalks
             .Where(w => w.End > RouteTimeline.LabObservableFrames - ObjectEventSim.NormalWalkFrames
                 && w.Start <= LabRun.AdapterMaxWindowFrames)
             .ToList();
 
-        string lead = (sure ? "" : "Likely ") + (needWalking ? "Parity WRONG" : "Parity OK");
+        string lead = Lead(needWalking, sure, share);
         string steps = walks.Count == 0
             ? "she does not step"
             : "steps " + string.Join(", ", walks.Select(w =>

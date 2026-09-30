@@ -18,6 +18,8 @@ public static class Win32
 
     public const int LVM_GETCOUNTPERPAGE = 0x1000 + 40;
 
+    public const int LVM_GETTOPINDEX = 0x1000 + 39;
+
     public const int WM_NOTIFY = 0x004E;
 
     public const int HDN_BEGINTRACKA = -300 - 6;
@@ -103,7 +105,28 @@ public static class Win32
 
         _highResolutionTimer = timeBeginPeriod(1) == 0;
 
+        OptOutOfThrottling();
+
         _tickGranularityMs = MeasureTickGranularity();
+    }
+
+    public static IntPtr JoinMmcss(string task)
+    {
+        try
+        {
+            uint index = 0;
+            return AvSetMmThreadCharacteristicsW(task, ref index);
+        }
+        catch (Exception)
+        {
+            return IntPtr.Zero;
+        }
+    }
+
+    public static void LeaveMmcss(IntPtr handle)
+    {
+        if (handle == IntPtr.Zero) return;
+        try { AvRevertMmThreadCharacteristics(handle); } catch (Exception) { }
     }
 
     public static double TickGranularityMs => _tickGranularityMs;
@@ -135,8 +158,16 @@ public static class Win32
 
         if (GetPriorityClass(process) != wanted) SetPriorityClass(process, wanted);
 
-        if (high && !_throttlingOptedOut)
+        if (high) OptOutOfThrottling();
+
+        return PriorityName(GetPriorityClass(process));
+    }
+
+    private static void OptOutOfThrottling()
+    {
+        if (!_throttlingOptedOut)
         {
+            IntPtr process = GetCurrentProcess();
             var state = new PROCESS_POWER_THROTTLING_STATE
             {
                 Version = 1,
@@ -152,8 +183,6 @@ public static class Win32
 
             _throttlingOptedOut = true;
         }
-
-        return PriorityName(GetPriorityClass(process));
     }
 
     public static string CurrentPriority() => PriorityName(GetPriorityClass(GetCurrentProcess()));
@@ -326,6 +355,15 @@ public static class Win32
     [DllImport("user32.dll")]
     [return: MarshalAs(UnmanagedType.Bool)]
     private static extern bool GetComboBoxInfo(IntPtr hWnd, ref COMBOBOXINFO info);
+
+    private const uint RDW_UPDATENOW = 0x0100;
+    private const uint RDW_ALLCHILDREN = 0x0080;
+
+    [DllImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool RedrawWindow(IntPtr hWnd, IntPtr lprcUpdate, IntPtr hrgnUpdate, uint flags);
+
+    public static void PaintNow(IntPtr hWnd) => RedrawWindow(hWnd, IntPtr.Zero, IntPtr.Zero, RDW_UPDATENOW | RDW_ALLCHILDREN);
 
     private static IntPtr _allowDarkModeForWindow;
     private static IntPtr _setPreferredAppMode;
@@ -519,6 +557,12 @@ public static class Win32
 
     [DllImport("winmm.dll")]
     private static extern uint timeBeginPeriod(uint uPeriod);
+
+    [DllImport("avrt.dll", CharSet = CharSet.Unicode)]
+    private static extern IntPtr AvSetMmThreadCharacteristicsW(string taskName, ref uint taskIndex);
+
+    [DllImport("avrt.dll")]
+    private static extern bool AvRevertMmThreadCharacteristics(IntPtr handle);
 
     [DllImport("winmm.dll")]
     private static extern uint timeEndPeriod(uint uPeriod);

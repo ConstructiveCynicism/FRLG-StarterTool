@@ -59,6 +59,10 @@ public sealed class LabRoute
 
     public const int PressAfterStepFrames = 1;
 
+    public const int DirectPressFrame = TurnFrames + 4 * StepFrames + PressAfterTurnFrames;
+
+    public const int HeldOkPressFrame = 62 + ObjectEventSim.NormalWalkFrames + 1;
+
     public const int LeadFrames = 30;
 
     public const int HoldFrames = 75;
@@ -95,9 +99,8 @@ public sealed class LabRoute
 
         if (!parity.NeedWalking)
         {
-            int end = delay + ObjectEventSim.NormalWalkFrames;
-            int direct = TurnFrames + 4 * StepFrames + PressAfterTurnFrames;
-            int press = delay + ObjectEventSim.NormalWalkFrames > direct && delay < direct ? end + 1 : direct;
+            int direct = DirectPressFrame;
+            int press = delay < direct ? HeldOkPressFrame : direct;
             return Direct(parity, press);
         }
 
