@@ -1,4 +1,7 @@
-﻿### v2.4.4
+﻿### v2.4.5
+- Fixed performance bug on anchor 2
+
+### v2.4.4
 - Faster start up
 - Fixed a crop crash
 - Updated parity instructions

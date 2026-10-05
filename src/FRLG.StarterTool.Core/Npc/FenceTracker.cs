@@ -25,11 +25,11 @@ public sealed class FenceTracker
         double fps, double contextMs, int manualAdvances = 0,
         FenceGuyParity parity = FenceGuyParity.Post, bool adapter = false,
         TitleButtonMode buttons = TitleButtonMode.Help,
-        IReadOnlyList<int>? undeclared = null)
+        IReadOnlyList<int>? undeclared = null, int parallelism = 0)
     {
         return new FenceTracker(
             FenceRun.Build(seed, exitElapsedMs, oakElapsedMs, fps, contextMs, manualAdvances, parity,
-                adapter, buttons, undeclared),
+                adapter, buttons, undeclared, parallelism),
             fps, contextMs);
     }
 

@@ -143,7 +143,7 @@ public static class FenceRun
         double oakElapsedMs, double fps, double contextMs, int manualAdvances = 0,
         FenceGuyParity parity = FenceGuyParity.Post, bool adapter = false,
         TitleButtonMode buttons = TitleButtonMode.Help,
-        IReadOnlyList<int>? undeclared = null)
+        IReadOnlyList<int>? undeclared = null, int parallelism = 0)
     {
         double shiftMs = RouteTimeline.AnchorCorrection(adapter) * 1000.0 / fps;
         double window = contextMs + StartUncertaintyMs;
@@ -155,7 +155,7 @@ public static class FenceRun
             FrameWindow.Candidates(oakAt, fps, window),
             frame => FrameWindow.Weight(exitAt, fps, window, frame),
             frame => FrameWindow.Weight(oakAt, fps, window, frame),
-            manualAdvances, parity, adapter, buttons, undeclared);
+            manualAdvances, parity, adapter, buttons, undeclared, parallelism);
     }
 
     public const double StartUncertaintyMs = 100.0;
@@ -188,7 +188,7 @@ public static class FenceRun
         Func<int, double>? exitWeight, Func<int, double>? oakWeight, int manualAdvances,
         FenceGuyParity parity = FenceGuyParity.Post, bool adapter = false,
         TitleButtonMode buttons = TitleButtonMode.Help,
-        IReadOnlyList<int>? undeclared = null)
+        IReadOnlyList<int>? undeclared = null, int parallelism = 0)
     {
         List<int> exit = exitFrames.ToList();
         List<int> oak = oakFrames.ToList();
@@ -224,7 +224,7 @@ public static class FenceRun
 
         int perSide = exit.Count * oak.Count;
         var all = new FenceCandidate[perSide * sides.Length];
-        Parallel.For(0, all.Length, i =>
+        void Fill(int i)
         {
             var fork = forks[i / perSide];
             int pair = i % perSide;
@@ -237,7 +237,16 @@ public static class FenceRun
                 CardAdvances = fork.Card,
                 UndeclaredAdvances = fork.Undeclared,
             };
-        });
+        }
+
+        if (parallelism == 1)
+        {
+            for (int i = 0; i < all.Length; i++) Fill(i);
+        }
+        else
+        {
+            Parallel.For(0, all.Length, Fill);
+        }
 
         var index = new Dictionary<string, int>();
         var candidates = new List<FenceCandidate>();

@@ -540,6 +540,17 @@ public static class Win32
         public uint StateMask;
     }
 
+    public static void MakeCurrentThreadIdle() => SetThreadPriority(GetCurrentThread(), THREAD_PRIORITY_IDLE);
+
+    private const int THREAD_PRIORITY_IDLE = -15;
+
+    [DllImport("kernel32.dll")]
+    private static extern IntPtr GetCurrentThread();
+
+    [DllImport("kernel32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool SetThreadPriority(IntPtr hThread, int nPriority);
+
     [DllImport("kernel32.dll")]
     private static extern IntPtr GetCurrentProcess();
 

@@ -49,6 +49,12 @@ public sealed class ContextSession
 
     private List<Task<FenceTracker>>? _salvageBuilds;
 
+    private readonly Queue<Action> _salvageQueue = new();
+
+    private Thread? _salvageThread;
+
+    private readonly object _salvageGate = new();
+
     private IReadOnlyList<SalvageStage>? _salvageStages;
 
     private Func<int[], FenceTracker>? _salvageBuilder;
@@ -294,6 +300,7 @@ public sealed class ContextSession
         _salvageBuilds = null;
         _salvageStages = null;
         _salvageBuilder = null;
+        lock (_salvageGate) _salvageQueue.Clear();
         _adviceLogged = null;
         _hit = false;
         _unpressed = false;
@@ -1385,7 +1392,7 @@ public sealed class ContextSession
 
         _salvageStages = SalvageStages;
         _salvageBuilder = undeclared => FenceTracker.Build(seed, exit, oak, fps, configured,
-            manual, FenceGuyParity.Both, adapter, buttons, undeclared);
+            manual, FenceGuyParity.Both, adapter, buttons, undeclared, parallelism: 1);
         _salvageBuilds = new List<Task<FenceTracker>>();
 
         for (int i = 0; i < SalvageLookahead; i++) EnqueueSalvageBuild();
@@ -1409,10 +1416,56 @@ public sealed class ContextSession
         if (_salvageBuilds.Count >= stages.Count) return false;
 
         int[] undeclared = stages[_salvageBuilds.Count].Undeclared;
-        _salvageBuilds.Add(_salvageBuilds.Count == 0
-            ? Task.Run(() => build(undeclared))
-            : _salvageBuilds[^1].ContinueWith(_ => build(undeclared), TaskScheduler.Default));
+
+        var done = new TaskCompletionSource<FenceTracker>(TaskCreationOptions.RunContinuationsAsynchronously);
+        _salvageBuilds.Add(done.Task);
+        lock (_salvageGate)
+        {
+            _salvageQueue.Enqueue(() =>
+            {
+                try
+                {
+                    done.SetResult(build(undeclared));
+                }
+                catch (Exception e)
+                {
+                    done.SetException(e);
+                }
+            });
+
+            if (_salvageThread is not { IsAlive: true })
+            {
+                _salvageThread = new Thread(RunSalvageQueue)
+                {
+                    IsBackground = true,
+                    Name = "SalvageBuild",
+                    Priority = ThreadPriority.Lowest
+                };
+                _salvageThread.Start();
+            }
+        }
         return true;
+    }
+
+    private void RunSalvageQueue()
+    {
+        Win32.MakeCurrentThreadIdle();
+
+        while (true)
+        {
+            Action build;
+            lock (_salvageGate)
+            {
+                if (_salvageQueue.Count == 0)
+                {
+                    _salvageThread = null;
+                    return;
+                }
+                build = _salvageQueue.Dequeue();
+            }
+
+            build();
+        }
     }
 
     private FenceTracker BuildFence(double exit, double oak, double contextMs, int[]? undeclared)
