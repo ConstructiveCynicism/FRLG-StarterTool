@@ -134,7 +134,7 @@ public partial class MainForm
 
         int gap = Scaled(RowGap);
         int width = PanelRanges.Width - SystemInformation.VerticalScrollBarWidth - gap;
-        int top = 0;
+        int top = PanelRanges.AutoScrollPosition.Y;
 
         for (int i = 0; i < _rangeCards.Count; i++)
         {
@@ -181,7 +181,7 @@ public partial class MainForm
         int index = _rangeCards.IndexOf(card);
         if (index < 0) return;
 
-        int pointer = card.Top + card.Grip.Top + e.Y;
+        int pointer = card.Top - PanelRanges.AutoScrollPosition.Y + card.Grip.Top + e.Y;
         int pitch = card.Height + Scaled(RowGap);
         if (pitch <= 0) return;
 

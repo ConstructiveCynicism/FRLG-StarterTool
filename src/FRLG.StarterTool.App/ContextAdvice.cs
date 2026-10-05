@@ -82,6 +82,23 @@ public sealed record ContextAdvice(bool NeedWalking, bool Sure, string Text, Lab
 
     public bool IsAssumption { get; init; }
 
+    public static ContextAdvice AfterBall(bool reachable, bool ladyWalked, int window, LabLive live, bool sure,
+        double share = 1.0)
+    {
+        string lead = Lead(!reachable, sure, share);
+        string pressed = string.Format(CultureInfo.InvariantCulture,
+            "ball pressed on {0} while the Lady {1}", window, ladyWalked ? "stepped" : "stood");
+        string what = reachable
+            ? pressed + " - this frame is in reach"
+            : pressed + " - this frame is out of reach; pick the other parity";
+
+        return new ContextAdvice(!reachable, sure, lead + " · " + what, live, window) { IsMeasured = true };
+    }
+
+    public bool IsMeasured { get; init; }
+
+    public bool HasCue => Live != null && !IsAssumption && !IsMeasured;
+
     public LabRoute? Route => Live == null ? LabRoute.For(new LabParity(NeedWalking, LadyDelay)) : null;
 
     public bool? PressNow(int frame) =>

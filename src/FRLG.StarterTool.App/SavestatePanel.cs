@@ -115,7 +115,9 @@ public sealed class SavestatePanel : Panel
         _natureCombo = MakeCombo(50, EditTop, 240);
         _natureCombo.Items.Add("— keep —");
         _natureCombo.Items.Add("Roll from filter");
-        foreach (Nature nature in Nature.GetList()) _natureCombo.Items.Add(nature.Name);
+        _natureCombo.BeginUpdate();
+        _natureCombo.Items.AddRange(Nature.GetList().Select(nature => (object)nature.Name).ToArray());
+        _natureCombo.EndUpdate();
         _natureCombo.SelectedIndex = ModeKeep;
         _natureCombo.SelectedIndexChanged += (_, _) => Touched();
 
@@ -163,7 +165,9 @@ public sealed class SavestatePanel : Panel
 
         Controls.Add(MakeLabel("Beat", 0, EditTop + 94, 32, ContentAlignment.MiddleLeft));
         _evSpecies = MakeCombo(34, EditTop + 94, 240);
-        foreach (PokemonSpecies species in PokemonSpecies.GetList()) _evSpecies.Items.Add(species.Name);
+        _evSpecies.BeginUpdate();
+        _evSpecies.Items.AddRange(PokemonSpecies.GetList().Select(species => (object)species.Name).ToArray());
+        _evSpecies.EndUpdate();
         _evSpecies.SelectedIndex = 0;
 
         Controls.Add(MakeLabel("×", 282, EditTop + 94, 14));

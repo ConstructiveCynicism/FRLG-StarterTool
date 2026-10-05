@@ -380,6 +380,49 @@ public partial class MainForm
         }
 
         SelectTab(ParseTab(settings.SelectedTab));
+        QueueColdPages();
+    }
+
+    private readonly Queue<TabKey> _coldPages = new();
+
+    private bool _warmingPages;
+
+    private void QueueColdPages()
+    {
+        _coldPages.Clear();
+        foreach (TabKey key in TabOrder)
+        {
+            if (TabVisible(key) && !PageOf(key).Visible) _coldPages.Enqueue(key);
+        }
+
+        if (_coldPages.Count == 0 || _warmingPages) return;
+
+        _warmingPages = true;
+        Application.Idle += WarmNextPage;
+    }
+
+    private void WarmNextPage(object? sender, EventArgs e)
+    {
+        if (StarterTool.IsTimerRunning || !Visible || WindowState == FormWindowState.Minimized) return;
+
+        while (_coldPages.Count > 0)
+        {
+            TabKey key = _coldPages.Dequeue();
+            Panel page = PageOf(key);
+            if (!TabVisible(key) || page.Visible || page.IsHandleCreated) continue;
+
+            SuspendLayout();
+            Point home = page.Location;
+            page.Location = new Point(ClientSize.Width, home.Y);
+            page.Visible = true;
+            page.Visible = false;
+            page.Location = home;
+            ResumeLayout(false);
+            return;
+        }
+
+        Application.Idle -= WarmNextPage;
+        _warmingPages = false;
     }
 
     private void CaptureTabSettings(AppSettings settings)

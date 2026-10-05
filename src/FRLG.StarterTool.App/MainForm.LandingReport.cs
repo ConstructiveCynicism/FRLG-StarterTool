@@ -14,14 +14,21 @@ public partial class MainForm
         if (!_corrections.TryGetValue(key, out LandingCorrection? correction))
         {
             correction = new LandingCorrection(delayMs, offsetMs, fps);
-            if (key == StarterCorrectionKey)
-            {
-                int step = StarterTool.Settings?.NpcAdapter == true ? 2 : 1;
-                LandingHistory.Seed(correction, RunLog.StarterHistory(step, HistoryLandings));
-            }
             _corrections[key] = correction;
+            if (key == StarterCorrectionKey) SeedStarterHistory(correction);
         }
         return correction;
+    }
+
+    private static void SeedStarterHistory(LandingCorrection correction)
+    {
+        int step = StarterTool.Settings?.NpcAdapter == true ? 2 : 1;
+        Task.Run(() =>
+        {
+            IReadOnlyList<HistoryLanding> history = RunLog.StarterHistory(step, HistoryLandings);
+            if (history.Count == 0) return;
+            StarterTool.Post(() => correction.PrependHistory(set => LandingHistory.Seed(set, history)));
+        });
     }
 
     private const int HistoryLandings = 100;
@@ -31,7 +38,7 @@ public partial class MainForm
         if (target.DeltaMs is not { } deltaMs) return;
 
         CorrectionFor("manip\n" + run.Route.Name + "\n" + target.Press.Name, run.DelayMs, run.OffsetMs, run.Fps)
-            .ObserveAttempt(deltaMs, run.OffsetMs);
+            .ObserveAttempt(deltaMs, run.OffsetMs, StarterTool.CurrentAudioSetup);
     }
 
     private void ReportLandedFrame()
@@ -63,7 +70,8 @@ public partial class MainForm
         LandingCorrection correction = CorrectionFor(
             StarterCorrectionKey, delayNow, offsetNow, landing.Fps);
         correction.Add(new LandingReport(
-            targetFrame, frame, _landingFrame, landing.DeltaMs, delayNow, offsetNow, landing.Step));
+            targetFrame, frame, _landingFrame, landing.DeltaMs, delayNow, offsetNow, landing.Step,
+            StarterTool.CurrentAudioSetup));
         ShowAdvice(correction, $"Landed {frame}", delayNow, offsetNow);
         return true;
     }
@@ -87,7 +95,7 @@ public partial class MainForm
 
         LandingCorrection correction = CorrectionFor(
             "manip\n" + run.Route.Name + "\n" + target.Press.Name, delayNow, offsetNow, run.Fps);
-        correction.Add(report);
+        correction.Add(report with { Setup = StarterTool.CurrentAudioSetup });
         ShowAdvice(correction, $"{target.Press.Name} landed {frame}", delayNow, offsetNow,
             run.DelayBox, run.OffsetBox);
         return true;
@@ -97,7 +105,7 @@ public partial class MainForm
         string delayBox = "Delay", string offsetBox = "Offset")
     {
         string reports = $"{correction.Count} report{(correction.Count == 1 ? "" : "s")}";
-        string advice = correction.Advise(delayNow, offsetNow) is { } shift && shift.Any
+        string advice = correction.Advise(delayNow, offsetNow, StarterTool.CurrentAudioSetup) is { } shift && shift.Any
             ? AdviceText(shift, delayNow, offsetNow, delayBox, offsetBox)
             : "nothing to change yet";
 
@@ -124,6 +132,11 @@ public partial class MainForm
         {
             text += string.Format(CultureInfo.InvariantCulture,
                 " (presses spread ±{0:F1} f)", advice.SpreadFrames);
+        }
+        if (advice.RecentPresses > 1 && advice.OffsetShiftMs != 0)
+        {
+            text += string.Format(CultureInfo.InvariantCulture,
+                " - last {0} presses {1:+0;-0;0} ms", advice.RecentPresses, advice.RecentMeanMs);
         }
         return text;
     }

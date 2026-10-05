@@ -304,7 +304,7 @@ public static class LabRun
 
     public static IReadOnlyList<LabCandidate> BuildAdapter(int seed, IReadOnlyList<FenceCandidate> fence,
         double oakElapsedMs, double labElapsedMs, double? ballElapsedMs, double fps, double contextMs,
-        double ballWindowMs)
+        double ballWindowMs, int lateSteps = 0)
     {
         List<int> gaps = GapFrames(oakElapsedMs, labElapsedMs, fps, contextMs).ToList();
         int pressFrame = PressFrame(labElapsedMs, fps);
@@ -336,13 +336,44 @@ public static class LabRun
             IEnumerable<int> windows = measured ?? Windows(live.Live!);
             foreach (int window in windows)
             {
-                LabCandidate cut = Rewindow(live, window);
+                LabCandidate cut = Rewindow(live, LaterWindow(live.Live!, window, lateSteps));
                 string key = Observable(cut) + "|" + cut.AdvancesAt(cut.ObservableFrames) + "|" + cut.ObservableFrames;
                 if (seen.Add(key)) candidates.Add(cut);
             }
         }
 
         return candidates;
+    }
+
+    public static int LaterWindow(LabLive live, int window, int steps)
+    {
+        if (steps <= 0) return window;
+
+        int result = window;
+        foreach (int boundary in VisibleBoundaries(live))
+        {
+            if (boundary <= window) continue;
+            result = boundary;
+            if (--steps == 0) break;
+        }
+        return result;
+    }
+
+    public static IEnumerable<int> VisibleBoundaries(LabLive live)
+    {
+        var boundaries = new SortedSet<int>();
+        foreach (NpcEvent e in live.Events)
+        {
+            if (e.Silent || !RouteTimeline.LabObservable.Contains(e.Npc)) continue;
+            int opens = e.Frame + 1;
+            if (opens <= LiveHorizonFrames) boundaries.Add(opens);
+            if (e.Kind == NpcEventKind.Step)
+            {
+                int end = e.Frame + ObjectEventSim.NormalWalkFrames;
+                if (end <= LiveHorizonFrames) boundaries.Add(end);
+            }
+        }
+        return boundaries;
     }
 
     public const int BallPressWindowOffset = 0;
@@ -487,16 +518,18 @@ public sealed class LabTracker
 
     public static LabTracker BuildAdapter(int seed, IReadOnlyList<FenceCandidate> fence,
         double oakElapsedMs, double labElapsedMs, double? ballElapsedMs, double fps, double contextMs,
-        IReadOnlyList<double>? fenceLikelihoods, int targetAdvances, int manualAdvances = 0)
+        IReadOnlyList<double>? fenceLikelihoods, int targetAdvances, int manualAdvances = 0,
+        int lateSteps = 0)
     {
         var tracker = new LabTracker(
             LabRun.BuildAdapter(seed, fence, oakElapsedMs, labElapsedMs, ballElapsedMs, fps, contextMs,
-                contextMs),
+                contextMs, lateSteps),
             labElapsedMs - oakElapsedMs, fps, contextMs, MapFence(fence, fenceLikelihoods))
         {
             Adapter = true,
             BallMeasured = ballElapsedMs != null,
             ManualAdvances = manualAdvances,
+            LateSteps = lateSteps,
         };
         tracker.SetTarget(targetAdvances);
         return tracker;
@@ -505,6 +538,8 @@ public sealed class LabTracker
     public bool Adapter { get; private init; }
 
     public bool BallMeasured { get; private init; }
+
+    public int LateSteps { get; private init; }
 
     public int Target { get; private set; }
 

@@ -6,6 +6,8 @@ public sealed class TipAttempt
 
     public int OffsetMs { get; set; }
 
+    public string? Setup { get; set; }
+
     public DateTime? ClosedAt { get; set; }
 
     public double HitChance { get; set; }

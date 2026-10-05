@@ -257,11 +257,15 @@ internal static class RunLog
 
         try
         {
+            string? device = null;
+            string? output = null;
             foreach (string line in File.ReadLines(path))
             {
+                if (AudioSetup.Read(line, ref device, ref output)) continue;
                 if (TipAttemptLog.TryParse(line, out TipAttempt parsed))
                 {
                     attempt = parsed;
+                    attempt.Setup = AudioSetup.Key(device, output);
                     found = true;
                 }
             }

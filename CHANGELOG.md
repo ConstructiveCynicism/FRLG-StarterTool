@@ -1,4 +1,18 @@
-﻿### v2.4.3
+﻿### v2.4.4
+- Faster start up
+- Fixed a crop crash
+- Updated parity instructions
+- Fence Guy context is expanded instead of refusing taps
+- More Offset/Delay advice fixes
+- I'm Late for anchor 4 pushes it back later
+- On the adapter past the lab text, +/- is one advance, not one frame (important for adapter manip)
+- +/- shows up on frame box during adapter manip
+- Missing Starter pulls the list back up
+- A Ball anchor pressed before any walk could arrive moves the lab anchor back
+- More title seed tables
+- Performance improvements
+
+### v2.4.3
 - Parity is now reflected as a % chance
 - Better priority for threads
 - Double Help key to flip parity
@@ -12,6 +26,7 @@
 - Setting Route to none can swap from Encounter to Starter manip mid timer
 - Updated Speech to text
 - More seeds (leaf green ones added)
+- Hit landing shows up faster (run history is read off the window thread; run log times each landing)
 
 ### v2.4.2
 - double tap prevention

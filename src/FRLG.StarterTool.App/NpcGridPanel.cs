@@ -415,7 +415,7 @@ public sealed class NpcGridPanel : Control
 
         string pill = "";
         Color pillBack = Theme.Accent;
-        if (_labMode && !advice.IsAssumption && _focused >= 0 && _focused < _boxes.Count && advice.PressNow(
+        if (_labMode && advice.HasCue && _focused >= 0 && _focused < _boxes.Count && advice.PressNow(
                 _frame - _boxes[_focused].Representative.LabPressFrame) is { } now
             && _frame - _boxes[_focused].Representative.LabPressFrame <= LabRun.AdapterMaxWindowFrames)
         {

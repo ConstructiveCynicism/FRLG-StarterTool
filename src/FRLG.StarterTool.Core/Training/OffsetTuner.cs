@@ -8,6 +8,11 @@ public sealed class OffsetTuner
 
     public double Mu { get; private set; }
 
+    public OffsetTuner(double priorMu = 0.0)
+    {
+        Mu = priorMu;
+    }
+
     public double Nu { get; private set; } = PriorNu;
 
     public double Beta { get; private set; } = PriorBeta;

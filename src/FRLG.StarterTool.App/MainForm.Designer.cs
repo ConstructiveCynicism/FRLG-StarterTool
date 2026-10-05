@@ -790,46 +790,53 @@ partial class MainForm
         {
             Text = "Undo",
             Location = new Point(contextButtonX, contextButtonY),
-            Size = new Size(66, 24)
+            Size = new Size(66, 24),
+            TakesCaret = false
         };
         ButtonContextClear = new ThemedButton
         {
             Text = "Clear",
             Location = new Point(ButtonContextUndo.Right + SectionGap, contextButtonY),
-            Size = new Size(60, 24)
+            Size = new Size(60, 24),
+            TakesCaret = false
         };
         ButtonContextLate = new ThemedButton
         {
             Text = "I'm Late!",
             Location = new Point(ContextPanel.Right - 124, contextButtonY),
             Size = new Size(124, 24),
-            Visible = false
+            Visible = false,
+            TakesCaret = false
         };
         ButtonContextMiss = new ThemedButton
         {
             Text = "Miss",
             Location = new Point(ButtonContextClear.Right + SectionGap, contextButtonY),
-            Size = new Size(66, 24)
+            Size = new Size(66, 24),
+            TakesCaret = false
         };
         ButtonContextAnchor = new ThemedButton
         {
             Text = "Anchor",
             Location = new Point(ContextPanel.Right - 66, contextButtonY),
-            Size = new Size(66, 24)
+            Size = new Size(66, 24),
+            TakesCaret = false
         };
         ButtonContextFinished = new ThemedButton
         {
             Text = "Finished!",
             Location = new Point(ContextPanel.Right - 124, contextButtonY),
             Size = new Size(124, 24),
-            Visible = false
+            Visible = false,
+            TakesCaret = false
         };
         ButtonContextMissedStarter = new ThemedButton
         {
             Text = "Missed Starter",
             Location = new Point(ContextPanel.Right - 124, contextButtonY),
             Size = new Size(124, 24),
-            Visible = false
+            Visible = false,
+            TakesCaret = false
         };
 
         GroupBoxContext.Controls.Add(ButtonContextUndo);

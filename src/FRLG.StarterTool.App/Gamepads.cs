@@ -35,6 +35,16 @@ public static class Gamepads
 
     private static double _xinputIdsRead = double.NegativeInfinity;
 
+    private static string? _hidSignature;
+
+    private static double _hidRead = double.NegativeInfinity;
+
+    private static double _hidChanged;
+
+    private static readonly double[] EmptyProbe = new double[JoystickSlots];
+
+    private const double HidSettleMs = 2000.0;
+
     private static Thread? _thread;
 
     private static volatile bool _running;
@@ -170,8 +180,15 @@ public static class Gamepads
 
         if (!Connected[pad])
         {
+            if (!WorthProbing(slot, now))
+            {
+                NextProbe[pad] = now + ProbeIntervalMs;
+                return false;
+            }
+
             if (Native.joyGetDevCapsW((uint)slot, out Native.JoyCaps caps, Marshal.SizeOf<Native.JoyCaps>()) != 0)
             {
+                EmptyProbe[slot] = now;
                 Disconnect(pad, now);
                 return false;
             }
@@ -278,6 +295,28 @@ public static class Gamepads
         {
         }
         return ids;
+    }
+
+    private static bool WorthProbing(int slot, double now)
+    {
+        if (now - _hidRead >= ProbeIntervalMs)
+        {
+            _hidRead = now;
+            string signature = string.Join("\n", Native.HidInterfacePaths());
+            if (signature.Length == 0)
+            {
+                _hidSignature = null;
+                return true;
+            }
+
+            if (signature != _hidSignature)
+            {
+                _hidSignature = signature;
+                _hidChanged = now;
+            }
+        }
+
+        return _hidSignature == null || EmptyProbe[slot] < _hidChanged + HidSettleMs;
     }
 
     private static void Disconnect(int pad, double now)

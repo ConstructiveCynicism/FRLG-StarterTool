@@ -281,9 +281,10 @@ public sealed class VariableOffsetTimer : BaseTimer
         _writingFrameBox = true;
         try
         {
-            _form.TextBoxFrame.Text = VariableOffsetCalculator.FormatFrameWithAdjustment(
+            string text = VariableOffsetCalculator.FormatFrameWithAdjustment(
                 frame,
-                VariableOffsetCalculator.FramesAdjusted(Adjusted, SelectedFps));
+                VariableOffsetCalculator.FramesAdjusted(Adjusted, SelectedFps) + DeclaredSuffixFrames);
+            if (_form.TextBoxFrame.Text != text) _form.TextBoxFrame.Text = text;
         }
         finally
         {
@@ -291,8 +292,16 @@ public sealed class VariableOffsetTimer : BaseTimer
         }
     }
 
+    private int DeclaredSuffixFrames => Generic ? 0 : -(StarterTool.Context?.LateDeclaredAdvances ?? 0);
+
+    public void RefreshFrameBox()
+    {
+        if (!Active || Generic) return;
+        if (ParseInputs(out VariableInfo info) == TimerError.NoError) WriteFrameBox(info.Frame);
+    }
+
     private double ReadFrameBoxAdjustment() => VariableOffsetCalculator.AdjustmentMs(
-        VariableOffsetCalculator.AdjustmentFrames(_form.TextBoxFrame.Text),
+        VariableOffsetCalculator.AdjustmentFrames(_form.TextBoxFrame.Text) - DeclaredSuffixFrames,
         SelectedFps);
 
     public int TakeFrameAdjustment()
@@ -502,14 +511,30 @@ public sealed class VariableOffsetTimer : BaseTimer
     {
         AppSettings settings = StarterTool.Settings;
 
-        if (settings.AddFrame.IsPressed(press) && _form.ButtonPlus.Enabled)
+        int direction = settings.AddFrame.IsPressed(press) ? 1
+            : settings.SubFrame.IsPressed(press) ? -1
+            : 0;
+        if (direction == 0) return;
+
+        if (!Generic && StarterTool.Context.NudgesAreAdvances)
         {
-            Nudge(1);
+            Nudge(direction);
+            return;
         }
-        else if (settings.SubFrame.IsPressed(press) && _form.ButtonMinus.Enabled)
-        {
-            Nudge(-1);
-        }
+
+        bool enabled = direction > 0 ? _form.ButtonPlus.Enabled : _form.ButtonMinus.Enabled;
+        if (enabled) Nudge(direction);
+        else LogRefusedNudge(direction);
+    }
+
+    private void LogRefusedNudge(int direction)
+    {
+        string reason = !StarterTool.IsTimerRunning ? "timer not running"
+            : ParseInputs(out _) != TimerError.NoError ? "a box does not parse"
+            : Submitted ? "inside the guard band before the first cue"
+            : "no room left for the beeps before the target";
+        ContextSession.Log(string.Format(CultureInfo.InvariantCulture,
+            "nudge {0:+#;-#} refused - {1}", direction, reason));
     }
 
     public override bool TryRecordLanding(double pressTimeMs, double pressLagMs = 0.0)
@@ -552,6 +577,7 @@ public sealed class VariableOffsetTimer : BaseTimer
 
         LogLanding(elapsedMs, deltaMs, landedFrame, chance, pressLagMs);
 
+        var took = System.Diagnostics.Stopwatch.StartNew();
         _form.ShowLanding(
             landedFrame,
             _landingTargetFrame,
@@ -561,11 +587,13 @@ public sealed class VariableOffsetTimer : BaseTimer
             _landingStartLagMs - pressLagMs,
             _landingInfo.Fps,
             rawChance);
+        double readoutMs = took.Elapsed.TotalMilliseconds;
 
         _starterLanded = !drill;
 
         StarterTool.Context.RecordHit(countdownFrame, deltaMs, chance,
             TrainingUsesVisualOffset ? VisualOffsetMs : OffsetMs);
+        LogLandingTook(readoutMs, took.Elapsed.TotalMilliseconds - readoutMs);
 
         EndHold();
         return true;
@@ -601,6 +629,7 @@ public sealed class VariableOffsetTimer : BaseTimer
             _hasLandingTarget = true;
             ContextSession.Log(string.Format(CultureInfo.InvariantCulture,
                 "missed starter - countdown on {0} still live, landing reopened", _landingTargetFrame));
+            _form.ReshowSearch(_landingTargetFrame, retarget: false);
             _form.ShowHeldStatus("Starter missed - press again on this countdown, or pick a later frame");
             return true;
         }
@@ -611,6 +640,11 @@ public sealed class VariableOffsetTimer : BaseTimer
             "missed starter - timer resumed at {0:F1} ms and held", ElapsedSeconds * 1000.0));
         EnterHold();
         _holdPinned = true;
+
+        bool picked = _form.ReshowSearch(_landingTargetFrame, retarget: true);
+        _form.ShowHeldStatus(picked
+            ? "Starter missed - counting down to the next Squirtle in reach; arrow to another"
+            : "Starter missed - no later Squirtle in reach; timer held for a new search");
         return true;
     }
 
@@ -667,16 +701,23 @@ public sealed class VariableOffsetTimer : BaseTimer
 
     private bool LaterFrameInReach(double elapsedSeconds)
     {
-        VariableInfo probe = _landingInfo;
-        probe.NumBeeps = Math.Min(probe.NumBeeps, 2u);
         foreach (int frame in _form.LaterFrames(_landingTargetFrame))
         {
-            probe.Frame = (uint)frame;
-            probe.AdvanceCorrection = StarterTool.Context.CorrectionAt(frame) ?? 0;
-            if (VariableOffsetCalculator.CanSubmit(probe, elapsedSeconds)) return true;
+            if (FrameInReach(frame, elapsedSeconds)) return true;
         }
 
         return false;
+    }
+
+    public bool FrameInReach(int frame) => FrameInReach(frame, ElapsedSeconds);
+
+    private bool FrameInReach(int frame, double elapsedSeconds)
+    {
+        VariableInfo probe = _landingInfo;
+        probe.NumBeeps = Math.Min(probe.NumBeeps, 2u);
+        probe.Frame = (uint)frame;
+        probe.AdvanceCorrection = StarterTool.Context.CorrectionAt(frame) ?? 0;
+        return VariableOffsetCalculator.CanSubmit(probe, elapsedSeconds);
     }
 
     private void EnterHold()
@@ -1275,6 +1316,12 @@ public sealed class VariableOffsetTimer : BaseTimer
             pressLagMs));
     }
 
+    private static void LogLandingTook(double readoutMs, double accountMs)
+    {
+        ContextSession.Log(string.Format(CultureInfo.InvariantCulture,
+            "landing took: readout {0:F1} ms, account {1:F1} ms", readoutMs, accountMs));
+    }
+
     private void Disarm()
     {
         ClearFlash();
@@ -1293,7 +1340,14 @@ public sealed class VariableOffsetTimer : BaseTimer
 
     private void ClearFlash() => _form.LabelTimer.ClearFlash();
 
-    public override void Nudge(int direction) => ChangeAudio(direction * FrameStepMultiplier);
+    public override void Nudge(int direction)
+    {
+        int frames = direction * FrameStepMultiplier;
+
+        if (!Generic && StarterTool.Context.NudgeAdvances(frames)) return;
+
+        ChangeAudio(frames);
+    }
 
     internal static int FrameStepMultiplier
     {

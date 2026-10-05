@@ -59,10 +59,9 @@ public partial class MainForm : Form
     {
         InitializeComponent();
 
-        foreach (PokemonSpecies species in PokemonSpecies.GetList())
-        {
-            ComboBoxPokemon.Items.Add(species);
-        }
+        ComboBoxPokemon.BeginUpdate();
+        ComboBoxPokemon.Items.AddRange(PokemonSpecies.GetList().ToArray());
+        ComboBoxPokemon.EndUpdate();
         ComboBoxPokemon.SelectedIndexChanged += (_, _) => UpdateSprite();
         SelectSpecies(1);
         InitializeRanges();
@@ -421,7 +420,12 @@ public partial class MainForm : Form
 
             ButtonContextLate.Visible = session.Hidden.Count == 0 && !ButtonContextAnchor.Visible;
             ButtonContextLate.Text = session.Adapter
-                ? session.BallLate ? "I'm Fast!" : "I'm Late! +16"
+                ? session.BallLateSteps switch
+                {
+                    0 => "I'm Late!",
+                    ContextSession.MaxBallLateSteps => "I'm Fast!",
+                    _ => "Later!",
+                }
                 : lab?.Lateness switch
                 {
                     LabLateness.Late => "Very Late!",
@@ -647,6 +651,38 @@ public partial class MainForm : Form
         {
             UseWaitCursor = false;
         }
+    }
+
+    public bool ReshowSearch(int target, bool retarget)
+    {
+        ClearSearchNote();
+
+        List<PokemonRng> results = RangeSearch.Search(ReadRangeCriteria());
+
+        VariableOffsetTimer? timer = StarterTool.VariableOffset;
+        int index = retarget
+            ? results.FindIndex(pkm => pkm.Frame > target && (timer?.FrameInReach((int)pkm.Frame) ?? true))
+            : results.FindIndex(pkm => pkm.Frame == target);
+
+        ContextSession.Log(string.Format(CultureInfo.InvariantCulture,
+            "missed starter - search restored: {0} results, {1}",
+            results.Count,
+            index < 0 ? "no row selected"
+                : retarget ? "next frame in reach " + results[index].Frame
+                : "target " + target + " kept"));
+
+        _reportingLanding = !retarget;
+        try
+        {
+            ShowResults(results, index, takeFocus: false);
+        }
+        finally
+        {
+            _reportingLanding = false;
+        }
+
+        ListViewResults.CenterOn(index);
+        return index >= 0;
     }
 
     private void ClearSearchNote()
@@ -1095,7 +1131,7 @@ public partial class MainForm : Form
         {
             CorrectionFor(
                     StarterCorrectionKey, landingTimer.DelayOffsetMs, landingTimer.OffsetMs, fps)
-                .ObserveAttempt(deltaMs, landingTimer.OffsetMs);
+                .ObserveAttempt(deltaMs, landingTimer.OffsetMs, StarterTool.CurrentAudioSetup);
         }
 
         if (landedFrame is not { } landed)
@@ -1164,6 +1200,7 @@ public partial class MainForm : Form
             if (IsDisposed || serial != _landingSerial) return;
 
             Win32.PaintNow(Handle);
+            var took = System.Diagnostics.Stopwatch.StartNew();
 
             _reportingLanding = true;
             try
@@ -1179,6 +1216,10 @@ public partial class MainForm : Form
             if (landed is { } frame && _results.FindIndex(pkm => pkm.Frame == frame) is var index and >= 0)
                 ListViewResults.EnsureVisible(index);
             ListViewResults.Invalidate();
+
+            ContextSession.Log(string.Format(CultureInfo.InvariantCulture,
+                "landing grid: {0} rows around {1} rebuilt in {2:F1} ms", _results.Count, centre,
+                took.Elapsed.TotalMilliseconds));
         });
     }
 

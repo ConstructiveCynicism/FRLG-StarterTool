@@ -188,7 +188,8 @@ public static class RunTip
         return tips;
     }
 
-    public static int? SuggestedOffsetMs(IEnumerable<TipAttempt> recent, int currentOffsetMs, double fps)
+    public static int? SuggestedOffsetMs(IEnumerable<TipAttempt> recent, int currentOffsetMs, double fps,
+        string? setup = null)
     {
         if (fps <= 0.0) return null;
 
@@ -196,6 +197,8 @@ public static class RunTip
         foreach (TipAttempt attempt in recent)
         {
             if (attempt.DeltaMs is not { } delta) continue;
+
+            if (!AudioSetup.Matches(attempt.Setup, setup)) continue;
 
             LandingCorrection.ObserveRobustly(
                 tuner, (delta - (attempt.OffsetMs - currentOffsetMs)) / 1000.0 * fps);

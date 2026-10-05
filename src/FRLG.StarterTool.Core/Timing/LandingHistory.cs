@@ -4,7 +4,7 @@ using System.Text.RegularExpressions;
 namespace FRLG.StarterTool.Core.Timing;
 
 public readonly record struct HistoryLanding(int TargetFrame, double DeltaMs, int? PredictedFrame,
-    int? ReportedFrame, int DelayAtMs, int OffsetAtMs, double Fps, int Step);
+    int? ReportedFrame, int DelayAtMs, int OffsetAtMs, double Fps, int Step, string? Setup = null);
 
 public static class LandingHistory
 {
@@ -21,11 +21,14 @@ public static class LandingHistory
     {
         var found = new List<HistoryLanding>();
         int step = 1;
+        string? device = null;
+        string? output = null;
         (int Delay, int Offset, double Fps)? armed = null;
 
         foreach (string line in lines)
         {
             if (line.Contains("wireless adapter on", StringComparison.Ordinal)) step = 2;
+            if (AudioSetup.Read(line, ref device, ref output)) continue;
 
             if (Armed.Match(line) is { Success: true } a)
             {
@@ -40,7 +43,7 @@ public static class LandingHistory
                     Int(l.Groups[1]),
                     double.Parse(l.Groups[2].Value, CultureInfo.InvariantCulture),
                     l.Groups[3].Success ? Int(l.Groups[3]) : null,
-                    null, boxes.Delay, boxes.Offset, boxes.Fps, step));
+                    null, boxes.Delay, boxes.Offset, boxes.Fps, step, AudioSetup.Key(device, output)));
                 continue;
             }
 
@@ -63,11 +66,11 @@ public static class LandingHistory
     {
         foreach (HistoryLanding landing in landings)
         {
-            correction.ObserveAttempt(landing.DeltaMs, landing.OffsetAtMs);
+            correction.ObserveAttempt(landing.DeltaMs, landing.OffsetAtMs, landing.Setup);
             if (landing.ReportedFrame is { } reported)
             {
                 correction.Add(new LandingReport(landing.TargetFrame, reported, landing.PredictedFrame,
-                    landing.DeltaMs, landing.DelayAtMs, landing.OffsetAtMs, landing.Step));
+                    landing.DeltaMs, landing.DelayAtMs, landing.OffsetAtMs, landing.Step, landing.Setup));
             }
         }
     }

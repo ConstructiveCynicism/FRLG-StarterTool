@@ -240,12 +240,27 @@ internal sealed class WindowFrameSource : IFrameSource
 
     private void CloseLocked()
     {
-        if (_pool != null) _pool.FrameArrived -= OnFrameArrived;
-        _session?.Dispose();
-        _pool?.Dispose();
+        GraphicsCaptureSession? session = _session;
+        Direct3D11CaptureFramePool? pool = _pool;
+        if (pool != null) pool.FrameArrived -= OnFrameArrived;
         _session = null;
         _pool = null;
         _item = null;
+        if (session == null && pool == null) return;
+        if (Thread.CurrentThread.GetApartmentState() == ApartmentState.MTA) Release(session, pool);
+        else ThreadPool.UnsafeQueueUserWorkItem(_ => Release(session, pool), null);
+    }
+
+    private static void Release(GraphicsCaptureSession? session, Direct3D11CaptureFramePool? pool)
+    {
+        try
+        {
+            session?.Dispose();
+            pool?.Dispose();
+        }
+        catch (Exception)
+        {
+        }
     }
 
     private void OnFrameArrived(Direct3D11CaptureFramePool pool, object args)

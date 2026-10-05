@@ -4,6 +4,16 @@ public sealed class ThemedButton : Button
 {
     protected override bool ShowFocusCues => false;
 
+    public bool TakesCaret
+    {
+        get => GetStyle(ControlStyles.Selectable);
+        set
+        {
+            SetStyle(ControlStyles.Selectable, value);
+            TabStop = value;
+        }
+    }
+
     private bool _hot;
 
     private bool _pressed;

@@ -11,7 +11,7 @@ public static class SettingsStore
     {
         WriteIndented = true,
         Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping,
-        TypeInfoResolver = new DefaultJsonTypeInfoResolver()
+        TypeInfoResolver = JsonTypeInfoResolver.Combine(SettingsJsonContext.Default, new DefaultJsonTypeInfoResolver())
     };
 
     public static string DefaultDirectory => Path.Combine(

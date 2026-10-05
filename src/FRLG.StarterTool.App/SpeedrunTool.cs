@@ -13,6 +13,8 @@ public static class StarterTool
     public static MainForm MainForm = null!;
     public static BeepPlayer Beeps = null!;
 
+    public static string? CurrentAudioSetup => Beeps == null ? null : AudioSetup.Parse(Beeps.OpenReport);
+
     internal static readonly Capture.CaptureSession Capture = new();
     public static VariableOffsetTimer VariableOffset = null!;
 

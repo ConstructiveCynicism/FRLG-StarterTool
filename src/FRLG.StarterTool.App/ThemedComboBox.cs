@@ -2,6 +2,12 @@ namespace FRLG.StarterTool.App;
 
 public sealed class ThemedComboBox : ComboBox
 {
+    public ThemedComboBox()
+    {
+        DrawMode = DrawMode.OwnerDrawFixed;
+        IntegralHeight = false;
+    }
+
     public void RefreshDrawMode()
     {
         if (DrawMode != DrawMode.OwnerDrawFixed)
@@ -17,13 +23,11 @@ public sealed class ThemedComboBox : ComboBox
     {
         if (height <= 0) return;
 
-        if (DrawMode != DrawMode.OwnerDrawFixed) DrawMode = DrawMode.OwnerDrawFixed;
-
-        for (int item = height; item > 1; item--)
-        {
-            ItemHeight = item;
-            if (Height <= height) break;
-        }
+        ItemHeight = height;
+        int frame = Height - ItemHeight;
+        int item = Math.Max(1, height - frame);
+        if (item != ItemHeight) ItemHeight = item;
+        while (Height > height && ItemHeight > 1) ItemHeight--;
 
         Height = height;
     }

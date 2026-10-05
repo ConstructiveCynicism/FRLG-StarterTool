@@ -45,7 +45,13 @@ public sealed class ContextSession
 
     private string? _fenceSalvage;
 
-    private Task<FenceTracker>[]? _salvageBuilds;
+    private int _salvageStage = -1;
+
+    private List<Task<FenceTracker>>? _salvageBuilds;
+
+    private IReadOnlyList<SalvageStage>? _salvageStages;
+
+    private Func<int[], FenceTracker>? _salvageBuilder;
 
     private bool _tracking;
 
@@ -112,7 +118,7 @@ public sealed class ContextSession
     private static int TakeHouseAdvances() =>
         -(StarterTool.VariableOffset?.TakeFrameAdjustment() ?? 0);
 
-    public bool ReportPcVisit() => Declare("PC Potion", RouteTimeline.PcVisitAdvances(Adapter));
+    public bool ReportPcVisit() => Declare("PC Potion", RouteTimeline.PcVisitAdvances(Adapter), anyStage: true);
 
     public bool ReportDoubleHelp()
     {
@@ -128,14 +134,25 @@ public sealed class ContextSession
 
     private int _postLabAdvances;
 
+    public int LateDeclaredAdvances => _preLabAdvances + _postLabAdvances;
+
     private FenceCandidate ForLab(FenceCandidate fence) =>
         _preLabAdvances == 0 ? fence : fence with { AdvancesBeforeLabLoad = fence.AdvancesBeforeLabLoad + _preLabAdvances };
 
     private int Reach(int frame) => Lab?.ReachTarget(frame) ?? frame - _postLabAdvances;
 
+    public bool NudgesAreAdvances =>
+        _adapter && _tracking && _armed && Stage == ContextStage.Lab && _labMs != null;
+
+    public bool NudgeAdvances(int frames)
+    {
+        if (!NudgesAreAdvances || frames == 0) return false;
+        return DeclareLate(frames > 0 ? "+ nudge" : "- nudge", -frames);
+    }
+
     private bool Declare(string what, int shift, bool anyStage = false)
     {
-        if (anyStage && _tracking && _armed && !_missed && !HitConfirmed && _oakMs != null)
+        if (anyStage && _tracking && _armed && _oakMs != null)
         {
             return DeclareLate(what, shift);
         }
@@ -173,6 +190,7 @@ public sealed class ContextSession
                 what, _ballMs == null ? " (taken as after the ball)" : "", shift, _postLabAdvances));
         }
 
+        StarterTool.VariableOffset?.RefreshFrameBox();
         Retarget();
         Changed?.Invoke(this, EventArgs.Empty);
         return true;
@@ -256,8 +274,9 @@ public sealed class ContextSession
     public void Reset()
     {
         _exitMs = _oakMs = _labMs = _ballMs = null;
-        _ballLate = false;
+        _ballLateSteps = 0;
         _preLabAdvances = _postLabAdvances = 0;
+        StarterTool.VariableOffset?.RefreshFrameBox();
         _ballTarget = null;
         _lastAnchorMs = null;
         _adapter = false;
@@ -271,7 +290,10 @@ public sealed class ContextSession
         _labCued = false;
         _fenceUnfinished = false;
         _fenceSalvage = null;
+        _salvageStage = -1;
         _salvageBuilds = null;
+        _salvageStages = null;
+        _salvageBuilder = null;
         _adviceLogged = null;
         _hit = false;
         _unpressed = false;
@@ -355,7 +377,8 @@ public sealed class ContextSession
             }
 
             _ballMs = elapsedMs;
-            _ballLate = false;
+            _ballLateSteps = 0;
+            _ballTarget = null;
             _lastAnchorMs = elapsedMs;
             LastAnchor = RouteAnchor.PressBall;
             BuildLab(Lab?.Lateness ?? LabLateness.Fast);
@@ -497,9 +520,9 @@ public sealed class ContextSession
         Log(string.Format(CultureInfo.InvariantCulture, "tap {0} at {1:F1} ms, frame {2} - {3}",
             Directions.Letter(direction), elapsedMs, FrameWindow.LikelyFrame(elapsedMs, fps),
             salvaged != null
-                ? $"fitted nothing, salvaged on {salvaged} - {alive} left"
+                ? $"fitted nothing, salvaged on {salvaged} (shifts {SurvivingShifts}) - {alive} left"
                 : Tracker.LastTapRefused
-                    ? $"REFUSED, fits nothing - {alive} left"
+                    ? $"REFUSED, fits nothing, with the stream up to {MaxSalvageShift} off or a PC Potion - {alive} left"
                     : $"{alive} left"));
 
         Changed?.Invoke(this, EventArgs.Empty);
@@ -530,8 +553,9 @@ public sealed class ContextSession
         if (_fenceSalvage != null)
         {
             _fenceSalvage = null;
+            _salvageStage = -1;
             BuildFence();
-            Log("fence report cleared - field rebuilt at the configured window");
+            Log("fence report cleared - field rebuilt on the unshifted stream");
         }
 
         Tracker.Clear();
@@ -571,7 +595,7 @@ public sealed class ContextSession
 
     public bool Next() => Stage switch
     {
-        ContextStage.Lab when _adapter => SetBallLate(!_ballLate),
+        ContextStage.Lab when _adapter => SetBallLateSteps(_ballLateSteps >= MaxBallLateSteps ? 0 : _ballLateSteps + 1),
         ContextStage.Lab => Lab is { Lateness: var lateness }
             && SetLateness(lateness == LabLateness.VeryLate ? LabLateness.Fast : lateness + 1),
         _ => SetNext(!NextReported),
@@ -580,34 +604,38 @@ public sealed class ContextSession
     public bool NextReported => Stage switch
     {
         ContextStage.Fence => Tracker is { Complete: true },
-        ContextStage.Lab => _adapter ? _ballLate : Lab is { Late: true },
+        ContextStage.Lab => _adapter ? _ballLateSteps > 0 : Lab is { Late: true },
         _ => false,
     };
 
     public bool SetNext(bool reported) => Stage switch
     {
         ContextStage.Fence => Tracker != null && SetComplete(reported),
-        ContextStage.Lab when _adapter => SetBallLate(reported),
+        ContextStage.Lab when _adapter => SetBallLateSteps(reported ? Math.Max(1, _ballLateSteps) : 0),
         ContextStage.Lab => SetLateness(reported ? LabLateness.Late : LabLateness.Fast),
         _ => false,
     };
 
-    private bool _ballLate;
+    private int _ballLateSteps;
 
-    public bool BallLate => _ballLate;
+    public bool BallLate => _ballLateSteps > 0;
 
-    public const int BallLateFrames = 16;
+    public int BallLateSteps => _ballLateSteps;
 
-    public bool SetBallLate(bool late)
+    public const int MaxBallLateSteps = 3;
+
+    public bool SetBallLateSteps(int steps)
     {
-        if (Stage != ContextStage.Lab || !_adapter || Lab == null || HitConfirmed || _ballLate == late) return false;
-        if (late && _ballMs == null && AssumedBallFrame() == null) return false;
+        steps = Math.Clamp(steps, 0, MaxBallLateSteps);
+        if (Stage != ContextStage.Lab || !_adapter || Lab == null || HitConfirmed || _ballLateSteps == steps) return false;
 
-        _ballLate = late;
-        BuildLab();
-        Log(late
-            ? string.Format(CultureInfo.InvariantCulture, "late to the ball: +{0} frames on the {1} press - {2} boxes",
-                BallLateFrames, _ballMs == null ? "assumed" : "measured", Lab?.All.Count ?? 0)
+        int before = Lab.All.Count;
+        _ballLateSteps = steps;
+        RebuildLabCarryingFocus();
+        Log(steps > 0
+            ? string.Format(CultureInfo.InvariantCulture,
+                "late to the ball: {0} visible change{1} after the anchor - {2} boxes (was {3})",
+                steps, steps == 1 ? "" : "s", Lab?.All.Count ?? 0, before)
             : string.Format(CultureInfo.InvariantCulture, "late to the ball: taken back - {0} boxes", Lab?.All.Count ?? 0));
 
         Retarget();
@@ -615,22 +643,11 @@ public sealed class ContextSession
         return true;
     }
 
-    private int? AssumedBallFrame()
+    private void RebuildLabCarryingFocus(LabLateness lateness = LabLateness.Fast)
     {
-        int target = (int)(StarterTool.VariableOffset?.Info.Frame ?? 0u);
-        if (target <= 0 || Tracker is not { Alive.Count: > 0 } tracker) return null;
-
-        LabParity parity = LabParity.Of(_seed, ForLab(tracker.Alive[tracker.MostLikelyIndex]), Reach(target));
-        return LabRoute.For(parity)?.PressFrame;
-    }
-
-    public bool SetLateness(LabLateness lateness)
-    {
-        if (Stage != ContextStage.Lab || Lab is not { } lab || lab.Lateness == lateness || _adapter) return false;
-
-        bool pinned = lab.FocusPinned;
-        int focus = lab.FocusedIndex;
-        LabCandidate? held = pinned ? lab.Focused?.Representative : null;
+        bool pinned = Lab is { FocusPinned: true };
+        int focus = Lab?.FocusedIndex ?? -1;
+        LabCandidate? held = pinned ? Lab?.Focused?.Representative : null;
 
         BuildLab(lateness);
 
@@ -645,6 +662,13 @@ public sealed class ContextSession
 
             Lab.FocusedIndex = found >= 0 ? found : focus;
         }
+    }
+
+    public bool SetLateness(LabLateness lateness)
+    {
+        if (Stage != ContextStage.Lab || Lab is not { } lab || lab.Lateness == lateness || _adapter) return false;
+
+        RebuildLabCarryingFocus(lateness);
 
         Log(string.Format(CultureInfo.InvariantCulture,
             "late to the ball: {0} - window {1} frames, {2} boxes",
@@ -928,7 +952,8 @@ public sealed class ContextSession
             DeltaMs = deltaMs,
             OffsetMs = offsetMs,
             HitChance = hitChance,
-            ClosedAt = DateTime.Now
+            ClosedAt = DateTime.Now,
+            Setup = StarterTool.CurrentAudioSetup
         };
 
         settings.TipAttempts++;
@@ -1018,7 +1043,7 @@ public sealed class ContextSession
         {
             suggested = RunTip.SuggestedOffsetMs(offsetWindow,
                 timer.TrainingUsesVisualOffset ? timer.VisualOffsetMs : timer.OffsetMs,
-                timer.SelectedFps);
+                timer.SelectedFps, StarterTool.CurrentAudioSetup);
         }
 
         double? sinceLast = recent.Count >= 2 && recent[^2].ClosedAt is { } previous
@@ -1183,9 +1208,9 @@ public sealed class ContextSession
                 "{0} of {1} left · {2}\r\nSeen: {3}",
                 Tracker.Alive.Count, Tracker.All.Count, totals, tapped);
 
-            if (_fenceSalvage != null) return line + "\r\nWidened to fit your taps: " + _fenceSalvage + ".";
+            if (_fenceSalvage != null) return line + "\r\nYour taps fit only with " + _fenceSalvage + ".";
 
-            return Tracker.LastTapRefused ? line + "\r\nLast tap fits nothing - ignored." : line;
+            return Tracker.LastTapRefused ? line + "\r\nLast tap fits nothing, however the stream is shifted - ignored." : line;
         }
     }
 
@@ -1231,9 +1256,17 @@ public sealed class ContextSession
     {
         if (Lab == null) return;
 
+        string window = LabTracker.Window(Lab.Lateness).ToString(CultureInfo.InvariantCulture);
+        if (Lab.BallMeasured && Lab.All.Count > 0)
+        {
+            int min = Lab.All.Min(o => o.Representative.ObservableFrames);
+            int max = Lab.All.Max(o => o.Representative.ObservableFrames);
+            window = (min == max ? min.ToString(CultureInfo.InvariantCulture) : $"{min}-{max}") + " (measured)";
+        }
+
         Log(string.Format(CultureInfo.InvariantCulture,
             "  {0} lab boxes, window {1} frames, press frame {2}:",
-            Lab.All.Count, LabTracker.Window(Lab.Lateness),
+            Lab.All.Count, window,
             Lab.All.Count == 0 ? 0 : Lab.All[0].Representative.LabPressFrame));
 
         for (int i = 0; i < Lab.All.Count; i++)
@@ -1265,36 +1298,60 @@ public sealed class ContextSession
         _ => "lab text"
     };
 
-    private const double SalvageContextMs = 30.0;
+    private const int MaxSalvageShift = 12;
+
+    private readonly record struct SalvageStage(int[] Undeclared, string How);
+
+    private IReadOnlyList<SalvageStage> SalvageStages
+    {
+        get
+        {
+            int pc = RouteTimeline.PcVisitAdvances(_adapter);
+            var stages = new List<SalvageStage>();
+
+            for (int shift = 1; shift <= MaxSalvageShift; shift++)
+            {
+                stages.Add(new SalvageStage(new[] { shift, -shift },
+                    $"the stream {shift} advance{(shift == 1 ? "" : "s")} off"));
+            }
+
+            stages.Add(new SalvageStage(new[] { pc }, "an undeclared PC Potion"));
+
+            for (int shift = 1; shift <= MaxSalvageShift; shift++)
+            {
+                stages.Add(new SalvageStage(new[] { pc + shift, pc - shift },
+                    $"an undeclared PC Potion and the stream {shift} advance{(shift == 1 ? "" : "s")} off"));
+            }
+
+            return stages;
+        }
+    }
 
     private string? SalvageFence(Direction direction, double elapsedMs)
     {
         if (Tracker is not { } original || _exitMs is not { } exit || _oakMs is not { } oak) return null;
 
         double configured = StarterTool.Settings?.NpcContextWindowMs ?? 0.0;
-
-        if (configured >= SalvageContextMs) return null;
-
         var inputs = original.Inputs.Append(new FenceInput(direction, elapsedMs)).ToList();
+        IReadOnlyList<SalvageStage> stages = _salvageStages ?? SalvageStages;
 
-        var stages = new[]
+        for (int stage = _salvageStage + 1; stage < stages.Count; stage++)
         {
-            (SalvageContextMs, (int[]?)null, $"a {SalvageContextMs:F0} ms window"),
-            (SalvageContextMs, new[] { RouteTimeline.PcVisitAdvances(_adapter) },
-                "an undeclared PC Potion"),
-        };
-        for (int stage = 0; stage < stages.Length; stage++)
-        {
-            (double window, int[]? undeclared, string how) = stages[stage];
+            var clock = System.Diagnostics.Stopwatch.StartNew();
+            FenceTracker shifted = SalvageBuild(stage)?.GetAwaiter().GetResult()
+                ?? BuildFence(exit, oak, configured, stages[stage].Undeclared);
+            if (clock.ElapsedMilliseconds >= 50)
+            {
+                Log(string.Format(CultureInfo.InvariantCulture,
+                    "salvage: waited {1} ms for the field with {0}", stages[stage].How, clock.ElapsedMilliseconds));
+            }
 
-            FenceTracker wider = _salvageBuilds?[stage].GetAwaiter().GetResult()
-                ?? BuildFence(exit, oak, window, undeclared);
-            if (ReferenceEquals(wider, original)) continue;
+            shifted.Clear();
+            if (shifted.Observe(inputs, original.Complete) == 0) continue;
 
-            wider.Clear();
-            if (wider.Observe(inputs, original.Complete) == 0) continue;
-
-            Tracker = wider;
+            Tracker = shifted;
+            _salvageStage = stage;
+            string how = stages[stage].How;
             _fenceSalvage = _fenceSalvage == null ? how : _fenceSalvage + ", then " + how;
             return how;
         }
@@ -1302,28 +1359,60 @@ public sealed class ContextSession
         return null;
     }
 
+    private string SurvivingShifts =>
+        Tracker == null
+            ? ""
+            : string.Join(", ", Tracker.Alive.Select(c => c.UndeclaredAdvances).Distinct().Order()
+                .Select(n => n.ToString("+#;-#;0", CultureInfo.InvariantCulture)));
+
     private void BuildFence()
     {
         if (_exitMs is not { } exit || _oakMs is not { } oak) return;
 
         double configured = StarterTool.Settings?.NpcContextWindowMs ?? 0.0;
         Tracker = BuildFence(exit, oak, configured, null);
-        if (_salvageBuilds == null && configured < SalvageContextMs) PrebuildSalvage(exit, oak);
+        if (_salvageBuilds == null) PrebuildSalvage(exit, oak);
     }
 
     private void PrebuildSalvage(double exit, double oak)
     {
         int seed = _seed;
         double fps = StarterTool.VariableOffset?.SelectedFps ?? 60.0;
+        double configured = StarterTool.Settings?.NpcContextWindowMs ?? 0.0;
         int manual = _houseAdvances + RouteAdvancesOnly;
         bool adapter = _adapter;
         TitleButtonMode buttons = SaveButtons;
-        int[] pc = { RouteTimeline.PcVisitAdvances(adapter) };
 
-        FenceTracker Build(int[]? undeclared) => FenceTracker.Build(seed, exit, oak, fps, SalvageContextMs,
+        _salvageStages = SalvageStages;
+        _salvageBuilder = undeclared => FenceTracker.Build(seed, exit, oak, fps, configured,
             manual, FenceGuyParity.Both, adapter, buttons, undeclared);
+        _salvageBuilds = new List<Task<FenceTracker>>();
 
-        _salvageBuilds = new[] { Task.Run(() => Build(null)), Task.Run(() => Build(pc)) };
+        for (int i = 0; i < SalvageLookahead; i++) EnqueueSalvageBuild();
+    }
+
+    private const int SalvageLookahead = 3;
+
+    private Task<FenceTracker>? SalvageBuild(int stage)
+    {
+        if (_salvageBuilds == null) return null;
+
+        while (_salvageBuilds.Count <= stage + SalvageLookahead && EnqueueSalvageBuild()) { }
+
+        return stage < _salvageBuilds.Count ? _salvageBuilds[stage] : null;
+    }
+
+    private bool EnqueueSalvageBuild()
+    {
+        if (_salvageBuilds == null || _salvageStages is not { } stages || _salvageBuilder is not { } build)
+            return false;
+        if (_salvageBuilds.Count >= stages.Count) return false;
+
+        int[] undeclared = stages[_salvageBuilds.Count].Undeclared;
+        _salvageBuilds.Add(_salvageBuilds.Count == 0
+            ? Task.Run(() => build(undeclared))
+            : _salvageBuilds[^1].ContinueWith(_ => build(undeclared), TaskScheduler.Default));
+        return true;
     }
 
     private FenceTracker BuildFence(double exit, double oak, double contextMs, int[]? undeclared)
@@ -1366,18 +1455,9 @@ public sealed class ContextSession
 
         if (_adapter)
         {
-            double? ball = _ballMs;
-            if (_ballLate)
-            {
-                double late = BallLateFrames * 1000.0 / fps;
-                ball = ball is { } measured ? measured - late
-                    : AssumedBallFrame() is { } frame ? lab + frame * 1000.0 / fps + late
-                    : null;
-            }
-
-            Lab = LabTracker.BuildAdapter(_seed, carried.Select(ForLab).ToList(), oak, lab, ball, fps,
+            Lab = LabTracker.BuildAdapter(_seed, carried.Select(ForLab).ToList(), oak, lab, _ballMs, fps,
                 LabContextWindowMs, belief, (int)(StarterTool.VariableOffset?.Info.Frame ?? 0u),
-                _postLabAdvances);
+                _postLabAdvances, _ballLateSteps);
             return;
         }
 
@@ -1401,7 +1481,14 @@ public sealed class ContextSession
 
         if (Lab is { Focused: { } box } lab && box.Representative.Live is { } live)
         {
-            (bool needWalking, double labShare, bool unanimous) = LabVerdict(lab, box, target);
+            (bool needWalking, double labShare, bool unanimous) = LabVerdict(lab, box, target, lab.BallMeasured);
+
+            if (lab.BallMeasured)
+            {
+                int window = box.Representative.ObservableFrames;
+                return Logged(ContextAdvice.AfterBall(!needWalking, live.LadyWalking(window), window, live,
+                    unanimous, labShare));
+            }
 
             bool agreed = unanimous;
 
@@ -1443,8 +1530,12 @@ public sealed class ContextSession
     }
 
     private static (bool NeedWalking, double Share, bool Unanimous) LabVerdict(LabTracker lab, LabOption focused,
-        int target)
+        int target, bool measured = false)
     {
+        bool Wrong(LabCandidate m) => measured
+            ? !m.ParityOk(lab.ReachTarget(target))
+            : !m.ParityOk(lab.ReachTarget(target), 0);
+
         double wrong = 0.0, total = 0.0;
         for (int i = 0; i < lab.All.Count; i++)
         {
@@ -1454,12 +1545,12 @@ public sealed class ContextSession
             double weight = lab.FocusPinned ? 1.0 : lab.Likelihoods[i];
             if (weight <= 0.0 || option.Members.Count == 0) continue;
 
-            int wrongMembers = option.Members.Count(m => !m.ParityOk(lab.ReachTarget(target), 0));
+            int wrongMembers = option.Members.Count(Wrong);
             wrong += weight * wrongMembers / option.Members.Count;
             total += weight;
         }
 
-        if (total <= 0.0) return (!focused.Representative.ParityOk(lab.ReachTarget(target), 0), 1.0, true);
+        if (total <= 0.0) return (Wrong(focused.Representative), 1.0, true);
 
         bool side = wrong > total - wrong;
         double share = (side ? wrong : total - wrong) / total;
