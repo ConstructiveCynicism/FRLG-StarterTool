@@ -10,6 +10,8 @@ public class PokemonRng
 
     public int RangeIndex = -1;
 
+    public bool Backup;
+
     public long Pid;
     public Nature? Nature;
     public int Hp;

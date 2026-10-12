@@ -163,26 +163,32 @@ public static class Win32
         return PriorityName(GetPriorityClass(process));
     }
 
-    private static void OptOutOfThrottling()
+    public static void OptOutOfThrottling()
     {
-        if (!_throttlingOptedOut)
-        {
-            IntPtr process = GetCurrentProcess();
-            var state = new PROCESS_POWER_THROTTLING_STATE
-            {
-                Version = 1,
-                ControlMask = PROCESS_POWER_THROTTLING_EXECUTION_SPEED | PROCESS_POWER_THROTTLING_IGNORE_TIMER_RESOLUTION,
-                StateMask = 0
-            };
-            bool ok = SetProcessInformation(process, ProcessPowerThrottling, ref state, (uint)Marshal.SizeOf<PROCESS_POWER_THROTTLING_STATE>());
-            if (!ok)
-            {
-                state.ControlMask = PROCESS_POWER_THROTTLING_EXECUTION_SPEED;
-                SetProcessInformation(process, ProcessPowerThrottling, ref state, (uint)Marshal.SizeOf<PROCESS_POWER_THROTTLING_STATE>());
-            }
+        if (Throttling() == "off") return;
 
-            _throttlingOptedOut = true;
+        IntPtr process = GetCurrentProcess();
+        var state = new PROCESS_POWER_THROTTLING_STATE
+        {
+            Version = 1,
+            ControlMask = PROCESS_POWER_THROTTLING_EXECUTION_SPEED | PROCESS_POWER_THROTTLING_IGNORE_TIMER_RESOLUTION,
+            StateMask = 0
+        };
+        bool ok = SetProcessInformation(process, ProcessPowerThrottling, ref state, (uint)Marshal.SizeOf<PROCESS_POWER_THROTTLING_STATE>());
+        if (!ok)
+        {
+            state.ControlMask = PROCESS_POWER_THROTTLING_EXECUTION_SPEED;
+            SetProcessInformation(process, ProcessPowerThrottling, ref state, (uint)Marshal.SizeOf<PROCESS_POWER_THROTTLING_STATE>());
         }
+    }
+
+    public static string Throttling()
+    {
+        var state = new PROCESS_POWER_THROTTLING_STATE { Version = 1 };
+        if (!GetProcessInformation(GetCurrentProcess(), ProcessPowerThrottling, ref state, (uint)Marshal.SizeOf<PROCESS_POWER_THROTTLING_STATE>()))
+            return "unreadable";
+        if ((state.ControlMask & PROCESS_POWER_THROTTLING_EXECUTION_SPEED) == 0) return "system";
+        return (state.StateMask & PROCESS_POWER_THROTTLING_EXECUTION_SPEED) != 0 ? "on" : "off";
     }
 
     public static string CurrentPriority() => PriorityName(GetPriorityClass(GetCurrentProcess()));
@@ -198,8 +204,6 @@ public static class Win32
         0 => "unreadable",
         _ => "0x" + priorityClass.ToString("X")
     };
-
-    private static bool _throttlingOptedOut;
 
     public static void EndTiming()
     {
@@ -564,6 +568,11 @@ public static class Win32
     [DllImport("kernel32.dll")]
     [return: MarshalAs(UnmanagedType.Bool)]
     private static extern bool SetProcessInformation(IntPtr hProcess, int processInformationClass,
+        ref PROCESS_POWER_THROTTLING_STATE processInformation, uint processInformationSize);
+
+    [DllImport("kernel32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool GetProcessInformation(IntPtr hProcess, int processInformationClass,
         ref PROCESS_POWER_THROTTLING_STATE processInformation, uint processInformationSize);
 
     [DllImport("winmm.dll")]

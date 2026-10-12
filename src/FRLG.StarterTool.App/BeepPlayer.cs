@@ -78,6 +78,8 @@ public sealed class BeepPlayer : IDisposable
 
     public double LastWriteLagMs { get; private set; } = double.NaN;
 
+    public double LastRebasedMs { get; private set; } = double.NaN;
+
     public double LastStartShiftMs { get; private set; } = double.NaN;
 
     public string OutputDescription
@@ -179,8 +181,10 @@ public sealed class BeepPlayer : IDisposable
         }
     }
 
-    public void QueueBeeps(IReadOnlyList<double> offsetsMs, int protectedCount = 0)
+    public void QueueBeeps(IReadOnlyList<double> offsetsMs, int protectedCount = 0, double asOfMs = double.NaN)
     {
+        if (double.IsNaN(asOfMs)) asOfMs = Win32.GetTime();
+
         lock (_lock)
         {
             CancelDeferredWrite();
@@ -194,20 +198,22 @@ public sealed class BeepPlayer : IDisposable
             int remainderBytes = ProtectedRemainderBytes();
             if (remainderBytes > 0 && MutePending())
             {
-                DeferWrite(offsetsMs, protectedCount, BytesToMs(remainderBytes) + WriteMarginMs);
+                DeferWrite(offsetsMs, protectedCount, BytesToMs(remainderBytes) + WriteMarginMs, asOfMs);
                 return;
             }
 
-            WriteSchedule(offsetsMs, protectedCount);
+            WriteSchedule(offsetsMs, protectedCount, asOfMs);
         }
     }
 
-    private void WriteSchedule(IReadOnlyList<double> offsetsMs, int protectedCount)
+    private void WriteSchedule(IReadOnlyList<double> offsetsMs, int protectedCount, double asOfMs)
     {
         EnsureOpen();
 
         double maxOffset = offsetsMs.Max();
-        int length = (int)Math.Ceiling(maxOffset / 1000.0 * SampleRate) * BytesPerFrame + _beep.Length;
+
+        double ratio = _output?.ClockRatio ?? 1.0;
+        int length = (int)Math.Ceiling(maxOffset * Math.Max(1.0, ratio) / 1000.0 * SampleRate) * BytesPerFrame + _beep.Length;
         ScheduleBuffer buffer = ReferenceEquals(_buffers[0], _deviceBuffer) ? _buffers[1] : _buffers[0];
         byte[] pcm = buffer.Take(length);
 
@@ -216,13 +222,18 @@ public sealed class BeepPlayer : IDisposable
 
         double baseMs = Win32.GetTime();
 
-        _lastBeepStartMs = baseMs + maxOffset;
+        double lateMs = Math.Max(0.0, baseMs - asOfMs);
+        LastRebasedMs = lateMs;
+
+        _lastBeepStartMs = baseMs + maxOffset - lateMs;
 
         var starts = new List<int>(offsetsMs.Count);
         var protectedStarts = new List<int>(protectedCount);
         for (int i = 0; i < offsetsMs.Count; i++)
         {
-            int destOffset = (int)((offsetsMs[i] - shiftMs) / 1000.0 * SampleRate) * BytesPerFrame;
+            if (offsetsMs[i] - shiftMs < 0.0) continue;
+            double atMs = Math.Max(0.0, offsetsMs[i] - shiftMs - lateMs);
+            int destOffset = (int)(atMs * ratio / 1000.0 * SampleRate) * BytesPerFrame;
             if (destOffset < 0 || destOffset + _beep.Length > length) continue;
             Array.Copy(_beep, 0, pcm, destOffset, _beep.Length);
             buffer.Beeps.Add((destOffset, _beep.Length));
@@ -259,7 +270,8 @@ public sealed class BeepPlayer : IDisposable
             _beepBytes = _beep.Length;
             _bufferLength = length;
 
-            if (_output == null || !_output.Write(pcm, length))
+            int skippable = LastStartShiftMs > 0.0 && starts.Count > 0 ? _beepStarts[0] : 0;
+            if (_output == null || !_output.Write(pcm, length, skippable))
             {
                 _writtenAtMs = double.NaN;
                 return false;
@@ -341,11 +353,11 @@ public sealed class BeepPlayer : IDisposable
         return -1;
     }
 
-    private void DeferWrite(IReadOnlyList<double> offsetsMs, int protectedCount, double delayMs)
+    private void DeferWrite(IReadOnlyList<double> offsetsMs, int protectedCount, double delayMs, double asOfMs)
     {
         _pendingOffsetsMs = offsetsMs.ToArray();
         _pendingProtectedCount = protectedCount;
-        _pendingAtMs = Win32.GetTime();
+        _pendingAtMs = asOfMs;
         _lastBeepStartMs = _pendingAtMs + _pendingOffsetsMs.Max();
 
         _pendingGeneration = ++_writeGeneration;
@@ -359,7 +371,8 @@ public sealed class BeepPlayer : IDisposable
         {
             if (_pendingOffsetsMs is not { } offsets || _pendingGeneration != _writeGeneration) return;
 
-            double elapsedMs = Win32.GetTime() - _pendingAtMs;
+            double nowMs = Win32.GetTime();
+            double elapsedMs = nowMs - _pendingAtMs;
 
             var shifted = new List<double>(offsets.Length);
             int protectedCount = 0;
@@ -375,7 +388,7 @@ public sealed class BeepPlayer : IDisposable
 
             if (shifted.Count == 0) return;
 
-            WriteSchedule(shifted, protectedCount);
+            WriteSchedule(shifted, protectedCount, nowMs);
         }
     }
 
@@ -448,8 +461,34 @@ public sealed class BeepPlayer : IDisposable
         }
 
         output.DeviceChanged += OnDeviceChanged;
+        output.KeepAwake = _keepAwake;
         _output = output;
+        OpenGeneration++;
+
+        if (_keepAwake && output is WasapiOutput)
+        {
+            const string line = "audio: keeping the device awake - an inaudible signal under the silence";
+            _openReport.Add(line);
+            _log(line);
+        }
     }
+
+    public bool KeepAwake
+    {
+        get => _keepAwake;
+        set
+        {
+            lock (_lock)
+            {
+                _keepAwake = value;
+                if (_output != null) _output.KeepAwake = value;
+            }
+        }
+    }
+
+    private bool _keepAwake;
+
+    public int OpenGeneration { get; private set; }
 
     private void OnDeviceChanged()
     {

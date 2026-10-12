@@ -43,7 +43,8 @@ public static class DriftMonitor
     }
 
     public static bool Trusted
-        => MeasuredSpanSeconds >= MinimumTrustedSpan.TotalSeconds && IsPlausible(Measured);
+        => MeasuredSpanSeconds >= MinimumTrustedSpan.TotalSeconds && IsPlausible(Measured)
+            && Math.Abs(ToPpm(Measured)) <= RunMaxPpm;
 
     public static double RunSpanSeconds
     {

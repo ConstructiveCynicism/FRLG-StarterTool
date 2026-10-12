@@ -10,6 +10,13 @@ public static class AudioSetup
     private static readonly Regex Output = new(
         @"audio: output (\S+)", RegexOptions.CultureInvariant);
 
+    private static readonly Regex Aligned = new(
+        @"audio: written .*, aligned [\d.]+ ms early", RegexOptions.CultureInvariant);
+
+    public const string AlignedSuffix = " aligned";
+
+    public const string AlignedLine = "audio: written 0.0 ms after arm, aligned 0.0 ms early";
+
     public static bool Read(string line, ref string? device, ref string? output)
     {
         if (Device.Match(line) is { Success: true } d)
@@ -21,6 +28,11 @@ public static class AudioSetup
         if (Output.Match(line) is { Success: true } o)
         {
             output = o.Groups[1].Value;
+            return true;
+        }
+        if (Aligned.IsMatch(line))
+        {
+            if (output?.EndsWith(AlignedSuffix, StringComparison.Ordinal) != true) output += AlignedSuffix;
             return true;
         }
         return false;

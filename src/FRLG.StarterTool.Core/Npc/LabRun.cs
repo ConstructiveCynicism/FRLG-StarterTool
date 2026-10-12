@@ -369,8 +369,8 @@ public static class LabRun
             if (opens <= LiveHorizonFrames) boundaries.Add(opens);
             if (e.Kind == NpcEventKind.Step)
             {
-                int end = e.Frame + ObjectEventSim.NormalWalkFrames;
-                if (end <= LiveHorizonFrames) boundaries.Add(end);
+                int settled = e.Frame + ObjectEventSim.NormalWalkFrames + 1;
+                if (settled <= LiveHorizonFrames) boundaries.Add(settled);
             }
         }
         return boundaries;
@@ -388,9 +388,9 @@ public static class LabRun
             if (opens > RouteTimeline.LabObservableFrames) boundaries.Add(opens);
             if (e.Kind == NpcEventKind.Step)
             {
-                int end = e.Frame + ObjectEventSim.NormalWalkFrames;
-                if (end > RouteTimeline.LabObservableFrames && end <= AdapterMaxWindowFrames)
-                    boundaries.Add(end);
+                int settled = e.Frame + ObjectEventSim.NormalWalkFrames + 1;
+                if (settled > RouteTimeline.LabObservableFrames && settled <= AdapterMaxWindowFrames)
+                    boundaries.Add(settled);
             }
         }
 
@@ -562,8 +562,9 @@ public sealed class LabTracker
     {
         int reach = ReachTarget(Target);
         _likelihoods.Clear();
+
         _likelihoods.AddRange(Rank(_all, _gapMs, _fps, _contextMs, _fenceBelief,
-            member => LabRun.WindowPrior(member, reach)));
+            BallMeasured ? null : member => LabRun.WindowPrior(member, reach)));
     }
 
     private void KeepReachable(int targetAdvances)

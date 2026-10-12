@@ -1576,7 +1576,11 @@ public partial class MainForm : Form
         int index = ListViewResults.SelectedIndices[0];
         if (index < 0 || index >= _results.Count) return;
 
-        if (!_reportingLanding) StarterTool.VariableOffset?.SetFrame(_results[index].Frame);
+        if (!_reportingLanding)
+        {
+            StarterTool.VariableOffset?.SetFrame(
+                RangeSearch.AimFrame(_results, index, StarterTool.Context.StreamStep));
+        }
         UpdateStatBoxes();
     }
 

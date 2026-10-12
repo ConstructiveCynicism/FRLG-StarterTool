@@ -27,7 +27,17 @@ internal sealed class WasapiOutput : IBeepOutput
 
     private long _totalFedFrames;
     private long _anchorFrames;
+
+    private long _delayReadFedFrames = -1;
+    private int _skipBytes;
     private ulong _clockFrequency;
+
+    private double _lastFillMs = double.NaN;
+    private double _starvedLoggedMs = double.NegativeInfinity;
+    private int _starvedUnlogged;
+    private double _starvedUnloggedMs;
+
+    private const double StarvedLogIntervalMs = 5000.0;
 
     private DeviceWatch? _watch;
     private volatile bool _needsReopen;
@@ -372,6 +382,7 @@ internal sealed class WasapiOutput : IBeepOutput
                         if (_clock != null)
                         {
                             double now = Win32.GetTime();
+                            SampleClockRate(now);
                             if (double.IsNaN(baseClock))
                             {
                                 if (now - startedMs >= ValidateSettleMs)
@@ -410,6 +421,9 @@ internal sealed class WasapiOutput : IBeepOutput
     private void Fill()
     {
         Check(_client.GetCurrentPadding(out uint padding));
+        double nowMs = Win32.GetTime();
+        if (padding == 0 && _totalFedFrames > 0) NoteStarved(nowMs);
+        _lastFillMs = nowMs;
         if (padding >= _targetFrames) return;
         uint frames = _targetFrames - padding;
 
@@ -420,7 +434,8 @@ internal sealed class WasapiOutput : IBeepOutput
         uint flags = 0;
         if (copyFrames <= 0)
         {
-            flags = BufferFlagSilent;
+            if (_keepAwake) Zero(data, (int)frames * _mix.BytesPerFrame);
+            else flags = BufferFlagSilent;
         }
         else if (_mix.IsOwn)
         {
@@ -437,10 +452,145 @@ internal sealed class WasapiOutput : IBeepOutput
             if (rest > 0) Zero(data + written, rest);
         }
 
+        if (_keepAwake) AddKeepAwake(data, (int)frames);
+
         Check(_render.ReleaseBuffer(frames, flags));
 
         _totalFedFrames += frames;
         if (copyFrames > 0) _sourceFrame += copyFrames * _mix.SourceStep;
+    }
+
+    public double ClockRatio
+    {
+        get { lock (_lock) return _clockRatio; }
+    }
+
+    private double _clockRatio = 1.0;
+    private double _clockRatioLoggedPpm = double.NaN;
+    private double _rateNextMs;
+    private double _rateFromMs = double.NaN;
+
+    private const double RateSettleMs = 15000.0;
+    private readonly List<(double ToolMs, double DeviceMs)> _rateSamples = new();
+
+    private const double RateSampleMs = 1000.0;
+    private const int RateWindow = 600;
+
+    private const double RateMinSpanMs = 30000.0;
+
+    private const double RateMaxPpm = 1000.0;
+
+    private void SampleClockRate(double nowMs)
+    {
+        if (double.IsNaN(_rateFromMs)) _rateFromMs = nowMs + RateSettleMs;
+        if (nowMs < _rateFromMs || nowMs < _rateNextMs || _clockFrequency == 0) return;
+        _rateNextMs = nowMs + RateSampleMs;
+        if (_clock!.GetPosition(out ulong position, out ulong qpcPosition) < 0 || qpcPosition == 0) return;
+
+        double toolMs = Win32.SystemRelativeToMs(TimeSpan.FromTicks((long)qpcPosition));
+        double deviceMs = position * 1000.0 / _clockFrequency;
+        _rateSamples.Add((toolMs, deviceMs));
+        if (_rateSamples.Count > RateWindow) _rateSamples.RemoveAt(0);
+        if (_rateSamples[^1].ToolMs - _rateSamples[0].ToolMs < RateMinSpanMs) return;
+
+        double meanT = 0, meanD = 0;
+        foreach (var (t, d) in _rateSamples) { meanT += t; meanD += d; }
+        meanT /= _rateSamples.Count; meanD /= _rateSamples.Count;
+        double num = 0, den = 0;
+        foreach (var (t, d) in _rateSamples) { num += (t - meanT) * (d - meanD); den += (t - meanT) * (t - meanT); }
+        if (den <= 0) return;
+        double ratio = num / den;
+        double ppm = (ratio - 1.0) * 1e6;
+        if (double.IsNaN(ppm) || Math.Abs(ppm) > RateMaxPpm) return;
+
+        _clockRatio = ratio;
+        if (double.IsNaN(_clockRatioLoggedPpm) || Math.Abs(ppm - _clockRatioLoggedPpm) >= 5.0)
+        {
+            _clockRatioLoggedPpm = ppm;
+            _log(string.Format(CultureInfo.InvariantCulture,
+                "audio: the device clock runs {0:+0.0;-0.0} ppm against the tool's (over {1:F0} s) - beeps placed to match",
+                ppm, (_rateSamples[^1].ToolMs - _rateSamples[0].ToolMs) / 1000.0));
+        }
+    }
+
+    public bool KeepAwake
+    {
+        get => _keepAwake;
+        set => _keepAwake = value;
+    }
+
+    private volatile bool _keepAwake;
+
+    private const int KeepAwakeSteps = 4;
+
+    private unsafe void AddKeepAwake(IntPtr data, int frames)
+    {
+        int channels = _mix.IsOwn ? BeepPlayer.NumChannels : _mix.Channels;
+        bool positive = (_totalFedFrames & 1) == 0;
+        byte* p = (byte*)data;
+
+        for (int frame = 0; frame < frames; frame++, positive = !positive)
+        {
+            int sign = positive ? 1 : -1;
+            for (int channel = 0; channel < channels; channel++)
+            {
+                if (_mix.IsOwn || (!_mix.IsFloat && _mix.BitsPerSample == 16))
+                {
+                    short* s = (short*)p;
+                    *s = (short)Math.Clamp(*s + sign * KeepAwakeSteps, short.MinValue, short.MaxValue);
+                    p += 2;
+                }
+                else if (_mix.IsFloat)
+                {
+                    float* f = (float*)p;
+                    *f += sign * KeepAwakeSteps / 32768f;
+                    p += 4;
+                }
+                else if (_mix.BitsPerSample == 24)
+                {
+                    int value = p[0] | (p[1] << 8) | ((sbyte)p[2] << 16);
+                    value = Math.Clamp(value + sign * (KeepAwakeSteps << 8), -8388608, 8388607);
+                    p[0] = (byte)value;
+                    p[1] = (byte)(value >> 8);
+                    p[2] = (byte)(value >> 16);
+                    p += 3;
+                }
+                else
+                {
+                    int* i = (int*)p;
+                    *i = (int)Math.Clamp((long)*i + sign * ((long)KeepAwakeSteps << 16), int.MinValue, int.MaxValue);
+                    p += 4;
+                }
+            }
+        }
+    }
+
+    private void NoteStarved(double nowMs)
+    {
+        if (double.IsNaN(_lastFillMs)) return;
+        double gapMs = nowMs - _lastFillMs - _mix.FramesToMs(_targetFrames);
+        if (gapMs < 1.0) return;
+
+        if (nowMs - _starvedLoggedMs < StarvedLogIntervalMs)
+        {
+            _starvedUnlogged++;
+            _starvedUnloggedMs += gapMs;
+            return;
+        }
+
+        string earlier = _starvedUnlogged > 0
+            ? string.Format(CultureInfo.InvariantCulture, " (and {0} more since the last line, {1:F0} ms in all)", _starvedUnlogged, _starvedUnloggedMs)
+            : "";
+        string countdown = Playing()
+            ? " - mid-countdown, so the beeps left in it sound that much late"
+            : "";
+        _log(string.Format(CultureInfo.InvariantCulture,
+            "audio: the feed ran dry - no fill for {0:F1} ms, the engine about {1:F1} ms without{2}{3}",
+            nowMs - _lastFillMs, gapMs, countdown, earlier));
+
+        _starvedLoggedMs = nowMs;
+        _starvedUnlogged = 0;
+        _starvedUnloggedMs = 0.0;
     }
 
     private (double clock, double pull) ClockAndPull()
@@ -517,7 +667,7 @@ internal sealed class WasapiOutput : IBeepOutput
         }
     }
 
-    public bool Write(byte[] pcm, int length)
+    public bool Write(byte[] pcm, int length, int skippableBytes = 0)
     {
         lock (_lock)
         {
@@ -526,7 +676,20 @@ internal sealed class WasapiOutput : IBeepOutput
             _pcm = pcm;
             _pcmLength = Math.Clamp(length, 0, pcm.Length);
             _sourceFrame = 0;
+            _skipBytes = 0;
             _anchorFrames = _totalFedFrames;
+
+            if (skippableBytes > 0 && _delayReadFedFrames >= 0 && _totalFedFrames > _delayReadFedFrames)
+            {
+                long late = _totalFedFrames - _delayReadFedFrames;
+                int skipFrames = (int)Math.Min(late * _mix.SourceStep, skippableBytes / BytesPerFrame);
+                _sourceFrame = skipFrames;
+                _skipBytes = skipFrames * BytesPerFrame;
+                _log(string.Format(CultureInfo.InvariantCulture,
+                    "audio: the feed topped up between the clock read and the write - {0:F1} ms of lead-in skipped so the beeps keep their place",
+                    _mix.FramesToMs((uint)late)));
+            }
+            _delayReadFedFrames = -1;
 
             try
             {
@@ -546,6 +709,7 @@ internal sealed class WasapiOutput : IBeepOutput
     {
         lock (_lock)
         {
+            _delayReadFedFrames = -1;
             if (!IsOpen || _clock == null || _clockFrequency == 0) return double.NaN;
             if (_clock.GetPosition(out ulong position, out ulong qpcPosition) < 0) return double.NaN;
 
@@ -559,6 +723,8 @@ internal sealed class WasapiOutput : IBeepOutput
             }
 
             double delayMs = aheadMs - staleMs;
+
+            _delayReadFedFrames = _totalFedFrames;
 
             double limitMs = _mix.FramesToMs(_bufferFrames) + _periodMs * 2.0;
             if (double.IsNaN(delayMs) || delayMs < 0.0 || delayMs > limitMs) return double.NaN;
@@ -597,7 +763,7 @@ internal sealed class WasapiOutput : IBeepOutput
 
             double relative = playedFrames - _anchorFrames;
             if (relative <= 0) return 0;
-            long bytes = (long)(relative * _mix.SourceStep) * BytesPerFrame;
+            long bytes = (long)(relative * _mix.SourceStep) * BytesPerFrame + _skipBytes;
             return (int)Math.Min(bytes, _pcmLength);
         }
     }

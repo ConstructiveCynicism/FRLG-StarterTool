@@ -454,7 +454,21 @@ public sealed class SettingsForm : Form
         };
         Controls.Add(alignStart);
 
-        y = alignStart.Bottom + Scaled(SectionGap);
+        var keepAwake = new ThemedCheckBox
+        {
+            Text = "Keep the device awake between beeps",
+            Location = new Point(Scaled(LeftMargin), alignStart.Bottom + Scaled(RowGap)),
+            AutoSize = true,
+            Checked = _settings.AudioKeepAwake
+        };
+        keepAwake.CheckedChanged += (_, _) =>
+        {
+            _settings.AudioKeepAwake = keepAwake.Checked;
+            StarterTool.Beeps.KeepAwake = keepAwake.Checked;
+        };
+        Controls.Add(keepAwake);
+
+        y = keepAwake.Bottom + Scaled(SectionGap);
         Label inputHeader = AddSectionHeader("Input", y);
         y = inputHeader.Bottom + Scaled(RowGap);
 

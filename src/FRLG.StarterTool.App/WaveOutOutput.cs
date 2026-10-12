@@ -91,7 +91,7 @@ internal sealed class WaveOutOutput : IBeepOutput
         remove { }
     }
 
-    public bool Write(byte[] pcm, int length)
+    public bool Write(byte[] pcm, int length, int skippableBytes = 0)
     {
         length = Math.Clamp(length, 0, pcm.Length);
         lock (_lock)

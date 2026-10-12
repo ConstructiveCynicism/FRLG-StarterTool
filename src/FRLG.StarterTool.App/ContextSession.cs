@@ -49,9 +49,15 @@ public sealed class ContextSession
 
     private List<Task<FenceTracker>>? _salvageBuilds;
 
-    private readonly Queue<Action> _salvageQueue = new();
+    private readonly Queue<(Action Run, Action Cancel)> _salvageQueue = new();
 
-    private Thread? _salvageThread;
+    private int _salvageWorkers;
+
+    private int _salvageWorkerLimit = 1;
+
+    private readonly List<FenceInput> _pendingTaps = new();
+
+    private int _salvageTicket;
 
     private readonly object _salvageGate = new();
 
@@ -300,7 +306,13 @@ public sealed class ContextSession
         _salvageBuilds = null;
         _salvageStages = null;
         _salvageBuilder = null;
-        lock (_salvageGate) _salvageQueue.Clear();
+        lock (_salvageGate)
+        {
+            while (_salvageQueue.Count > 0) _salvageQueue.Dequeue().Cancel();
+            _salvageWorkerLimit = 1;
+        }
+        _pendingTaps.Clear();
+        _salvageTicket++;
         _adviceLogged = null;
         _hit = false;
         _unpressed = false;
@@ -517,9 +529,10 @@ public sealed class ContextSession
         int alive = Tracker.Tap(direction, elapsedMs);
 
         string? salvaged = null;
+        bool searching = false;
         if (Tracker.LastTapRefused)
         {
-            salvaged = SalvageFence(direction, elapsedMs);
+            salvaged = SalvageFence(direction, elapsedMs, out searching);
             if (salvaged != null) alive = Tracker.Alive.Count;
         }
 
@@ -528,9 +541,11 @@ public sealed class ContextSession
             Directions.Letter(direction), elapsedMs, FrameWindow.LikelyFrame(elapsedMs, fps),
             salvaged != null
                 ? $"fitted nothing, salvaged on {salvaged} (shifts {SurvivingShifts}) - {alive} left"
-                : Tracker.LastTapRefused
-                    ? $"REFUSED, fits nothing, with the stream up to {MaxSalvageShift} off or a PC Potion - {alive} left"
-                    : $"{alive} left"));
+                : searching
+                    ? $"fits nothing yet, searching the shifted streams in the background - {alive} left"
+                    : Tracker.LastTapRefused
+                        ? $"REFUSED, fits nothing, with the stream up to {MaxSalvageShift} off or a PC Potion - {alive} left"
+                        : $"{alive} left"));
 
         Changed?.Invoke(this, EventArgs.Empty);
         return true;
@@ -544,7 +559,19 @@ public sealed class ContextSession
                 && SetLateness(lateness - 1);
         }
 
-        if (Tracker == null || _missed || Tracker.Inputs.Count == 0) return false;
+        if (Tracker == null || _missed) return false;
+
+        if (_pendingTaps.Count > 0)
+        {
+            _pendingTaps.RemoveAt(_pendingTaps.Count - 1);
+            _salvageTicket++;
+            if (_pendingTaps.Count > 0) SalvageLater(Tracker, _salvageStage + 1);
+            Log("undo: the tap being searched for is taken back");
+            Changed?.Invoke(this, EventArgs.Empty);
+            return true;
+        }
+
+        if (Tracker.Inputs.Count == 0) return false;
 
         Tracker.Undo();
         Changed?.Invoke(this, EventArgs.Empty);
@@ -553,7 +580,11 @@ public sealed class ContextSession
 
     public bool Clear()
     {
-        if (Tracker == null || _missed || (Tracker.Inputs.Count == 0 && !Tracker.Complete)) return false;
+        if (Tracker == null || _missed
+            || (Tracker.Inputs.Count == 0 && !Tracker.Complete && _pendingTaps.Count == 0)) return false;
+
+        _pendingTaps.Clear();
+        _salvageTicket++;
 
         _fenceUnfinished = false;
 
@@ -1215,6 +1246,8 @@ public sealed class ContextSession
                 "{0} of {1} left · {2}\r\nSeen: {3}",
                 Tracker.Alive.Count, Tracker.All.Count, totals, tapped);
 
+            if (_pendingTaps.Count > 0) return line + "\r\nLast tap fits nothing yet - searching the shifted streams...";
+
             if (_fenceSalvage != null) return line + "\r\nYour taps fit only with " + _fenceSalvage + ".";
 
             return Tracker.LastTapRefused ? line + "\r\nLast tap fits nothing, however the stream is shifted - ignored." : line;
@@ -1322,6 +1355,8 @@ public sealed class ContextSession
                     $"the stream {shift} advance{(shift == 1 ? "" : "s")} off"));
             }
 
+            if (Math.Abs(pc) <= MaxSalvageShift) return stages;
+
             stages.Add(new SalvageStage(new[] { pc }, "an undeclared PC Potion"));
 
             for (int shift = 1; shift <= MaxSalvageShift; shift++)
@@ -1334,36 +1369,118 @@ public sealed class ContextSession
         }
     }
 
-    private string? SalvageFence(Direction direction, double elapsedMs)
+    private string? SalvageFence(Direction direction, double elapsedMs, out bool searching)
     {
+        searching = false;
         if (Tracker is not { } original || _exitMs is not { } exit || _oakMs is not { } oak) return null;
 
         double configured = StarterTool.Settings?.NpcContextWindowMs ?? 0.0;
-        var inputs = original.Inputs.Append(new FenceInput(direction, elapsedMs)).ToList();
+        var tap = new FenceInput(direction, elapsedMs);
         IReadOnlyList<SalvageStage> stages = _salvageStages ?? SalvageStages;
+
+        if (_pendingTaps.Count > 0)
+        {
+            _pendingTaps.Add(tap);
+            SalvageLater(original, _salvageStage + 1);
+            searching = true;
+            return null;
+        }
+
+        var inputs = original.Inputs.Append(tap).ToList();
 
         for (int stage = _salvageStage + 1; stage < stages.Count; stage++)
         {
-            var clock = System.Diagnostics.Stopwatch.StartNew();
-            FenceTracker shifted = SalvageBuild(stage)?.GetAwaiter().GetResult()
-                ?? BuildFence(exit, oak, configured, stages[stage].Undeclared);
-            if (clock.ElapsedMilliseconds >= 50)
+            Task<FenceTracker>? build = SalvageBuild(stage);
+            FenceTracker shifted;
+            if (build == null)
             {
-                Log(string.Format(CultureInfo.InvariantCulture,
-                    "salvage: waited {1} ms for the field with {0}", stages[stage].How, clock.ElapsedMilliseconds));
+                shifted = BuildFence(exit, oak, configured, stages[stage].Undeclared);
+            }
+            else if (!build.IsCompleted)
+            {
+                _pendingTaps.Add(tap);
+                SalvageLater(original, stage);
+                searching = true;
+                return null;
+            }
+            else if (build.IsCompletedSuccessfully)
+            {
+                shifted = build.Result;
+            }
+            else
+            {
+                continue;
             }
 
-            shifted.Clear();
-            if (shifted.Observe(inputs, original.Complete) == 0) continue;
-
-            Tracker = shifted;
-            _salvageStage = stage;
-            string how = stages[stage].How;
-            _fenceSalvage = _fenceSalvage == null ? how : _fenceSalvage + ", then " + how;
-            return how;
+            if (Adopt(original, shifted, stage, inputs) is { } how) return how;
         }
 
         return null;
+    }
+
+    private string? Adopt(FenceTracker original, FenceTracker shifted, int stage, IReadOnlyList<FenceInput> inputs)
+    {
+        shifted.Clear();
+        if (shifted.Observe(inputs, original.Complete) == 0) return null;
+
+        IReadOnlyList<SalvageStage> stages = _salvageStages ?? SalvageStages;
+        Tracker = shifted;
+        _salvageStage = stage;
+        int pc = RouteTimeline.PcVisitAdvances(_adapter);
+        string how = shifted.Alive.All(c => c.UndeclaredAdvances == pc)
+            ? "an undeclared PC Potion"
+            : stages[stage].How;
+        _fenceSalvage = _fenceSalvage == null ? how : _fenceSalvage + ", then " + how;
+        return how;
+    }
+
+    private void SalvageLater(FenceTracker original, int fromStage)
+    {
+        if (_salvageBuilds == null) return;
+        lock (_salvageGate)
+        {
+            _salvageWorkerLimit = MaxSalvageWorkers;
+        }
+        while (EnqueueSalvageBuild()) { }
+        lock (_salvageGate)
+        {
+            StartSalvageWorkers();
+        }
+
+        int ticket = ++_salvageTicket;
+        var clock = System.Diagnostics.Stopwatch.StartNew();
+        Task[] rungs = _salvageBuilds.Skip(fromStage).Cast<Task>().ToArray();
+
+        Task.WhenAll(rungs).ContinueWith(_ => StarterTool.Post(() =>
+        {
+            if (ticket != _salvageTicket) return;
+            if (Tracker != original || Stage != ContextStage.Fence || _missed || _salvageBuilds == null)
+            {
+                _pendingTaps.Clear();
+                return;
+            }
+
+            var inputs = original.Inputs.Concat(_pendingTaps).OrderBy(i => i.ElapsedMs).ToList();
+            string taps = Directions.Format(_pendingTaps.Select(i => i.Direction));
+            _pendingTaps.Clear();
+
+            string? how = null;
+            for (int stage = fromStage; stage < _salvageBuilds.Count && how == null; stage++)
+            {
+                if (_salvageBuilds[stage].IsCompletedSuccessfully)
+                    how = Adopt(original, _salvageBuilds[stage].Result, stage, inputs);
+            }
+
+            Log(how != null
+                ? string.Format(CultureInfo.InvariantCulture,
+                    "salvage: tap {0} fitted on {1} after {2} ms in the background (shifts {3}) - {4} left",
+                    taps, how, clock.ElapsedMilliseconds, SurvivingShifts, Tracker?.Alive.Count ?? 0)
+                : string.Format(CultureInfo.InvariantCulture,
+                    "salvage: tap {0} REFUSED after {1} ms in the background, fits nothing, with the stream up to {2} off or a PC Potion",
+                    taps, clock.ElapsedMilliseconds, MaxSalvageShift));
+
+            Changed?.Invoke(this, EventArgs.Empty);
+        }), TaskScheduler.Default);
     }
 
     private string SurvivingShifts =>
@@ -1421,7 +1538,7 @@ public sealed class ContextSession
         _salvageBuilds.Add(done.Task);
         lock (_salvageGate)
         {
-            _salvageQueue.Enqueue(() =>
+            _salvageQueue.Enqueue((() =>
             {
                 try
                 {
@@ -1431,21 +1548,28 @@ public sealed class ContextSession
                 {
                     done.SetException(e);
                 }
-            });
+            }, () => done.TrySetCanceled()));
 
-            if (_salvageThread is not { IsAlive: true })
-            {
-                _salvageThread = new Thread(RunSalvageQueue)
-                {
-                    IsBackground = true,
-                    Name = "SalvageBuild",
-                    Priority = ThreadPriority.Lowest
-                };
-                _salvageThread.Start();
-            }
+            StartSalvageWorkers();
         }
         return true;
     }
+
+    private void StartSalvageWorkers()
+    {
+        while (_salvageWorkers < _salvageWorkerLimit && _salvageWorkers < _salvageQueue.Count)
+        {
+            _salvageWorkers++;
+            new Thread(RunSalvageQueue)
+            {
+                IsBackground = true,
+                Name = "SalvageBuild",
+                Priority = ThreadPriority.Lowest
+            }.Start();
+        }
+    }
+
+    private static readonly int MaxSalvageWorkers = Math.Max(1, Environment.ProcessorCount / 4);
 
     private void RunSalvageQueue()
     {
@@ -1453,18 +1577,18 @@ public sealed class ContextSession
 
         while (true)
         {
-            Action build;
+            (Action Run, Action Cancel) build;
             lock (_salvageGate)
             {
                 if (_salvageQueue.Count == 0)
                 {
-                    _salvageThread = null;
+                    _salvageWorkers--;
                     return;
                 }
                 build = _salvageQueue.Dequeue();
             }
 
-            build();
+            build.Run();
         }
     }
 

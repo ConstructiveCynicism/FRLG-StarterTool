@@ -385,6 +385,8 @@ public sealed class AppSettings
 
     public bool AudioAlignStart { get; set; }
 
+    public bool AudioKeepAwake { get; set; }
+
     public string AudioOutputDevice { get; set; } = "";
 
     public Dictionary<string, double> AudioDevicePeriods { get; set; } = new();

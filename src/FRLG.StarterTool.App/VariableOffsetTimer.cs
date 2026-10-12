@@ -459,7 +459,7 @@ public sealed class VariableOffsetTimer : BaseTimer
         bool encounterStopped = _encounter != null;
         if (_encounter != null) StopEncounterRun();
 
-        if (!StarterTool.TimerExpired) _encounterDone = false;
+        if (!encounterStopped || !StarterTool.TimerExpired) _encounterDone = false;
 
         Submitted = false;
         Adjusted = 0.0;
@@ -1119,7 +1119,7 @@ public sealed class VariableOffsetTimer : BaseTimer
             ? ArmRemaining(full, finalBeepMs, beepsPlayed)
             : Array.Empty<double>();
 
-        QueueAudio(schedule);
+        QueueAudio(schedule, elapsedMs);
 
         double audioLagMs = Win32.GetTime() - (StarterTool.TimerStart + elapsedMs);
         _audioStartPending = schedule.Length > 0;
@@ -1190,12 +1190,13 @@ public sealed class VariableOffsetTimer : BaseTimer
         return times;
     }
 
-    private void QueueAudio(IReadOnlyList<double> countdown)
+    private void QueueAudio(IReadOnlyList<double> countdown, double elapsedMs)
     {
-        double[] cue = CueSchedule();
+        double asOfMs = StarterTool.TimerStart + elapsedMs;
+        double[] cue = CueSchedule(elapsedMs);
         if (cue.Length == 0)
         {
-            StarterTool.Beeps.QueueBeeps(countdown);
+            StarterTool.Beeps.QueueBeeps(countdown, 0, asOfMs);
             return;
         }
 
@@ -1203,24 +1204,24 @@ public sealed class VariableOffsetTimer : BaseTimer
         both.AddRange(cue);
         both.AddRange(countdown);
 
-        StarterTool.Beeps.QueueBeeps(both, cue.Length);
+        StarterTool.Beeps.QueueBeeps(both, cue.Length, asOfMs);
     }
 
     private void QueueCueOnly()
     {
-        double[] cue = CueSchedule();
+        double elapsedMs = Win32.GetTime() - StarterTool.TimerStart;
+        double[] cue = CueSchedule(elapsedMs);
 
-        if (cue.Length > 0) StarterTool.Beeps.QueueBeeps(cue, cue.Length);
+        if (cue.Length > 0) StarterTool.Beeps.QueueBeeps(cue, cue.Length, StarterTool.TimerStart + elapsedMs);
         else StarterTool.Beeps.ClearPending();
     }
 
-    private double[] CueSchedule()
+    private double[] CueSchedule(double elapsedMs)
     {
         if (!_form.CheckBoxBeepEnabled.Checked) return Array.Empty<double>();
         if (StarterTool.Context.CuePressMs is not { } cue) return Array.Empty<double>();
         if (ParseScheduleInputs(out VariableInfo info) != TimerError.NoError) return Array.Empty<double>();
 
-        double elapsedMs = Win32.GetTime() - StarterTool.TimerStart;
         double finalBeepMs = cue + VariableOffsetCalculator.TidLagFrames / info.Fps * 1000.0
             + info.Offset - elapsedMs;
 
@@ -1266,14 +1267,15 @@ public sealed class VariableOffsetTimer : BaseTimer
             : "";
 
         ContextSession.Log(string.Format(CultureInfo.InvariantCulture,
-            "audio: written {0:F1} ms after arm (buffer {1:F1} ms of it), timer resolution {2:F2} ms, window {3}{4}, output {5}{6}",
+            "audio: written {0:F1} ms after arm (buffer {1:F1} ms of it, {7:F1} ms taken off), timer resolution {2:F2} ms, window {3}{4}, output {5}{6}",
             audioLagMs,
             StarterTool.Beeps.LastWriteLagMs,
             Win32.CurrentTimerResolutionMs(),
             Win32.IsForeground(handle) ? "foreground" : "background",
             Win32.IsMinimized(handle) ? ", minimised" : "",
             StarterTool.Beeps.OutputDescription,
-            aligned));
+            aligned,
+            StarterTool.Beeps.LastRebasedMs));
     }
 
     private void LogAudioStart()
@@ -1284,7 +1286,18 @@ public sealed class VariableOffsetTimer : BaseTimer
         _audioStartPending = false;
         ContextSession.Log(string.Format(CultureInfo.InvariantCulture,
             "audio: device started {0:F1} ms after the write", latencyMs));
+
+        int generation = StarterTool.Beeps.OpenGeneration;
+        if (generation != _latencyWatchGeneration)
+        {
+            _latencyWatch.Reset();
+            _latencyWatchGeneration = generation;
+        }
+        if (_latencyWatch.Add(latencyMs) is { } note) ContextSession.Log("audio: " + note);
     }
+
+    private readonly StartLatencyWatch _latencyWatch = new();
+    private int _latencyWatchGeneration = -1;
 
     private void LogLanding(double elapsedMs, double deltaMs, int? landedFrame, double chance, double pressLagMs)
     {

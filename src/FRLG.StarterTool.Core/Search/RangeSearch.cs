@@ -167,7 +167,11 @@ public static class RangeSearch
         {
             if (!Listable(frame, winner, ranges, nonBackup, frames)) continue;
 
-            var pkm = new PokemonMethod1(new Seed(seed), frame) { RangeIndex = winner };
+            var pkm = new PokemonMethod1(new Seed(seed), frame)
+            {
+                RangeIndex = winner,
+                Backup = !nonBackup.Contains(frame),
+            };
             kept.Add(pkm);
         }
 
@@ -255,7 +259,11 @@ public static class RangeSearch
         if (ranges.Count == 1)
         {
             AllSeedSearchResult single = AllSeedSearch.Search(ranges[0].Filter, limit, cancellationToken);
-            foreach (PokemonRng row in single.Matches) row.RangeIndex = 0;
+            foreach (PokemonRng row in single.Matches)
+            {
+                row.RangeIndex = 0;
+                row.Backup = ranges[0].Backup;
+            }
             return single;
         }
 
@@ -302,6 +310,7 @@ public static class RangeSearch
 
                 PokemonRng pkm = seedRows[frame];
                 pkm.RangeIndex = index;
+                pkm.Backup = !seedNonBackup.Contains(frame);
                 merged.Add(pkm);
             }
         }
@@ -326,6 +335,29 @@ public static class RangeSearch
         }
 
         return SeedOdds.CalculateAny(counted, cancellationToken);
+    }
+
+    public static int AimFrame(IReadOnlyList<PokemonRng> rows, int index, int step = 1)
+    {
+        PokemonRng picked = rows[index];
+        if (!picked.Backup) return picked.Frame;
+
+        step = Math.Max(step, 1);
+        var frames = new HashSet<int>();
+        foreach (PokemonRng row in rows)
+        {
+            if (row.Seed == picked.Seed) frames.Add(row.Frame);
+        }
+
+        int low = picked.Frame;
+        int high = picked.Frame;
+        while (frames.Contains(low - step)) low -= step;
+        while (frames.Contains(high + step)) high += step;
+
+        int count = (high - low) / step + 1;
+        int below = (picked.Frame - low) / step;
+        int middle = count % 2 == 1 || below >= count / 2 ? count / 2 : count / 2 - 1;
+        return low + middle * step;
     }
 
     private static bool Listable(

@@ -6,11 +6,15 @@ internal interface IBeepOutput : IDisposable
 
     string Description { get; }
 
+    bool KeepAwake { get => false; set { } }
+
+    double ClockRatio => 1.0;
+
     bool NeedsReopen { get; }
 
     event Action? DeviceChanged;
 
-    bool Write(byte[] pcm, int length);
+    bool Write(byte[] pcm, int length, int skippableBytes = 0);
 
     double StartDelayMs();
 

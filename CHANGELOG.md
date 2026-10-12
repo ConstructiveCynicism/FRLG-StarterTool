@@ -1,4 +1,12 @@
-﻿### v2.4.5
+﻿### v2.4.6
+- finished fixing performance bugs from anchors
+- efficiency mode is undone and logged
+- aiming for a backup on a cluster aims for the middle of the cluser (will figure out other cluster logic at some point)
+- setting for my cheap usb adapter to not shutoff lmao
+- log audio latency shifts
+- remove some false positives for PC potion
+
+### v2.4.5
 - Fixed performance bug on anchor 2
 
 ### v2.4.4

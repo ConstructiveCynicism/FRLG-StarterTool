@@ -13,7 +13,8 @@ public static class StarterTool
     public static MainForm MainForm = null!;
     public static BeepPlayer Beeps = null!;
 
-    public static string? CurrentAudioSetup => Beeps == null ? null : AudioSetup.Parse(Beeps.OpenReport);
+    public static string? CurrentAudioSetup => Beeps == null ? null
+        : AudioSetup.Parse(Beeps.LastStartShiftMs > 0.0 ? Beeps.OpenReport.Append(AudioSetup.AlignedLine) : Beeps.OpenReport);
 
     internal static readonly Capture.CaptureSession Capture = new();
     public static VariableOffsetTimer VariableOffset = null!;
@@ -134,6 +135,7 @@ public static class StarterTool
                 Settings.AudioDevicePeriods[id] = ms;
             }
         });
+        Beeps.KeepAwake = Settings.AudioKeepAwake;
         Beeps.Configure(Settings.AudioOutput, Settings.AudioPeriodMs, Settings.AudioAlignStart, Settings.AudioOutputDevice);
         VoiceInput.Apply(Settings);
         VariableOffset = new VariableOffsetTimer(mainForm);
@@ -745,10 +747,21 @@ public static class StarterTool
         _timerUpdateThread.Start();
 
         string before = Win32.CurrentPriority();
+        string throttledBefore = Win32.Throttling();
         string now = Settings.HighPriority ? Win32.SetHighPriority(true) : before;
-        ContextSession.Log(before == now
+        Win32.OptOutOfThrottling();
+        string throttledNow = Win32.Throttling();
+        ContextSession.Log((before == now
             ? $"priority: {now}"
-            : $"priority: {now} (was {before}, put back)");
+            : $"priority: {now} (was {before}, put back)")
+            + (throttledBefore == throttledNow
+                ? $", throttling {throttledNow}"
+                : $", throttling {throttledNow} (was {throttledBefore}, put back)"));
+
+        if (throttledBefore == "on")
+        {
+            ContextSession.Log("THROTTLED START: the start press came in under efficiency mode - this run's start stamp is suspect");
+        }
 
         foreach (string line in Beeps.OpenReport) ContextSession.Log(line);
     }
