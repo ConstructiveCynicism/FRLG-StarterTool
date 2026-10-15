@@ -91,7 +91,7 @@ jobs:
         subject-path: src/FRLG.StarterTool.App/bin/publish/win-x64/FRLGStarterTool.exe
 
     - name: Upload build artifact
-      uses: actions/upload-artifact@v4
+      uses: actions/upload-artifact@v7
       with:
         name: FRLGStarterTool-${{ github.ref_name }}
         path: |
