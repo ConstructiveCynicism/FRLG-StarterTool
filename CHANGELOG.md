@@ -1,4 +1,7 @@
-﻿### v2.4.8
+### v2.4.9
+- Updated CI bugs
+
+### v2.4.8
 - Updater added (notifications and in-tool updates)
 
 ### v2.4.7
