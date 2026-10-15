@@ -93,6 +93,6 @@ jobs:
 
     - name: Attest the test build
       if: github.event_name != 'pull_request'
-      uses: actions/attest-build-provenance@v2
+      uses: actions/attest-build-provenance@v4
       with:
         subject-path: src/FRLG.StarterTool.App/bin/publish/win-x64/FRLGStarterTool.exe
