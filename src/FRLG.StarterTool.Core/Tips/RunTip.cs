@@ -19,6 +19,8 @@ public static class RunTip
 
     public const double ConsoleContextWindowMs = 10.0;
 
+    public const int FpsTipAttempts = 3;
+
     public const double ReviveTipFromMinutes = 30.0;
 
     public const double ReviveTipToMinutes = 120.0;
@@ -76,6 +78,11 @@ public static class RunTip
         if (facts.ContextWindowMs < ConsoleContextWindowMs)
         {
             tips.Add("On Console, its recommend to increase Context Window to at least 10ms");
+        }
+
+        if (facts.NonDefaultFps && facts.Attempts >= FpsTipAttempts)
+        {
+            tips.Add("Not on 59.7275 fps - double check it. A wrong fps looks like needing more delay");
         }
 
         if (facts.DefaultWindowSize)

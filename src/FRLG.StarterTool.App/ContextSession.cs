@@ -105,7 +105,7 @@ public sealed class ContextSession
             if (_tracking == value) return;
 
             _tracking = value;
-            Reset();
+            Changed?.Invoke(this, EventArgs.Empty);
         }
     }
 
@@ -154,7 +154,7 @@ public sealed class ContextSession
     private int Reach(int frame) => Lab?.ReachTarget(frame) ?? frame - _postLabAdvances;
 
     public bool NudgesAreAdvances =>
-        _adapter && _tracking && _armed && Stage == ContextStage.Lab && _labMs != null;
+        _adapter && _armed && Stage == ContextStage.Lab && _labMs != null;
 
     public bool NudgeAdvances(int frames)
     {
@@ -164,12 +164,12 @@ public sealed class ContextSession
 
     private bool Declare(string what, int shift, bool anyStage = false)
     {
-        if (anyStage && _tracking && _armed && _oakMs != null)
+        if (anyStage && _armed && _oakMs != null)
         {
             return DeclareLate(what, shift);
         }
 
-        if (!_tracking || !_armed || _missed || _oakMs != null
+        if (!_armed || _missed || _oakMs != null
             || StarterTool.VariableOffset is not { } timer)
         {
             Log(string.Format(CultureInfo.InvariantCulture,
@@ -216,7 +216,7 @@ public sealed class ContextSession
     public bool Adapter => _armed ? _adapter : StarterTool.Settings?.NpcAdapter ?? false;
 
     public RouteAnchor? NextAnchor =>
-        !_tracking || !_armed || _missed || !StarterTool.IsTimerRunning ? null
+        !_armed || _missed || !StarterTool.IsTimerRunning ? null
         : _exitMs == null ? RouteAnchor.ExitHouse
         : _oakMs == null ? RouteAnchor.CloseOakText
         : _labMs == null ? RouteAnchor.CloseLabText
@@ -253,7 +253,7 @@ public sealed class ContextSession
     {
         get
         {
-            if (!_tracking || !_armed || _missed || _labMs != null
+            if (!_armed || _missed || _labMs != null
                 || !StarterTool.IsTimerRunning) return null;
             if (StarterTool.Settings is not { NpcCuedLabPress: true } settings) return null;
             if (_oakMs is not { } oak) return null;
@@ -366,7 +366,7 @@ public sealed class ContextSession
 
     public bool MarkNextAnchor(double pressTimeMs)
     {
-        if (!_tracking || !_armed || _missed || !StarterTool.IsTimerRunning) return false;
+        if (!_armed || _missed || !StarterTool.IsTimerRunning) return false;
 
         double elapsedMs = pressTimeMs - StarterTool.TimerStart;
 
@@ -491,7 +491,7 @@ public sealed class ContextSession
 
     public void TimerStopped()
     {
-        if (!_tracking || !_armed) return;
+        if (!_armed) return;
 
         Changed?.Invoke(this, EventArgs.Empty);
     }
@@ -803,6 +803,11 @@ public sealed class ContextSession
             : Adapter && !_missed ? RouteTimeline.AdapterPlainAdvances(countdownFrame)
             : null);
 
+    public const double SplitLandingShare = 0.25;
+
+    public IReadOnlyList<(int Advances, double Share)> SplitLandings(int countdownFrame) =>
+        Lab?.SplitLandings(countdownFrame, SplitLandingShare) ?? Array.Empty<(int, double)>();
+
     public int StreamStep => Lab?.Focused?.Representative.Rate
         ?? RouteTimeline.AdvancesPerFrame(Adapter);
 
@@ -845,7 +850,7 @@ public sealed class ContextSession
                 "target {0} is back on the ball's parity - the instruction taken as obeyed", after));
     }
 
-    public bool CanMiss => _tracking && _armed && !_hit && !_missed && Stage != ContextStage.Lab;
+    public bool CanMiss => _armed && !_hit && !_missed && Stage != ContextStage.Lab;
 
     public bool Miss(bool automatic = false)
     {
@@ -947,7 +952,7 @@ public sealed class ContextSession
 
     public bool Unpressed()
     {
-        if (!_tracking || !_armed || _hit || _unpressed || _missed) return false;
+        if (!_armed || _hit || _unpressed || _missed) return false;
         if (Stage != ContextStage.Lab) return false;
 
         _unpressed = true;
@@ -1103,6 +1108,9 @@ public sealed class ContextSession
 
             CuedLabPress = settings.NpcCuedLabPress,
             ContextWindowMs = settings.NpcContextWindowMs,
+            NonDefaultFps = timer is { Generic: false }
+                && Math.Abs(timer.SelectedFps - double.Parse(VariableOffsetTimer.DefaultFps,
+                    CultureInfo.InvariantCulture)) > 1e-6,
             DefaultWindowSize = settings.ZoomPercent == 100,
             DefaultStatBoxColors = settings.StatBoxColorsAreDefault,
             OffsetsShared = timer?.OffsetsShared ?? false,
@@ -1140,7 +1148,7 @@ public sealed class ContextSession
     {
         get
         {
-            if (!_tracking) return "";
+            if (!_tracking && !_armed) return "";
 
             if (!_armed) return "Waiting for the timer to start.";
 

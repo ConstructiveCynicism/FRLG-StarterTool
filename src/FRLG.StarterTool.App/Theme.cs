@@ -67,6 +67,10 @@ public static class Theme
 
     public static Color LandingTargetBack => Dark ? Color.FromArgb(0x1B, 0x3C, 0x6E) : Color.FromArgb(0xB4, 0xCC, 0xEC);
 
+    public static Color LandingSplitBack => Dark ? Color.FromArgb(0xB0, 0x5A, 0x14) : Color.FromArgb(0xF5, 0xA6, 0x5B);
+
+    public static Color LandingSplitTargetBack => Dark ? Color.FromArgb(0x2F, 0x5F, 0x9E) : Color.FromArgb(0xD6, 0xE4, 0xF7);
+
     private static readonly Color[] RangeColors =
     {
         Color.FromArgb(0x6B, 0x3F, 0x8C),

@@ -24,6 +24,8 @@ public readonly record struct TipFacts
 
     public double ContextWindowMs { get; init; }
 
+    public bool NonDefaultFps { get; init; }
+
     public bool DefaultWindowSize { get; init; }
 
     public bool DefaultStatBoxColors { get; init; }

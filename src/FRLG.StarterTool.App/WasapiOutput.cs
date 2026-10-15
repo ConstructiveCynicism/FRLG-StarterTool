@@ -391,7 +391,7 @@ internal sealed class WasapiOutput : IBeepOutput
                                     windowStartMs = now;
                                 }
                             }
-                            else if (now - windowStartMs >= (firstWindow ? ValidateFirstMs : ValidateMs) && !Playing())
+                            else if (!_judgingDone && now - windowStartMs >= (firstWindow ? ValidateFirstMs : ValidateMs) && !Playing())
                             {
                                 Judge(baseClock, basePull);
                                 firstWindow = false;
@@ -615,28 +615,29 @@ internal sealed class WasapiOutput : IBeepOutput
 
         double periodFrames = _periodMs * _mix.SampleRate / 1000.0;
         double allowance = ValidateJitterPeriods * periodFrames + ValidateRate * clockFrames;
-        if (Math.Abs(pullFrames - clockFrames) <= allowance) return;
+        if (!Core.Timing.PeriodJudge.OverPulls(pullFrames, clockFrames, allowance)) return;
         double ratio = pullFrames / clockFrames;
         double windowMs = clockFrames * 1000.0 / _mix.SampleRate;
+        string pulled = string.Format(CultureInfo.InvariantCulture,
+            "the engine pulled {0:+0.00;-0.00}% ({1:+0.0;-0.0} ms) against the device clock over {2:F0} ms",
+            (ratio - 1.0) * 100.0, (pullFrames - clockFrames) * 1000.0 / _mix.SampleRate, windowMs);
 
-        double next;
-        string then;
-        if (_periodMs < _defaultPeriodMs - 0.01)
+        double? next = Core.Timing.PeriodJudge.NextPeriodMs(_periodMs, _defaultPeriodMs);
+        if (next is not { } nextMs)
         {
-            next = Math.Min(_periodMs * 2.0, _defaultPeriodMs);
-            then = string.Format(CultureInfo.InvariantCulture, "reopening at {0:F2} ms", next);
-        }
-        else
-        {
-            next = -1;
-            then = "giving WASAPI up for this session";
+            _judgingDone = true;
+            _log(string.Format(CultureInfo.InvariantCulture,
+                "audio: WASAPI period {0:F2} ms over-pulls - {1} - staying at the engine's default rather than changing the output under the runner; judging stopped",
+                _periodMs, pulled));
+            return;
         }
 
-        SuggestedPeriodMs = next;
+        SuggestedPeriodMs = nextMs;
         Invalidate(string.Format(CultureInfo.InvariantCulture,
-            "WASAPI period {0:F2} ms is unfit - the engine pulled {1:+0.00;-0.00}% ({2:+0.0;-0.0} ms) against the device clock over {3:F0} ms - {4}",
-            _periodMs, (ratio - 1.0) * 100.0, (pullFrames - clockFrames) * 1000.0 / _mix.SampleRate, windowMs, then));
+            "WASAPI period {0:F2} ms is unfit - {1} - reopening at {2:F2} ms", _periodMs, pulled, nextMs));
     }
+
+    private bool _judgingDone;
 
     private static readonly byte[] SilenceBlock = new byte[16 * 1024];
 

@@ -1,4 +1,9 @@
-﻿### v2.4.6
+﻿### v2.4.7
+- fixed a bug where system lag could cause the audio driver failsafe to trigger
+- fixed a bug where the audio driver would not swap back to the user setting after a failsafe (changing offset by about a frame for the rest of the session)
+- fixed a bug that could silence beeps if adjusted too quickly
+
+### v2.4.6
 - finished fixing performance bugs from anchors
 - efficiency mode is undone and logged
 - aiming for a backup on a cluster aims for the middle of the cluser (will figure out other cluster logic at some point)

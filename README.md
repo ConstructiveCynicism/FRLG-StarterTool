@@ -12,23 +12,40 @@ An improvement to the existing community resources for starter manip. This was m
 - Customizable display
 - Window Pinning
 - Context Manip
+- Adapter Manip
+- Encounter Manip
+- Generic Timers
+- Torrent tracker
+- Savestate Editor
 
 ## Offset Trainer
 The Offset Trainer can be used independently of the game, assuming that you start and stop the timer at the same time as the game inputs. I would recommend training the audio and visual offsets independently, to account for any audio delay and difference in audio cue reaction.
 
 ## Other Games 
-Basic flow timer features added.
+Basic flow timer features added with the increased timing performance and hit predictor.
 
 ## Squirtle Frame Prediction
 Because its not possible to know where in the frame the timer is started, the exact same input spacing can result in different frames. The predictor can tell you the odds of the input landing on each of the two possible frames. If the squirtle does not match either of the predicted frames, there were untracked additional frame advancements.
 
 ## Context Manip
-Tracks possible RNG frames through anchor points, and compares them against observations from the runner to pinpoint exact RNG advancements.
+Tracks possible RNG frames through anchor points, and compares them against observations from the runner to pinpoint exact RNG advancements. This allows the inference of off screen NPC movements.
+
+## Encounter Manip
+Provides a list of possible input combinations and offsets to hit various initial RNG seeds
+
+## Adapter Manip
+Using context manip, helps track parity to allow runners to hit starter manip with the adapter in, doubling possible squirtles.
+
+## Savestate Editor (WIP)
+Allows the changing of savestate Squirtle stats for efficient practice.
+
+## Torrent Tracker (WIP)
+An easy visual way to see HP per level and torrent thresholds based off HP IV.
 
 ## Attribution
 Built on the work of three tools
 • Gen3Predictor — MKDasher, modified by JP_Xinnam
-• FlowTimer — Gunnermaniac (gunnermaniac.com/ft)
+• FlowTimer — stringflow / Gunnermaniac (gunnermaniac.com/ft)
 • Starter Program — stringflow
 Copyright for any code borrowed is retained by their respective owners. 
 

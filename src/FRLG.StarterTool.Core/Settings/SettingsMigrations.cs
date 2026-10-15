@@ -5,14 +5,15 @@ namespace FRLG.StarterTool.Core.Settings;
 
 public static class SettingsMigrations
 {
-    public const int CurrentVersion = 5;
+    public const int CurrentVersion = 6;
 
     private static readonly Dictionary<int, Action<JsonObject>> Steps = new()
     {
         [1] = HotkeysToChords,
         [2] = EncounterDelayToMilliseconds,
         [3] = HideConstraintsToViewSwitches,
-        [4] = PresetsToLibrary
+        [4] = PresetsToLibrary,
+        [5] = ForgetStepUpPeriods
     };
 
     public static int VersionOf(JsonObject root)
@@ -120,6 +121,8 @@ public static class SettingsMigrations
             return null;
         }
     }
+
+    private static void ForgetStepUpPeriods(JsonObject root) => root.Remove("AudioDevicePeriods");
 
     private static void PresetsToLibrary(JsonObject root)
     {

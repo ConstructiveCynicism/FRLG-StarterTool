@@ -28,6 +28,24 @@ public sealed class VariableOffsetTimer : BaseTimer
 
     private bool _swappingProfile;
 
+    private int _lastFpsIndex;
+
+    private bool _revertingFps;
+
+    private bool ConfirmFps()
+    {
+        if (Generic || _swappingProfile) return true;
+        if (_form.ComboBoxFps.SelectedItem is not string fps || fps == DefaultFps) return true;
+
+        return StarterTool.Modal(() => MessageBox.Show(_form,
+            $"Change the frame rate to {fps}?\n\n" +
+            $"FireRed and LeafGreen run at {DefaultFps} on a GBA, a Game Boy Player and every emulator. " +
+            "A different rate makes every target land late or early, which looks like a Delay problem.",
+            "Frame rate", MessageBoxButtons.YesNo, MessageBoxIcon.Warning)) == DialogResult.Yes;
+    }
+
+    public const string DefaultFps = "59.7275";
+
     private bool Active => ReferenceEquals(StarterTool.CurrentTab, this);
 
     public VariableInfo Info;
@@ -182,8 +200,26 @@ public sealed class VariableOffsetTimer : BaseTimer
             _encounterDone = false;
             if (_form.ComboBoxEncounterRoute.SelectedIndex == 0) DropEncounterRun();
         };
+        _lastFpsIndex = _form.ComboBoxFps.SelectedIndex;
         _form.ComboBoxFps.SelectedIndexChanged += (_, _) =>
         {
+            if (_revertingFps) return;
+            if (!ConfirmFps())
+            {
+                _revertingFps = true;
+                try
+                {
+                    _form.ComboBoxFps.SelectedIndex = _lastFpsIndex;
+                }
+                finally
+                {
+                    _revertingFps = false;
+                }
+
+                return;
+            }
+
+            _lastFpsIndex = _form.ComboBoxFps.SelectedIndex;
             OnDataChange();
             RequestArm();
         };
@@ -577,6 +613,16 @@ public sealed class VariableOffsetTimer : BaseTimer
 
         LogLanding(elapsedMs, deltaMs, landedFrame, chance, pressLagMs);
 
+        IReadOnlyList<(int Advances, double Share)> split = drill
+            ? Array.Empty<(int, double)>()
+            : StarterTool.Context.SplitLandings(countdownFrame);
+        if (split.Count > 0)
+        {
+            ContextSession.Log("  landing split: the matched box's other members put this press on "
+                + string.Join(", ", split.Select(s => string.Format(CultureInfo.InvariantCulture,
+                    "{0} ({1:P0})", s.Advances, s.Share))));
+        }
+
         var took = System.Diagnostics.Stopwatch.StartNew();
         _form.ShowLanding(
             landedFrame,
@@ -586,7 +632,8 @@ public sealed class VariableOffsetTimer : BaseTimer
             VariableOffsetCalculator.FramesAdjusted(_landingAdjustedMs, _landingInfo.Fps),
             _landingStartLagMs - pressLagMs,
             _landingInfo.Fps,
-            rawChance);
+            rawChance,
+            split.Select(s => s.Advances).ToList());
         double readoutMs = took.Elapsed.TotalMilliseconds;
 
         _starterLanded = !drill;
@@ -688,7 +735,19 @@ public sealed class VariableOffsetTimer : BaseTimer
             return;
         }
 
+        IReadOnlyList<(int Advances, double Share)> split = Generic
+            ? Array.Empty<(int, double)>()
+            : StarterTool.Context.SplitLandings(CountdownFrameAt(_landingTargetMs));
+
         _starterClosed = StarterTool.Context.Unpressed() && !Generic;
+
+        if (_starterClosed && split.Count > 0)
+        {
+            ContextSession.Log("  landing split: no press - the matched box's other members put the target on "
+                + string.Join(", ", split.Select(s => string.Format(CultureInfo.InvariantCulture,
+                    "{0} ({1:P0})", s.Advances, s.Share))));
+            _form.ShowSplitTarget(_landingTargetFrame, split.Select(s => s.Advances).ToList());
+        }
         if (_starterClosed) _form.RefreshContextStrip();
     }
 
@@ -1112,8 +1171,8 @@ public sealed class VariableOffsetTimer : BaseTimer
             return;
         }
 
-        int beepsPlayed = full ? 0 : _beepRun.Played(elapsedMs);
-        int flashesPlayed = full ? 0 : _flashRun.Played(elapsedMs);
+        int beepsPlayed = full ? 0 : _beepRun.Played(elapsedMs, DeliveredBeepGuardMs());
+        int flashesPlayed = full ? 0 : _flashRun.Played(elapsedMs, VariableOffsetCalculator.CueGuardMs);
 
         double[] schedule = _form.CheckBoxBeepEnabled.Checked
             ? ArmRemaining(full, finalBeepMs, beepsPlayed)
@@ -1178,6 +1237,12 @@ public sealed class VariableOffsetTimer : BaseTimer
 
     private static double CueSpacing(double[] schedule, uint intervalMs)
         => schedule.Length >= 2 ? schedule[^1] - schedule[^2] : intervalMs;
+
+    private static double DeliveredBeepGuardMs()
+    {
+        double leadMs = StarterTool.Beeps?.CommittedLeadMs ?? double.NaN;
+        return double.IsNaN(leadMs) || leadMs <= 0.0 ? VariableOffsetCalculator.CueGuardMs : leadMs;
+    }
 
     private static double[] FromTimerStart(double[] offsetsMs, double elapsedMs)
     {
@@ -1438,12 +1503,12 @@ public sealed class VariableOffsetTimer : BaseTimer
 
         private int _delivered;
 
-        public int Played(double elapsedMs)
+        public int Played(double elapsedMs, double guardMs)
         {
             int played = _delivered;
             foreach (double time in _times)
             {
-                if (time <= elapsedMs + VariableOffsetCalculator.CueGuardMs) played++;
+                if (time <= elapsedMs + guardMs) played++;
             }
 
             return played;

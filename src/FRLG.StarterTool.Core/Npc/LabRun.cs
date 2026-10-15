@@ -628,17 +628,7 @@ public sealed class LabTracker
             double weight = 0.0;
             foreach (LabCandidate member in option.Members)
             {
-                double gap = FrameWindow.Weight(gapMs, fps, contextMs, member.GapFrames);
-                double belief = fence != null
-                    && fence.TryGetValue((member.Fence.ExitFrame, member.Fence.OakFrame), out double f)
-                    ? f
-                    : 1.0;
-
-                double shift = Math.Pow(StreamShiftPrior, Math.Abs(member.StreamShift));
-
-                double window = windowPrior?.Invoke(member) ?? 1.0;
-
-                weight += gap * belief * shift * window;
+                weight += MemberWeight(member, gapMs, fps, contextMs, fence, windowPrior);
             }
 
             weights.Add(weight);
@@ -646,6 +636,51 @@ public sealed class LabTracker
 
         double total = weights.Sum();
         return total <= 0.0 ? flat : weights.Select(w => w / total).ToList();
+    }
+
+    private static double MemberWeight(LabCandidate member, double gapMs, double fps, double contextMs,
+        IReadOnlyDictionary<(int, int), double>? fence, Func<LabCandidate, double>? windowPrior)
+    {
+        double gap = FrameWindow.Weight(gapMs, fps, contextMs, member.GapFrames);
+        double belief = fence != null
+            && fence.TryGetValue((member.Fence.ExitFrame, member.Fence.OakFrame), out double f)
+            ? f
+            : 1.0;
+
+        double shift = Math.Pow(StreamShiftPrior, Math.Abs(member.StreamShift));
+
+        double window = windowPrior?.Invoke(member) ?? 1.0;
+
+        return gap * belief * shift * window;
+    }
+
+    public IReadOnlyList<(int Advances, double Share)> SplitLandings(int countdownFrame, double minShare)
+    {
+        if (Focused is not { } box || box.Members.Count < 2) return Array.Empty<(int, double)>();
+
+        int named = box.AdvancesAtCountdownFrame(countdownFrame, ManualAdvances);
+        int reach = ReachTarget(Target);
+        Func<LabCandidate, double>? windowPrior = Adapter && !BallMeasured
+            ? member => LabRun.WindowPrior(member, reach)
+            : null;
+
+        var shares = new Dictionary<int, double>();
+        double total = 0.0;
+        foreach (LabCandidate member in box.Members)
+        {
+            double weight = MemberWeight(member, _gapMs, _fps, _contextMs, _fenceBelief, windowPrior);
+            int advances = member.AdvancesAtCountdownFrame(countdownFrame, ManualAdvances);
+            shares[advances] = shares.GetValueOrDefault(advances) + weight;
+            total += weight;
+        }
+
+        if (total <= 0.0) return Array.Empty<(int, double)>();
+
+        return shares
+            .Where(s => s.Key != named && s.Value / total > minShare)
+            .OrderBy(s => s.Key)
+            .Select(s => (s.Key, s.Value / total))
+            .ToList();
     }
 
     public IReadOnlyList<LabOption> All => _all;

@@ -29,6 +29,10 @@ public partial class MainForm : Form
 
     private readonly HashSet<int> _landingContext = new();
 
+    private readonly HashSet<int> _landingSplit = new();
+
+    private readonly HashSet<int> _landingSplitTarget = new();
+
     private bool _reportingLanding;
 
     private PokemonSpecies _resultSpecies = PokemonSpecies.Get(1);
@@ -1101,7 +1105,8 @@ public partial class MainForm : Form
         int adjustmentFrames = 0,
         double compensationMs = 0.0,
         double fps = 0.0,
-        double rawChance = double.NaN)
+        double rawChance = double.NaN,
+        IReadOnlyList<int>? splitFrames = null)
     {
         double gradedChance = double.IsNaN(rawChance) ? hitChance : rawChance;
 
@@ -1139,6 +1144,8 @@ public partial class MainForm : Form
             _landingFrame = null;
             _landingAlternate = null;
             _landingContext.Clear();
+            _landingSplit.Clear();
+            _landingSplitTarget.Clear();
 
             RebuildAroundLanding(targetFrame, targetFrame, null, SearchRadius);
             return;
@@ -1170,16 +1177,24 @@ public partial class MainForm : Form
             }
         }
 
+        _landingSplit.Clear();
+        _landingSplitTarget.Clear();
+        foreach (int frame in splitFrames ?? Array.Empty<int>())
+        {
+            if (frame >= 0 && frame != landed) _landingSplit.Add(frame);
+        }
+
         int index = _allSeedRows ? -1 : _results.FindIndex(pkm => pkm.Frame == landed);
 
         bool candidateMissing =
             (_landingAlternate.HasValue && !_results.Exists(pkm => pkm.Frame == _landingAlternate.Value))
-            || _landingContext.Any(frame => !_results.Exists(pkm => pkm.Frame == frame));
+            || _landingContext.Any(frame => !_results.Exists(pkm => pkm.Frame == frame))
+            || _landingSplit.Any(frame => !_results.Exists(pkm => pkm.Frame == frame));
 
         if (index < 0 || candidateMissing)
         {
             int radius = SearchRadius;
-            foreach (int frame in _landingContext) radius = Math.Max(radius, Math.Abs(frame - landed) + 1);
+            foreach (int frame in _landingContext.Concat(_landingSplit)) radius = Math.Max(radius, Math.Abs(frame - landed) + 1);
 
             RebuildAroundLanding(landed, targetFrame, landed, radius);
             return;
@@ -1187,6 +1202,33 @@ public partial class MainForm : Form
 
         ListViewResults.CenterOn(_results.FindIndex(pkm => pkm.Frame == targetFrame));
         if (index >= 0) ListViewResults.EnsureVisible(index);
+        ListViewResults.Invalidate();
+    }
+
+    public void ShowSplitTarget(int targetFrame, IReadOnlyList<int> splitFrames)
+    {
+        _landingFrame = null;
+        _landingAlternate = null;
+        _landingContext.Clear();
+        _landingSplit.Clear();
+        _landingTarget = targetFrame;
+        _landingSerial++;
+
+        _landingSplitTarget.Clear();
+        foreach (int frame in splitFrames)
+        {
+            if (frame >= 0 && frame != targetFrame) _landingSplitTarget.Add(frame);
+        }
+
+        if (_allSeedRows || _landingSplitTarget.Any(frame => !_results.Exists(pkm => pkm.Frame == frame)))
+        {
+            int radius = SearchRadius;
+            foreach (int frame in _landingSplitTarget) radius = Math.Max(radius, Math.Abs(frame - targetFrame) + 1);
+            RebuildAroundLanding(targetFrame, targetFrame, null, radius);
+            return;
+        }
+
+        ListViewResults.CenterOn(_results.FindIndex(pkm => pkm.Frame == targetFrame));
         ListViewResults.Invalidate();
     }
 
@@ -1347,6 +1389,8 @@ public partial class MainForm : Form
         _landingAlternate = null;
         _landingReport = null;
         _landingContext.Clear();
+        _landingSplit.Clear();
+        _landingSplitTarget.Clear();
         ActiveLandingLabel.Text = "";
         ListViewResults.Invalidate();
     }
@@ -1483,20 +1527,24 @@ public partial class MainForm : Form
         bool inRange = e.ItemIndex >= 0 && e.ItemIndex < _results.Count;
         bool marked = inRange && _landingFrame != null && _results[e.ItemIndex].Frame == _landingFrame.Value;
 
-        bool alternate = !marked && inRange
+        bool split = !marked && inRange && _landingSplit.Contains(_results[e.ItemIndex].Frame);
+
+        bool splitTarget = !marked && !split && inRange && _landingSplitTarget.Contains(_results[e.ItemIndex].Frame);
+
+        bool alternate = !marked && !split && !splitTarget && inRange
                          && _landingAlternate != null
                          && _results[e.ItemIndex].Frame == _landingAlternate.Value;
 
-        bool contextOnly = !marked && !alternate && inRange
+        bool contextOnly = !marked && !split && !splitTarget && !alternate && inRange
                            && _landingContext.Contains(_results[e.ItemIndex].Frame);
 
-        bool target = !marked && !alternate && !contextOnly && inRange
+        bool target = !marked && !split && !splitTarget && !alternate && !contextOnly && inRange
                       && _landingTarget != null
                       && _results[e.ItemIndex].Frame == _landingTarget.Value;
 
         bool selected = ListViewResults.SelectedIndices.Contains(e.ItemIndex);
 
-        Color? range = !marked && !alternate && !contextOnly && !target && inRange
+        Color? range = !marked && !split && !splitTarget && !alternate && !contextOnly && !target && inRange
             && RangeRowColor(_results[e.ItemIndex].RangeIndex) is { } tint
             ? Theme.Banded(tint, e.ItemIndex)
             : null;
@@ -1505,6 +1553,8 @@ public partial class MainForm : Form
                 ? _landingChance > 0.5 ? Theme.LandingHitBack
                 : _landingChance > 0.0 ? Theme.LandingMaybeBack
                 : Theme.LandingMissBack
+            : split ? Theme.LandingSplitBack
+            : splitTarget ? Theme.LandingSplitTargetBack
             : alternate ? Theme.LandingAlternateBack
             : contextOnly ? Theme.LandingContextBack
             : target ? Theme.LandingTargetBack
@@ -1512,12 +1562,12 @@ public partial class MainForm : Form
 
         if (selected) back = Theme.Selected(back);
 
-        Color fore = marked || alternate || contextOnly || target ? Theme.LandingRowText
+        Color fore = marked || split || splitTarget || alternate || contextOnly || target ? Theme.LandingRowText
             : range != null ? Theme.RangeRowText(back)
             : ListViewResults.ForeColor;
 
         bool greyed = inRange && !_allSeedRows && StarterTool.Context.OffParity((int)_results[e.ItemIndex].Frame);
-        if (greyed && !marked && !alternate && !contextOnly && !target)
+        if (greyed && !marked && !split && !splitTarget && !alternate && !contextOnly && !target)
         {
             fore = Theme.OffParityText(fore, back);
         }

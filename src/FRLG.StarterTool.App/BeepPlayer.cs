@@ -82,6 +82,21 @@ public sealed class BeepPlayer : IDisposable
 
     public double LastStartShiftMs { get; private set; } = double.NaN;
 
+    public double CommittedLeadMs
+    {
+        get
+        {
+            lock (_lock)
+            {
+                if (_output == null || _bufferLength <= 0) return double.NaN;
+                int committed = _output.CommittedBytes();
+                int played = _output.PlayedBytes();
+                if (committed < 0 || played < 0) return double.NaN;
+                return BytesToMs(Math.Max(0, committed - played));
+            }
+        }
+    }
+
     public string OutputDescription
     {
         get
