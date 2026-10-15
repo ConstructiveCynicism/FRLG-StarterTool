@@ -2,6 +2,7 @@
 - fixed a bug where system lag could cause the audio driver failsafe to trigger
 - fixed a bug where the audio driver would not swap back to the user setting after a failsafe (changing offset by about a frame for the rest of the session)
 - fixed a bug that could silence beeps if adjusted too quickly
+- at a high rate of context failure, the possible failed frame is highlighted
 
 ### v2.4.6
 - finished fixing performance bugs from anchors
