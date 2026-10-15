@@ -99,30 +99,36 @@ jobs:
           src/FRLG.StarterTool.App/bin/publish/win-x64/FRLGStarterTool.exe.sha256
         if-no-files-found: error
 
-    # The CHANGELOG's "### v2.4.7" (or "### 2.4.7") section, up to the next "### " heading. When
-    # there is none the release gets GitHub's generated notes instead.
+    # The CHANGELOG's section for this release, up to the next "### " heading: "### v2.4.7" (or
+    # "### 2.4.7") if there is one, else "### unreleased", else the topmost section - so the notes
+    # are the changelog's words whether or not the heading was renamed before the tag. Only when
+    # the file has no section at all does the release get GitHub's generated notes instead.
     - name: Release notes from the changelog
       id: notes
       if: startsWith(github.ref, 'refs/tags/')
       shell: pwsh
       run: |
         $tag = "${{ github.ref_name }}"
-        $out = New-Object System.Collections.Generic.List[string]
-        $in = $false
+        $sections = [ordered]@{}
+        $current = $null
         foreach ($line in (Get-Content CHANGELOG.md)) {
           if ($line -match '^###\s+(.*)$') {
-            if ($in) { break }
-            $heading = $Matches[1].Trim()
-            if ($heading -eq $tag -or $heading -eq $tag.TrimStart('v')) { $in = $true }
-          } elseif ($in) {
-            $out.Add($line)
+            $current = $Matches[1].Trim()
+            if (-not $sections.Contains($current)) { $sections[$current] = New-Object System.Collections.Generic.List[string] }
+          } elseif ($null -ne $current) {
+            $sections[$current].Add($line)
           }
         }
-        $body = ($out -join "`n").Trim()
+        $pick = $null
+        foreach ($candidate in @($tag, $tag.TrimStart('v'), 'unreleased', 'Unreleased')) {
+          if ($sections.Contains($candidate)) { $pick = $candidate; break }
+        }
+        if ($null -eq $pick -and $sections.Count -gt 0) { $pick = @($sections.Keys)[0] }
+        $body = if ($null -ne $pick) { ($sections[$pick] -join "`n").Trim() } else { "" }
         [IO.File]::WriteAllText("notes.md", $body)
         $found = $body.Length -gt 0
         "found=$($found.ToString().ToLower())" >> $env:GITHUB_OUTPUT
-        Write-Host ($(if ($found) { "Notes from CHANGELOG.md:`n$body" } else { "No CHANGELOG.md section for $tag; using generated notes" }))
+        Write-Host ($(if ($found) { "Notes from CHANGELOG.md section '$pick':`n$body" } else { "No CHANGELOG.md section; using generated notes" }))
 
     - name: Attach to release
       if: startsWith(github.ref, 'refs/tags/')

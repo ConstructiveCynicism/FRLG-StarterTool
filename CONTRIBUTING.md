@@ -22,7 +22,7 @@ The solution is two projects:
 
 ## LLM/AI Usage
 
-LLM disclosure is preferred but not required if code is human reviewed and verified. Otherwise, mostly/fully AI contributions must be clearly designated as such. Do not submit code you don't understand, tested, or have copyright over without clearly stating you didn't understand, test, or have copyright.
+LLM disclosure is preferred but not required if code is human reviewed and verified. Otherwise, mostly/fully AI contributions must be clearly designated as such. Do not send code you don't understand or have copyright over without clearly stating you don't understand it / have copyright.
 
 ## Code style
 

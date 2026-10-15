@@ -1,14 +1,12 @@
-### unreleased
-- new Torrent Tracker tab (View > Fire Red/Leaf Green, off by default): HP per level and Torrent thresholds for the selected Squirtle
-- update notifications: a newer release opens a box with its changelog entry and Update / Skip / Snooze (Update installs in place, verified against the release's SHA-256, and restarts); a badge on the menu bar reopens it; Help > Check for updates… asks now
-- Help > About names the exact build; CI test builds show ci.<n> on the menu bar
-- releases are built by CI with a provenance attestation and a .sha256 beside the exe; added PRIVACY.md, SECURITY.md and CONTRIBUTING.md
+﻿### v2.4.8
+- Updater added (notifications and in-tool updates)
 
 ### v2.4.7
 - fixed a bug where system lag could cause the audio driver failsafe to trigger
 - fixed a bug where the audio driver would not swap back to the user setting after a failsafe (changing offset by about a frame for the rest of the session)
 - fixed a bug that could silence beeps if adjusted too quickly
 - at a high rate of context failure, the possible failed frame is highlighted
+- torrent tracker WIP
 
 ### v2.4.6
 - finished fixing performance bugs from anchors
