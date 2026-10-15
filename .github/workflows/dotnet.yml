@@ -85,7 +85,7 @@ jobs:
         Write-Host "$exe is $([math]::Round($size / 1MB, 1)) MB, product version $version"
 
     - name: Upload test build
-      uses: actions/upload-artifact@v4
+      uses: actions/upload-artifact@v7
       with:
         name: FRLGStarterTool-${{ steps.version.outputs.version }}
         path: src/FRLG.StarterTool.App/bin/publish/win-x64/FRLGStarterTool.exe
