@@ -66,7 +66,11 @@ public partial class MainForm : Form
         ComboBoxPokemon.BeginUpdate();
         ComboBoxPokemon.Items.AddRange(PokemonSpecies.GetList().ToArray());
         ComboBoxPokemon.EndUpdate();
-        ComboBoxPokemon.SelectedIndexChanged += (_, _) => UpdateSprite();
+        ComboBoxPokemon.SelectedIndexChanged += (_, _) =>
+        {
+            UpdateSprite();
+            TorrentPanel.SetSpecies(SelectedSpecies);
+        };
         SelectSpecies(1);
         InitializeRanges();
         ButtonSearch.Click += (_, _) => RunSearch();
@@ -241,6 +245,7 @@ public partial class MainForm : Form
         SavestatePanel.SaveFolder = settings.SavestateSavePath;
 
         RomPatchPanel.RomPath = settings.RomPatchRomPath;
+        TorrentPanel.LoadSettings(settings);
         RomPatchPanel.OutputPath = settings.RomPatchOutputPath;
 
         EncounterPanel.LoadRoute(settings.EncounterRoute);
@@ -320,6 +325,7 @@ public partial class MainForm : Form
         settings.SavestateLoadPath = SavestatePanel.LoadFolder;
         settings.SavestateSavePath = SavestatePanel.SaveFolder;
         settings.RomPatchRomPath = RomPatchPanel.RomPath;
+        TorrentPanel.CaptureSettings(settings);
         settings.RomPatchOutputPath = RomPatchPanel.OutputPath;
         settings.EncounterRoute = EncounterPanel.SaveRoute();
         settings.EncounterCycles = EncounterPanel.Cycles;
@@ -1708,6 +1714,7 @@ public partial class MainForm : Form
         StatBoxStats.SetValues(
             StatCalculator.Calculate(_resultSpecies.BaseStats, ivs, SelectedLevel, nature),
             nature.Name);
+        TorrentPanel.SetSelection(_resultSpecies, pkm.Hp, pkm.Frame, pkm.Pid);
         PublishStatBoxes();
     }
 

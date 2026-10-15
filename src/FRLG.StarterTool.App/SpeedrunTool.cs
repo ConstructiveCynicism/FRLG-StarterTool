@@ -120,6 +120,8 @@ public static class StarterTool
 
         StatServer = new StatServer();
         StatServer.Start(Settings);
+
+        Updater.Start();
         Beeps = new BeepPlayer(ContextSession.Log);
         Beeps.LearnedPeriod = id =>
         {
@@ -339,6 +341,7 @@ public static class StarterTool
 
         SaveSettings();
         MainForm.RefreshCapture();
+        MainForm.PlaceCapture();
     }
 
     public static void ApplyTheme()

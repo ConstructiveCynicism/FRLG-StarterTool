@@ -85,6 +85,9 @@ public partial class MainForm
             case TabKey.GenericIgt:
                 IgtPanel.MoveSelection(delta);
                 break;
+            case TabKey.Torrent:
+                TorrentPanel.StepLevel(delta);
+                break;
         }
     }
 

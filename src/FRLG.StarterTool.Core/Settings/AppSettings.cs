@@ -269,6 +269,14 @@ public sealed class AppSettings
 
     public bool ViewTroubleshooter { get; set; } = false;
 
+    public bool ViewTorrent { get; set; } = false;
+
+    public int TorrentLevel { get; set; } = 7;
+
+    public string TorrentRoute { get; set; } = "glitchless";
+
+    public string TorrentMoonOptional { get; set; } = "josh";
+
     public bool ViewGenericFixed { get; set; } = false;
 
     public bool ViewGenericVariable { get; set; } = false;
@@ -288,6 +296,8 @@ public sealed class AppSettings
     public bool AtomicClockSync { get; set; } = true;
 
     public bool HighPriority { get; set; } = true;
+
+    public string UpdateSkipVersion { get; set; } = "";
 
     public int ZoomPercent { get; set; } = 100;
 
@@ -676,6 +686,7 @@ public sealed class AppSettings
 
         if (StatServerPort is < 1 or > 65535) StatServerPort = DefaultStatServerPort;
         StatServerToken ??= "";
+        UpdateSkipVersion ??= "";
 
         if (StatServerPostRunSeconds <= 0) StatServerPostRunSeconds = DefaultStatServerPostRunSeconds;
         StatServerPostRunSeconds = Math.Clamp(

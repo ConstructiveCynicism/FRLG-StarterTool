@@ -42,6 +42,12 @@ Allows the changing of savestate Squirtle stats for efficient practice.
 ## Torrent Tracker (WIP)
 An easy visual way to see HP per level and torrent thresholds based off HP IV.
 
+## Updates
+The tool checks GitHub for a newer release a few seconds after it opens, and whenever you click `Help ▸ Check for updates…`. A newer release shows its changelog entry with `Update`, `Skip` and `Snooze`: Update downloads it, checks it against the SHA-256 GitHub recorded for it, swaps the running exe out and restarts; Skip keeps quiet about that version; Snooze (or closing the box) asks again next launch. An `Update vX.Y.Z` badge stays on the menu bar meanwhile and reopens the box. `Help ▸ About` names the exact build, and a CI test build also wears its `ci.<n>` run number on the menu bar.
+
+## Verifying a download
+Every release is built and attested by GitHub Actions; `SECURITY.md` has the `gh attestation verify` and checksum commands. What the tool stores and what it connects to is in `PRIVACY.md`, and how to build it and contribute is in `CONTRIBUTING.md`.
+
 ## Attribution
 Built on the work of three tools
 • Gen3Predictor — MKDasher, modified by JP_Xinnam

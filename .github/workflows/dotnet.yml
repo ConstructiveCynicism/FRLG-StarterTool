@@ -1,5 +1,10 @@
-# This workflow will build a .NET project
-# For more information see: https://docs.github.com/en/actions/automating-builds-and-tests/building-and-testing-net
+# Build, test and publish on every push to main and every pull request.
+#
+# What comes out is a *test build*: the published exe carries the run number in its version
+# (2.4.7-ci.123+abc1234 - "ci.123" on the menu bar, the whole thing in Help > About), so a build
+# handed to a runner to try can be traced back to this run and this commit. On a push the exe is
+# attested as well (see release.yml for what that buys); a pull request's build is not, since a
+# PR from a fork cannot be given the signing token.
 
 name: .NET
 
@@ -8,21 +13,86 @@ on:
     branches: [ "main" ]
   pull_request:
     branches: [ "main" ]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# A newer push to the same branch supersedes a run still going.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   build:
 
     runs-on: windows-latest
 
+    permissions:
+      contents: read
+      # Build provenance: the attestation is signed with this run's OIDC identity.
+      id-token: write
+      attestations: write
+
     steps:
     - uses: actions/checkout@v4
+
     - name: Setup .NET
       uses: actions/setup-dotnet@v4
       with:
         dotnet-version: 8.0.x
-    - name: Restore dependencies
-      run: dotnet restore
+
+    - name: Work out the build's version
+      id: version
+      shell: pwsh
+      run: |
+        [xml]$props = Get-Content Directory.Build.props
+        $prefix = (Select-Xml -Xml $props -XPath '//VersionPrefix').Node.InnerText.Trim()
+        if (-not $prefix) { throw "Directory.Build.props has no VersionPrefix" }
+        $suffix = "ci.${{ github.run_number }}"
+        $sha = "${{ github.sha }}".Substring(0, 7)
+        "prefix=$prefix" >> $env:GITHUB_OUTPUT
+        "suffix=$suffix" >> $env:GITHUB_OUTPUT
+        "sha=$sha" >> $env:GITHUB_OUTPUT
+        "version=$prefix-$suffix" >> $env:GITHUB_OUTPUT
+        Write-Host "Building $prefix-$suffix+$sha"
+
     - name: Build
-      run: dotnet build --no-restore
+      run: >
+        dotnet build -c Release
+        -p:VersionSuffix=${{ steps.version.outputs.suffix }}
+        -p:SourceRevisionId=${{ steps.version.outputs.sha }}
+
     - name: Test
-      run: dotnet test --no-build --verbosity normal
+      run: dotnet test --no-build -c Release --verbosity normal
+
+    - name: Publish
+      run: >
+        dotnet publish src/FRLG.StarterTool.App -p:PublishProfile=win-x64
+        -p:VersionSuffix=${{ steps.version.outputs.suffix }}
+        -p:SourceRevisionId=${{ steps.version.outputs.sha }}
+
+    - name: Check the published exe is self-contained
+      shell: pwsh
+      run: |
+        $exe = "src/FRLG.StarterTool.App/bin/publish/win-x64/FRLGStarterTool.exe"
+        if (-not (Test-Path $exe)) { throw "No published exe at $exe" }
+        $size = (Get-Item $exe).Length
+        if ($size -lt 20MB) {
+          throw "$exe is $([math]::Round($size / 1MB, 1)) MB; the self-contained build is ~63 MB. This looks like the apphost stub from bin/Release."
+        }
+        $version = (Get-Item $exe).VersionInfo.ProductVersion
+        Write-Host "$exe is $([math]::Round($size / 1MB, 1)) MB, product version $version"
+
+    - name: Upload test build
+      uses: actions/upload-artifact@v4
+      with:
+        name: FRLGStarterTool-${{ steps.version.outputs.version }}
+        path: src/FRLG.StarterTool.App/bin/publish/win-x64/FRLGStarterTool.exe
+        if-no-files-found: error
+
+    - name: Attest the test build
+      if: github.event_name != 'pull_request'
+      uses: actions/attest-build-provenance@v2
+      with:
+        subject-path: src/FRLG.StarterTool.App/bin/publish/win-x64/FRLGStarterTool.exe

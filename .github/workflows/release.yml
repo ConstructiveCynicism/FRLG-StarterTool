@@ -1,3 +1,14 @@
+# A tag v<version> builds the release: tests, the self-contained exe, its SHA-256 beside it, a
+# build-provenance attestation, and a GitHub release with the CHANGELOG section for that version
+# as its notes. The tag has to match Directory.Build.props, so a release can never carry a
+# version other than the one in Help > About.
+#
+# Verifying a download (see SECURITY.md):
+#   gh attestation verify FRLGStarterTool.exe --repo ConstructiveCynicism/FRLG-StarterTool
+#   certutil -hashfile FRLGStarterTool.exe SHA256   (against FRLGStarterTool.exe.sha256)
+#
+# workflow_dispatch runs the same build and uploads the artifact without publishing a release.
+
 name: Release
 
 on:
@@ -6,21 +17,53 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   release:
 
     runs-on: windows-latest
 
+    permissions:
+      contents: write
+      id-token: write
+      attestations: write
+
     steps:
     - uses: actions/checkout@v4
+
     - name: Setup .NET
       uses: actions/setup-dotnet@v4
       with:
         dotnet-version: 8.0.x
+
+    - name: Check the tag matches the version
+      id: version
+      shell: pwsh
+      run: |
+        [xml]$props = Get-Content Directory.Build.props
+        $prefix = (Select-Xml -Xml $props -XPath '//VersionPrefix').Node.InnerText.Trim()
+        if (-not $prefix) { throw "Directory.Build.props has no VersionPrefix" }
+        if ("${{ github.ref }}".StartsWith("refs/tags/")) {
+          $tag = "${{ github.ref_name }}"
+          if ($tag -ne "v$prefix") { throw "Tag $tag does not match VersionPrefix $prefix in Directory.Build.props" }
+        }
+        $sha = "${{ github.sha }}".Substring(0, 7)
+        "prefix=$prefix" >> $env:GITHUB_OUTPUT
+        "sha=$sha" >> $env:GITHUB_OUTPUT
+        Write-Host "Releasing $prefix+$sha"
+
+    - name: Build
+      run: dotnet build -c Release -p:SourceRevisionId=${{ steps.version.outputs.sha }}
+
+    - name: Test
+      run: dotnet test --no-build -c Release --verbosity normal
+
     - name: Publish
-      run: dotnet publish src/FRLG.StarterTool.App -p:PublishProfile=win-x64
+      run: >
+        dotnet publish src/FRLG.StarterTool.App -p:PublishProfile=win-x64
+        -p:SourceRevisionId=${{ steps.version.outputs.sha }}
+
     - name: Check the published exe is self-contained
       shell: pwsh
       run: |
@@ -31,13 +74,63 @@ jobs:
           throw "$exe is $([math]::Round($size / 1MB, 1)) MB; the self-contained build is ~63 MB. This looks like the apphost stub from bin/Release."
         }
         Write-Host "$exe is $([math]::Round($size / 1MB, 1)) MB"
+
+    # sha256sum's format, so `sha256sum -c` and the tool's own updater both read it. The updater
+    # prefers the digest GitHub records on upload and falls back to this file.
+    - name: Write the checksum
+      shell: pwsh
+      run: |
+        $dir = "src/FRLG.StarterTool.App/bin/publish/win-x64"
+        $hash = (Get-FileHash "$dir/FRLGStarterTool.exe" -Algorithm SHA256).Hash.ToLower()
+        [IO.File]::WriteAllText("$dir/FRLGStarterTool.exe.sha256", "$hash  FRLGStarterTool.exe`n")
+        Write-Host "SHA-256 $hash"
+
+    - name: Attest the exe
+      uses: actions/attest-build-provenance@v2
+      with:
+        subject-path: src/FRLG.StarterTool.App/bin/publish/win-x64/FRLGStarterTool.exe
+
     - name: Upload build artifact
       uses: actions/upload-artifact@v4
       with:
-        name: FRLGStarterTool
-        path: src/FRLG.StarterTool.App/bin/publish/win-x64/FRLGStarterTool.exe
+        name: FRLGStarterTool-${{ github.ref_name }}
+        path: |
+          src/FRLG.StarterTool.App/bin/publish/win-x64/FRLGStarterTool.exe
+          src/FRLG.StarterTool.App/bin/publish/win-x64/FRLGStarterTool.exe.sha256
+        if-no-files-found: error
+
+    # The CHANGELOG's "### v2.4.7" (or "### 2.4.7") section, up to the next "### " heading. When
+    # there is none the release gets GitHub's generated notes instead.
+    - name: Release notes from the changelog
+      id: notes
+      if: startsWith(github.ref, 'refs/tags/')
+      shell: pwsh
+      run: |
+        $tag = "${{ github.ref_name }}"
+        $out = New-Object System.Collections.Generic.List[string]
+        $in = $false
+        foreach ($line in (Get-Content CHANGELOG.md)) {
+          if ($line -match '^###\s+(.*)$') {
+            if ($in) { break }
+            $heading = $Matches[1].Trim()
+            if ($heading -eq $tag -or $heading -eq $tag.TrimStart('v')) { $in = $true }
+          } elseif ($in) {
+            $out.Add($line)
+          }
+        }
+        $body = ($out -join "`n").Trim()
+        [IO.File]::WriteAllText("notes.md", $body)
+        $found = $body.Length -gt 0
+        "found=$($found.ToString().ToLower())" >> $env:GITHUB_OUTPUT
+        Write-Host ($(if ($found) { "Notes from CHANGELOG.md:`n$body" } else { "No CHANGELOG.md section for $tag; using generated notes" }))
+
     - name: Attach to release
       if: startsWith(github.ref, 'refs/tags/')
       uses: softprops/action-gh-release@v2
       with:
-        files: src/FRLG.StarterTool.App/bin/publish/win-x64/FRLGStarterTool.exe
+        files: |
+          src/FRLG.StarterTool.App/bin/publish/win-x64/FRLGStarterTool.exe
+          src/FRLG.StarterTool.App/bin/publish/win-x64/FRLGStarterTool.exe.sha256
+        body_path: notes.md
+        generate_release_notes: ${{ steps.notes.outputs.found != 'true' }}
+        prerelease: ${{ contains(github.ref_name, '-') }}

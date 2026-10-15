@@ -1,0 +1,9 @@
+# Keeps the workflows' actions current. NuGet is left out on purpose: the FFmpeg, FlashCap and
+# Vosk versions are pinned to what was tested (the About box names FFmpeg's release), and a bump
+# there is a change to read, not to merge on a schedule.
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: monthly

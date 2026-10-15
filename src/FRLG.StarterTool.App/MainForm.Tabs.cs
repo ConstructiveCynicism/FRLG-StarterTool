@@ -10,6 +10,7 @@ public enum TabKey
     Encounter,
     Savestate,
     Troubleshoot,
+    Torrent,
     GenericFixed,
     GenericVariable,
     GenericIgt,
@@ -34,7 +35,7 @@ public partial class MainForm
     private static readonly TabKey[] TabOrder =
     {
         TabKey.Manip, TabKey.Constraints, TabKey.Training,
-        TabKey.Encounter, TabKey.Savestate, TabKey.Troubleshoot,
+        TabKey.Encounter, TabKey.Savestate, TabKey.Troubleshoot, TabKey.Torrent,
         TabKey.GenericFixed, TabKey.GenericVariable, TabKey.GenericIgt, TabKey.GenericTraining
     };
 
@@ -91,6 +92,13 @@ public partial class MainForm
         if (!ReferenceEquals(GroupBoxTimer.Parent, page)) page.Controls.Add(GroupBoxTimer);
         if (GroupBoxTimer.Location != at) GroupBoxTimer.Location = at;
         if (GroupBoxTimer.Height != height) GroupBoxTimer.Height = height;
+    }
+
+    public void PlaceCapture()
+    {
+        bool torrent = _selectedTab == TabKey.Torrent && StarterTool.Settings?.StatServerEnabled != true;
+        Panel page = torrent ? PageTorrent : PageManip;
+        if (!ReferenceEquals(GroupBoxCapture.Parent, page)) page.Controls.Add(GroupBoxCapture);
     }
 
     private Panel? TimerPageOf(TabKey key) => key switch
@@ -180,6 +188,7 @@ public partial class MainForm
         TabKey.Encounter => PageEncounter,
         TabKey.Savestate => PageSavestate,
         TabKey.Troubleshoot => PageTroubleshoot,
+        TabKey.Torrent => PageTorrent,
         TabKey.GenericFixed => PageGenericFixed,
         TabKey.GenericVariable => PageGenericVariable,
         TabKey.GenericIgt => PageGenericIgt,
@@ -194,6 +203,7 @@ public partial class MainForm
         TabKey.Encounter => MenuItemViewEncounter,
         TabKey.Savestate => MenuItemViewSavestate,
         TabKey.Troubleshoot => MenuItemViewTroubleshooter,
+        TabKey.Torrent => MenuItemViewTorrent,
         TabKey.GenericFixed => MenuItemViewGenericFixed,
         TabKey.GenericVariable => MenuItemViewGenericVariable,
         TabKey.GenericIgt => MenuItemViewGenericIgt,
@@ -208,6 +218,7 @@ public partial class MainForm
         TabKey.Encounter => "Encounter Route",
         TabKey.Savestate => "Savestate Editor",
         TabKey.Troubleshoot => "NPC Troubleshooter",
+        TabKey.Torrent => "Torrent Tracker",
         TabKey.GenericFixed => "Fixed Offset",
         TabKey.GenericVariable => "Variable Offset",
         TabKey.GenericIgt => "IGT Tracking",
@@ -294,6 +305,7 @@ public partial class MainForm
         _selectedTab = key;
         if (ModeOf(old) != ModeOf(key)) StarterTool.SetTimerMode(ModeOf(key));
         PlaceTimer();
+        PlaceCapture();
         page.Visible = true;
         if (!ReferenceEquals(oldPage, page)) oldPage.Visible = false;
         ResumeLayout();
@@ -363,6 +375,7 @@ public partial class MainForm
             (MenuItemViewEncounter, settings.ViewEncounter),
             (MenuItemViewSavestate, settings.ViewSavestate),
             (MenuItemViewTroubleshooter, settings.ViewTroubleshooter),
+            (MenuItemViewTorrent, settings.ViewTorrent),
             (MenuItemViewGenericFixed, settings.ViewGenericFixed),
             (MenuItemViewGenericVariable, settings.ViewGenericVariable),
             (MenuItemViewGenericIgt, settings.ViewGenericIgt),
@@ -433,6 +446,7 @@ public partial class MainForm
         settings.ViewEncounter = MenuItemViewEncounter.Checked;
         settings.ViewSavestate = MenuItemViewSavestate.Checked;
         settings.ViewTroubleshooter = MenuItemViewTroubleshooter.Checked;
+        settings.ViewTorrent = MenuItemViewTorrent.Checked;
         settings.ViewGenericFixed = MenuItemViewGenericFixed.Checked;
         settings.ViewGenericVariable = MenuItemViewGenericVariable.Checked;
         settings.ViewGenericIgt = MenuItemViewGenericIgt.Checked;

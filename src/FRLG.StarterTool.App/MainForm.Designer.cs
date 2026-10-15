@@ -9,16 +9,7 @@ partial class MainForm
 {
     private System.ComponentModel.IContainer components = null;
 
-    private static string AppVersion
-    {
-        get
-        {
-            var version = typeof(MainForm).Assembly
-                .GetCustomAttribute<AssemblyInformationalVersionAttribute>()?
-                .InformationalVersion.Split('+')[0];
-            return string.IsNullOrEmpty(version) ? "" : "v" + version;
-        }
-    }
+    private static string AppVersion => BuildInfo.Display;
 
     protected override void Dispose(bool disposing)
     {
@@ -45,6 +36,7 @@ partial class MainForm
     public ToolStripMenuItem MenuItemViewEncounter;
     public ToolStripMenuItem MenuItemViewSavestate;
     public ToolStripMenuItem MenuItemViewTroubleshooter;
+    public ToolStripMenuItem MenuItemViewTorrent;
 
     public ToolStripMenuItem MenuItemViewGenericFixed;
 
@@ -61,6 +53,7 @@ partial class MainForm
     public Panel PageEncounter;
     public Panel PageSavestate;
     public Panel PageTroubleshoot;
+    public Panel PageTorrent;
 
     public Panel PageGenericFixed;
 
@@ -122,6 +115,10 @@ partial class MainForm
     public TrainingPanel TrainingPanel;
 
     public Label LabelTrainingLanding;
+
+    public ThemedGroupBox GroupBoxTorrent;
+
+    public TorrentPanel TorrentPanel;
 
     public ThemedGroupBox GroupBoxSavestate;
 
@@ -286,6 +283,7 @@ partial class MainForm
         MenuItemViewEncounter = new ToolStripMenuItem("Encounter Route") { CheckOnClick = true, Checked = true };
         MenuItemViewSavestate = new ToolStripMenuItem("Savestate Editor") { CheckOnClick = true, Checked = false };
         MenuItemViewTroubleshooter = new ToolStripMenuItem("NPC Troubleshooter") { CheckOnClick = true, Checked = false };
+        MenuItemViewTorrent = new ToolStripMenuItem("Torrent Tracker") { CheckOnClick = true, Checked = false };
         MenuItemViewGenericFixed = new ToolStripMenuItem("Fixed Offset") { CheckOnClick = true, Checked = false };
         MenuItemViewGenericVariable = new ToolStripMenuItem("Variable Offset") { CheckOnClick = true, Checked = false };
         MenuItemViewGenericIgt = new ToolStripMenuItem("IGT Tracking") { CheckOnClick = true, Checked = false };
@@ -298,6 +296,7 @@ partial class MainForm
         menuViewFrlg.DropDownItems.Add(MenuItemViewEncounter);
         menuViewFrlg.DropDownItems.Add(MenuItemViewSavestate);
         menuViewFrlg.DropDownItems.Add(MenuItemViewTroubleshooter);
+        menuViewFrlg.DropDownItems.Add(MenuItemViewTorrent);
 
         var menuViewGeneric = new ToolStripMenuItem("Generic");
         menuViewGeneric.DropDownItems.Add(MenuItemViewGenericFixed);
@@ -348,7 +347,11 @@ partial class MainForm
                 MessageBoxDefaultButton.Button2));
             if (answer == DialogResult.Yes) StarterTool.ClearSettings();
         };
+        var menuCheckUpdates = new ToolStripMenuItem("Check for updates…");
+        menuCheckUpdates.Click += (_, _) => Updater.CheckNow();
         var menuHelp = new ToolStripMenuItem("Help");
+        menuHelp.DropDownItems.Add(menuCheckUpdates);
+        menuHelp.DropDownItems.Add(new ToolStripSeparator());
         menuHelp.DropDownItems.Add(menuClearSettings);
         menuHelp.DropDownItems.Add(new ToolStripSeparator());
         menuHelp.DropDownItems.Add(menuAbout);
@@ -375,6 +378,32 @@ partial class MainForm
         MenuStripMain.Items.Add(menuHelp);
         MenuStripMain.Items.Add(MenuItemAlwaysOnTop);
         MenuStripMain.Items.Add(MenuItemGlobalHotkeys);
+
+        var menuUpdate = new ToolStripMenuItem
+        {
+            Alignment = ToolStripItemAlignment.Right,
+            Font = new Font(MenuStripMain.Font, FontStyle.Bold),
+            Visible = false,
+            ToolTipText = "A newer release is available - click for details"
+        };
+        menuUpdate.Click += (_, _) => Updater.ShowAvailable();
+        Updater.AvailableChanged += () =>
+        {
+            menuUpdate.Text = Updater.Available is { } release ? "Update v" + release.Version.ToString(3) : "";
+            menuUpdate.Visible = Updater.Available != null;
+        };
+        MenuStripMain.Items.Add(menuUpdate);
+
+        if (BuildInfo.IsTestBuild)
+        {
+            var menuBuild = new ToolStripMenuItem(BuildInfo.Suffix)
+            {
+                Alignment = ToolStripItemAlignment.Right,
+                ToolTipText = "Test build " + BuildInfo.Display
+            };
+            menuBuild.Click += (_, _) => menuAbout.PerformClick();
+            MenuStripMain.Items.Add(menuBuild);
+        }
 
         int starterTop = SectionTop;
 
@@ -1023,6 +1052,18 @@ partial class MainForm
         PageTroubleshoot.Controls.Add(GroupBoxTroubleshoot);
         PageTroubleshoot.Height = GroupBoxTroubleshoot.Bottom + 6;
 
+        TorrentPanel = new TorrentPanel { Location = new Point(LeftInner, 18) };
+        GroupBoxTorrent = new ThemedGroupBox
+        {
+            Text = "Torrent Tracker",
+            Location = new Point(6, SectionTop),
+            Size = new Size(LeftColumnWidth, TorrentPanel.Bottom + BoxBottomPad)
+        };
+        GroupBoxTorrent.Controls.Add(TorrentPanel);
+        PageTorrent = MakePage();
+        PageTorrent.Controls.Add(GroupBoxTorrent);
+        PageTorrent.Height = Math.Max(GroupBoxTorrent.Bottom, GroupBoxCapture.Bottom) + 6;
+
         AutoScaleMode = AutoScaleMode.Font;
         FormBorderStyle = FormBorderStyle.FixedSingle;
         MaximizeBox = false;
@@ -1033,6 +1074,7 @@ partial class MainForm
         Controls.Add(PageEncounter);
         Controls.Add(PageSavestate);
         Controls.Add(PageTroubleshoot);
+        Controls.Add(PageTorrent);
         Controls.Add(PageGenericFixed);
         Controls.Add(PageGenericVariable);
         Controls.Add(PageGenericIgt);
